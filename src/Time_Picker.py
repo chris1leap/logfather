@@ -16,7 +16,7 @@ try:
 except Exception:
     ZoneInfo = None
 
-from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF
+from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics
 from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
@@ -332,6 +332,8 @@ class TimePicker(QWidget):
         self._target_rate_clip_start: Optional[datetime] = None
         self._target_rate_clip_end: Optional[datetime] = None
         self._suppress_selection_emit = False
+        self._pending_time_selected = None
+        self._time_selected_emit_scheduled = False
 
     def set_loader(self, func: Callable[[Path, date], Iterable[Path]]):
         self._load_func = func
@@ -973,8 +975,24 @@ class TimePicker(QWidget):
                 elif self._selected_video_item is not None:
                     self._selected_video_item = None
                     self._apply_video_highlights()
-                self.time_selected.emit(data)
+                # selectionChanged is emitted from inside the scene's mouse
+                # dispatch; time_selected handlers may clear/rebuild this very
+                # scene (heat-strip redraws, modal dialogs, video loads), which
+                # deletes the item Qt is still dispatching on — a native
+                # use-after-free crash. Deliver the signal on the next event
+                # loop turn instead, coalescing rapid selections.
+                self._pending_time_selected = data
+                if not self._time_selected_emit_scheduled:
+                    self._time_selected_emit_scheduled = True
+                    QTimer.singleShot(0, self._flush_pending_time_selected)
                 break
+
+    def _flush_pending_time_selected(self):
+        self._time_selected_emit_scheduled = False
+        data = self._pending_time_selected
+        self._pending_time_selected = None
+        if data is not None:
+            self.time_selected.emit(data)
 
     def eventFilter(self, obj, event):
         if obj is self.view.viewport():
