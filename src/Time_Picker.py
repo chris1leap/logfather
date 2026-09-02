@@ -334,6 +334,12 @@ class TimePicker(QWidget):
         self._suppress_selection_emit = False
         self._pending_time_selected = None
         self._time_selected_emit_scheduled = False
+        # Rebuilding the scene on every resize event makes splitter drags
+        # feel heavy; coalesce bursts into one redraw.
+        self._resize_redraw_timer = QTimer(self)
+        self._resize_redraw_timer.setSingleShot(True)
+        self._resize_redraw_timer.setInterval(120)
+        self._resize_redraw_timer.timeout.connect(self._fit_to_items)
 
     def set_loader(self, func: Callable[[Path, date], Iterable[Path]]):
         self._load_func = func
@@ -799,7 +805,7 @@ class TimePicker(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._items and self._current_date:
-            self._fit_to_items()
+            self._resize_redraw_timer.start()
 
     def _set_busy(self, busy: bool, message: str | None = None):
         if busy == self._busy:
