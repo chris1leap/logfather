@@ -16,6 +16,7 @@ vendor/
 *.log
 *.txt
 !requirements.txt
+!requirements-dev.txt
 version.json
 
 # Per-user settings (contains Elastic API key)
