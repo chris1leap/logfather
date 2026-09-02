@@ -798,9 +798,13 @@ def _deserialize_timeline_item(data: dict) -> TimelineItem | None:
         return None
 
 
+def _is_past_day(day) -> bool:
+    return day < datetime.now(timezone.utc).date()
+
+
 def _events_cache_is_fresh(cache_path: Path, day) -> bool:
     # Past days are effectively immutable for timeline purposes.
-    if day < datetime.now(timezone.utc).date():
+    if _is_past_day(day):
         return True
     try:
         age_seconds = max(0.0, datetime.now(timezone.utc).timestamp() - cache_path.stat().st_mtime)
@@ -809,7 +813,12 @@ def _events_cache_is_fresh(cache_path: Path, day) -> bool:
     return age_seconds <= 120
 
 
-def _load_events_cache(cache_path: Path | None, day) -> list[TimelineItem] | None:
+def _load_events_cache(
+    cache_path: Path | None, day
+) -> tuple[list[TimelineItem], bool] | None:
+    """Returns (items, sku_complete) on a cache hit, else None. sku_complete
+    means the SKU/manual items were fully merged when this cache was saved,
+    so a past day needs no live SKU refresh."""
     if cache_path is None or not cache_path.exists():
         return None
     if not _events_cache_is_fresh(cache_path, day):
@@ -828,15 +837,18 @@ def _load_events_cache(cache_path: Path | None, day) -> list[TimelineItem] | Non
         item = _deserialize_timeline_item(raw)
         if item is not None:
             items.append(item)
-    return items
+    return items, bool(data.get("sku_complete"))
 
 
-def _save_events_cache(cache_path: Path | None, items: list[TimelineItem]) -> None:
+def _save_events_cache(
+    cache_path: Path | None, items: list[TimelineItem], sku_complete: bool = False
+) -> None:
     if cache_path is None:
         return
     try:
         payload = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "sku_complete": bool(sku_complete),
             "items": [_serialize_timeline_item(i) for i in items],
         }
         cache_path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
@@ -1007,20 +1019,34 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
         return []
     cache_path = _events_cache_path_for_robot(settings, robot_id, day, pikpak_root=pikpak_root)
     t_cache_read_start = perf_counter()
-    cached_items = _load_events_cache(cache_path, day)
+    cached = _load_events_cache(cache_path, day)
     _perf_log(f"cache read took {(perf_counter() - t_cache_read_start) * 1000:.0f}ms")
-    if cached_items is not None:
+    if cached is not None:
+        cached_items, sku_complete = cached
         print(f"[elastic] Using cached events ({len(cached_items)} items).")
+        if sku_complete and _is_past_day(day):
+            # Past days are immutable and this cache already holds the SKU
+            # merge — no reason to re-query Elastic (~4s saved per load).
+            _perf_log(
+                f"fetch_events total (cache hit, sku complete): "
+                f"{(perf_counter() - t_fetch_start) * 1000:.0f}ms"
+            )
+            return cached_items
         t_sku_refresh = perf_counter()
+        sku_ok = True
         try:
             sku_items = list(fetch_sku_items(settings, pikpak_root, day))
         except ElasticFetchError as exc:
+            sku_ok = False
             sku_items = list(exc.items) if exc.items else []
         except Exception:
+            sku_ok = False
             sku_items = []
         merged_items = _merge_sku_items(list(cached_items), sku_items)
-        if sku_items:
-            _save_events_cache(cache_path, merged_items)
+        if sku_items or (sku_ok and _is_past_day(day)):
+            _save_events_cache(
+                cache_path, merged_items, sku_complete=sku_ok and _is_past_day(day)
+            )
         _perf_log(f"cache-hit SKU refresh took {(perf_counter() - t_sku_refresh) * 1000:.0f}ms")
         _perf_log(f"fetch_events total (cache hit): {(perf_counter() - t_fetch_start) * 1000:.0f}ms")
         return merged_items
@@ -1162,16 +1188,19 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
     if not items:
         print("[elastic] No events returned for selected day/robot.")
     t_cache_write_start = perf_counter()
+    sku_ok = True
     try:
         sku_items = list(fetch_sku_items(settings, pikpak_root, day))
     except ElasticFetchError as exc:
         warnings.append(str(exc))
+        sku_ok = False
         sku_items = list(exc.items) if exc.items else []
     except Exception as exc:
         warnings.append(str(exc))
+        sku_ok = False
         sku_items = []
     items = _merge_sku_items(items, sku_items)
-    _save_events_cache(cache_path, items)
+    _save_events_cache(cache_path, items, sku_complete=sku_ok and _is_past_day(day))
     _perf_log(f"cache write took {(perf_counter() - t_cache_write_start) * 1000:.0f}ms")
     _perf_log(f"fetch_events total: {(perf_counter() - t_fetch_start) * 1000:.0f}ms (items={len(items)})")
     if warnings:

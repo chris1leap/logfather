@@ -151,3 +151,44 @@ class TestPositionCaptureSequential:
         cap = _FakeCap(grab_results=[True, False])
         assert self._fn()(cap, True, 100, 103) is False
         assert cap.grab_calls == 2
+
+
+class TestEventsCacheSkuComplete:
+    def _paths(self, tmp_path):
+        return tmp_path / "events.json"
+
+    def test_round_trip_preserves_flag(self, tmp_path):
+        from datetime import date, timedelta
+        cache = tmp_path / "events.json"
+        yesterday = date.today() - timedelta(days=1)
+        elastic_loader._save_events_cache(cache, [], sku_complete=True)
+        result = elastic_loader._load_events_cache(cache, yesterday)
+        assert result is not None
+        items, sku_complete = result
+        assert items == []
+        assert sku_complete is True
+
+    def test_default_flag_is_false(self, tmp_path):
+        from datetime import date, timedelta
+        cache = tmp_path / "events.json"
+        yesterday = date.today() - timedelta(days=1)
+        elastic_loader._save_events_cache(cache, [])
+        _, sku_complete = elastic_loader._load_events_cache(cache, yesterday)
+        assert sku_complete is False
+
+    def test_legacy_cache_without_flag_reads_incomplete(self, tmp_path):
+        import json as _json
+        from datetime import date, timedelta
+        cache = tmp_path / "events.json"
+        yesterday = date.today() - timedelta(days=1)
+        cache.write_text(_json.dumps({"generated_at": "x", "items": []}), encoding="utf-8")
+        result = elastic_loader._load_events_cache(cache, yesterday)
+        assert result is not None
+        _, sku_complete = result
+        assert sku_complete is False
+
+    def test_is_past_day(self):
+        from datetime import datetime, timezone, timedelta
+        today_utc = datetime.now(timezone.utc).date()
+        assert elastic_loader._is_past_day(today_utc - timedelta(days=1)) is True
+        assert elastic_loader._is_past_day(today_utc) is False
