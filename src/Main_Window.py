@@ -71,6 +71,7 @@ DEBUG_CLIP_TIMING = True
 ENABLE_CACHE_COLOR_UPDATE = True
 ENABLE_EVENT_MARKERS = True
 ENABLE_PREFETCH_ADJACENT = True
+ENABLE_DAY_PREFETCH = True
 ENABLE_LOG_BUTTON = True
 STOP_THUMB_SIZE = (352, 198)
 TIMELINE_MIN_HEIGHT = 165
@@ -508,6 +509,8 @@ class MainWindow(QWidget):
         # Settings button removed from DatePicker UI
         self.time_picker.time_selected.connect(self.on_time_chosen)
         self.time_picker.items_changed.connect(self._sync_viewer_sku_overlay)
+        if ENABLE_DAY_PREFETCH:
+            self.time_picker.items_changed.connect(self._prefetch_day_clips)
         if hasattr(self.viewer, "current_time_changed"):
             self.viewer.current_time_changed.connect(self.time_picker.set_playhead_datetime)
         if hasattr(self.viewer, "clip_range_export_requested"):
@@ -1216,6 +1219,30 @@ class MainWindow(QWidget):
             return
         if hasattr(self.viewer, "load_additional_cctv_from_path"):
             self.viewer.load_additional_cctv_from_path(video_path)
+
+    def _prefetch_day_clips(self):
+        if not hasattr(self.viewer, "prefetch_clips_to_cache"):
+            return
+        if not hasattr(self.time_picker, "video_paths"):
+            return
+        # items_changed fires several times while a day loads; coalesce.
+        timer = getattr(self, "_day_prefetch_timer", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(1000)
+            timer.timeout.connect(self._run_day_prefetch)
+            self._day_prefetch_timer = timer
+        timer.start()
+
+    def _run_day_prefetch(self):
+        paths = self.time_picker.video_paths()
+        if paths:
+            # Stop downloading a previously viewed day before queueing this one.
+            if hasattr(self.viewer, "cancel_queued_prefetches"):
+                self.viewer.cancel_queued_prefetches()
+            print(f"[main] day prefetch: queueing {len(paths)} clips", flush=True)
+            self.viewer.prefetch_clips_to_cache(paths)
 
     def _prefetch_adjacent_clips(self, item: TimelineItem):
         if not hasattr(self.time_picker, "get_adjacent_video_items"):

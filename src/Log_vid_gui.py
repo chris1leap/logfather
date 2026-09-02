@@ -1857,6 +1857,12 @@ class VideoLogViewer(QWidget):
         self.timer.timeout.connect(self.next_frame)
         self._log_executor = ThreadPoolExecutor(max_workers=1)
         self._cache_executor = ThreadPoolExecutor(max_workers=1)
+        # Background prefetch runs on its own pool so a click-triggered
+        # download (on _cache_executor) never queues behind a day's worth of
+        # prefetch copies. Two workers: parallel SMB streams usually lift
+        # aggregate throughput on the high-latency HiDrive share.
+        self._prefetch_executor = ThreadPoolExecutor(max_workers=2)
+        self._prefetch_futures: dict[str, Future] = {}
         self._cache_status_future: Future | None = None
         self._cache_status_pending = False
         self._prefetch_pending: set[str] = set()
@@ -3247,7 +3253,8 @@ class VideoLogViewer(QWidget):
         if cache_path is not None and not self._is_cached_copy_current(path_obj, cache_path):
             # Download on the cache executor and finish loading when it lands
             # (_on_prefetch_done) — copying from the CCTV share takes ~15-20s
-            # per clip and must not freeze the UI.
+            # per clip and must not freeze the UI. (Streaming straight from
+            # the share while downloading was tried and reverted: too slow.)
             self._video_load_t0 = t0
             self._begin_async_video_download(path_obj, cache_path)
             return True
@@ -3262,8 +3269,16 @@ class VideoLogViewer(QWidget):
         self._pending_video_load = (self._video_load_generation, path_obj, cache_path)
         self._set_video_busy(True, f"Downloading {path_obj.name} from the CCTV share...")
         if key in self._prefetch_pending:
-            return  # already being copied (adjacent-clip prefetch); reuse it
-        self._prefetch_pending.add(key)
+            # A background prefetch already owns this clip. If it is still
+            # queued, cancel it and download on the click executor instead so
+            # the user doesn't wait behind the rest of the prefetch queue; if
+            # it is actively copying, just reuse it.
+            prefetch_future = self._prefetch_futures.get(key)
+            if prefetch_future is None or not prefetch_future.cancel():
+                return
+            self._prefetch_futures.pop(key, None)
+        else:
+            self._prefetch_pending.add(key)
         future = self._cache_executor.submit(self._copy_to_cache, path_obj, cache_path)
         future.add_done_callback(
             lambda fut, p=path_obj, k=key: self._schedule_prefetch_done(fut, p, k)
@@ -3353,6 +3368,10 @@ class VideoLogViewer(QWidget):
         self.current_video_filename_dt = parse_filename_datetime(path_obj)
         self.video_sync_btn.setEnabled(True)
         self._update_sync_button_style()
+        # Must be set before _load_clip_annotations(): the annotations key is
+        # derived from the original share path, and the fallback (the cache
+        # copy path, or a stale previous clip) hashes to a different key.
+        self.current_video_original_path = path_obj
         self._load_clip_annotations()
         key = self._offset_cache_key(Path(self.current_video_path))
         cached = self._get_cached_offset(key, self.offset_cache_path)
@@ -3376,7 +3395,6 @@ class VideoLogViewer(QWidget):
                 self._auto_sync_with_ocr()
             elif self.first_log_dt is not None and self._confirm_ocr_sync():
                 self._auto_sync_with_ocr()
-        self.current_video_original_path = path_obj
         pending_seek = self._pending_seek
         self._pending_seek = None
         if pending_seek is not None and pending_seek[0] == self._video_load_generation:
@@ -5719,18 +5737,37 @@ class VideoLogViewer(QWidget):
             except Exception:
                 continue
             key = str(cache_path)
-            if self._is_cached_copy_current(path_obj, cache_path):
-                self.cache_clip_ready.emit(path_obj)
-                continue
             if key in self._prefetch_pending:
                 continue
+            # No filesystem checks here: this runs on the UI thread, and even
+            # a stat() on the share can block for seconds when the link is
+            # saturated by running copies. The worker decides cached-vs-copy.
             self._prefetch_pending.add(key)
-            future = self._cache_executor.submit(self._copy_to_cache, path_obj, cache_path)
+            future = self._prefetch_executor.submit(
+                self._check_or_copy_to_cache, path_obj, cache_path
+            )
+            self._prefetch_futures[key] = future
             future.add_done_callback(
                 lambda fut, p=path_obj, k=key: self._schedule_prefetch_done(fut, p, k)
             )
 
+    def _check_or_copy_to_cache(self, source_path: Path, cache_path: Path) -> bool:
+        if self._is_cached_copy_current(source_path, cache_path):
+            self._touch_cache_entry(cache_path)
+            return True
+        return self._copy_to_cache(source_path, cache_path)
+
+    def cancel_queued_prefetches(self) -> None:
+        """Drop prefetch jobs that haven't started copying yet (e.g. when the
+        user switches to a different day/system). Active copies finish."""
+        for key, future in list(self._prefetch_futures.items()):
+            if future.cancel():
+                self._prefetch_futures.pop(key, None)
+                self._prefetch_pending.discard(key)
+
     def _schedule_prefetch_done(self, future: Future, source_path: Path, key: str):
+        if future.cancelled():
+            return  # superseded by a click-triggered download of the same clip
         try:
             ok = bool(future.result())
         except Exception:
@@ -5767,6 +5804,7 @@ class VideoLogViewer(QWidget):
     @Slot(str, str, bool)
     def _on_prefetch_done(self, source_path: str, key: str, ok: bool):
         self._prefetch_pending.discard(key)
+        self._prefetch_futures.pop(key, None)
         if ok:
             self.update_cache_status()
             try:
@@ -6364,6 +6402,10 @@ class VideoLogViewer(QWidget):
 
     def _get_cached_video_for_ocr(self, path: Path) -> Path:
         if self._is_path_in_cache(path):
+            return path
+        if self._pending_video_load is not None and path == self._pending_video_load[1]:
+            # This clip is downloading right now; don't start a second,
+            # blocking copy of the same file — let OCR read the share.
             return path
         try:
             cache_path = self._cache_path_for(path)

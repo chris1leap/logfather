@@ -1403,6 +1403,15 @@ class TimePicker(QWidget):
         markers.sort(key=lambda t: t[0])
         return markers
 
+    def video_paths(self) -> list[Path]:
+        """All video clip paths on the loaded day, in timeline order."""
+        items = [
+            itm for itm in self._items
+            if itm.kind == "video" and isinstance(itm.payload, Path)
+        ]
+        items.sort(key=lambda itm: itm.start)
+        return [itm.payload for itm in items]
+
     def get_adjacent_video_items(self, current_item: TimelineItem) -> tuple[TimelineItem | None, TimelineItem | None]:
         if current_item is None or current_item.kind != "video":
             return None, None
