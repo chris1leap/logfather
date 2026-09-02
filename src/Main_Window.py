@@ -71,7 +71,9 @@ DEBUG_CLIP_TIMING = True
 ENABLE_CACHE_COLOR_UPDATE = True
 ENABLE_EVENT_MARKERS = True
 ENABLE_PREFETCH_ADJACENT = True
-ENABLE_DAY_PREFETCH = True
+# Day-wide prefetch is off: HiDrive copies share the internet connection with
+# Elastic Cloud, and saturating it made every timeline/log fetch crawl.
+ENABLE_DAY_PREFETCH = False
 ENABLE_LOG_BUTTON = True
 STOP_THUMB_SIZE = (352, 198)
 TIMELINE_MIN_HEIGHT = 165
