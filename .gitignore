@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+vendor/
+
+# Generated files
+*.csv
+*.srt
+*.log
+*.txt
+!requirements.txt
+version.json
+
+# Per-user settings (contains Elastic API key)
+cctv_picker_settings.json
+
+# Temporary / experimental scripts
+*_backup.py
+*_old.py
+*_no_*.py
+
+# OS junk
+.DS_Store

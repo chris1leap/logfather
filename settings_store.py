@@ -1,0 +1,412 @@
+from __future__ import annotations
+
+import json
+import base64
+from dataclasses import dataclass, asdict, field
+from pathlib import Path
+from typing import Optional, List
+import re
+
+
+@dataclass
+class Condition:
+    name: str = ""
+    query: str = ""
+    color: str = ""  # hex string, assigned from defaults
+
+
+@dataclass
+class CustomFilterPreset:
+    name: str = ""
+    filter_in: str = ""
+    filter_out: str = ""
+    enabled: bool = False
+
+
+@dataclass
+class FilterPreset:
+    name: str = ""
+    sources: list[str] = field(default_factory=list)
+    states: list[str] = field(default_factory=list)
+    messages: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SystemLayoutEntry:
+    system_name: str = ""
+    customer: str = ""
+    production_line: str = ""
+
+
+@dataclass
+class FleetwideSearchDefinition:
+    name: str = ""
+    query: str = ""
+
+
+DEFAULT_SETTINGS_PATH = Path.home() / ".cctv_picker_settings.json"
+SHAREABLE_EXPORT_FORMAT = "logfather-settings"
+SHAREABLE_EXPORT_VERSION = 1
+SHAREABLE_FIELDS = (
+    "elastic_url",
+    "elastic_index",
+    "elastic_timestamp_field",
+    "auto_ocr_sync",
+    "auto_ocr_open_on_missing",
+    "log_panel_pinned",
+    "conditions",
+    "custom_filters",
+    "filter_presets",
+    "customers",
+    "customer_start_collapsed",
+    "system_layouts",
+    "fleetwide_searches",
+)
+DEFAULT_COLORS = [
+    "#52c41a",  # Start (green)
+    "#fa8c16",  # Caution (orange)
+    "#ff4d4f",  # EStop (red)
+    "#1890ff",
+    "#8c8c8c",
+    "#a0a0ff",
+    "#c0c0c0",
+    "#8080c0",
+    "#66cccc",
+    "#c2f0c2",
+    "#d46bff",
+    "#ff85c0",
+    "#36cfc9",
+    "#ffd666",
+    "#597ef7",
+]
+DEFAULT_COND_PRESETS = [
+    ("Start", 'state_name:"start_pnp"'),
+    ("Caution", 'state_name:"caution_led_on"'),
+    ("EStop", 'state_name:"hardware_emergency_stop"'),
+    ("Cond 4", ""),
+    ("Cond 5", ""),
+    ("Cond 6", ""),
+    ("Cond 7", ""),
+    ("Cond 8", ""),
+    ("Cond 9", ""),
+    ("Cond 10", ""),
+    ("Cond 11", ""),
+    ("Cond 12", ""),
+    ("Cond 13", ""),
+    ("Cond 14", ""),
+    ("Cond 15", ""),
+]
+
+
+def _default_conditions() -> List[Condition]:
+    conds: List[Condition] = []
+    for idx, (name, query) in enumerate(DEFAULT_COND_PRESETS):
+        color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
+        conds.append(Condition(name=name, query=query, color=color))
+    return conds
+
+
+def _default_custom_filters() -> List[CustomFilterPreset]:
+    return [CustomFilterPreset(name=f"Preset {i}") for i in range(1, 6)]
+
+
+def _default_filter_presets() -> List[FilterPreset]:
+    return [FilterPreset(name=f"Preset {i}") for i in range(1, 16)]
+
+
+def _default_fleetwide_searches() -> List[FleetwideSearchDefinition]:
+    return [
+        FleetwideSearchDefinition(
+            name="Error reset / no error",
+            query='update_info.keyword:"Error Reset or No Error :: N/A"',
+        )
+    ]
+
+
+@dataclass
+class Settings:
+    last_parent: Optional[str] = None
+    elastic_api_key: Optional[str] = None
+    elastic_url: Optional[str] = None
+    elastic_index: Optional[str] = None
+    elastic_timestamp_field: Optional[str] = None
+    auto_ocr_sync: bool = True
+    auto_ocr_open_on_missing: bool = False
+    conditions: List[Condition] = field(default_factory=_default_conditions)
+    custom_filters: List[CustomFilterPreset] = field(default_factory=_default_custom_filters)
+    filter_presets: List[FilterPreset] = field(default_factory=_default_filter_presets)
+    log_panel_pinned: bool = False
+    customers: List[str] = field(default_factory=list)
+    customer_logos: dict[str, str] = field(default_factory=dict)
+    customer_start_collapsed: dict[str, bool] = field(default_factory=dict)
+    system_layouts: List[SystemLayoutEntry] = field(default_factory=list)
+    fleetwide_searches: List[FleetwideSearchDefinition] = field(default_factory=_default_fleetwide_searches)
+
+    @classmethod
+    def load(cls, path: Path = DEFAULT_SETTINGS_PATH) -> "Settings":
+        if not path.exists():
+            return cls(
+                elastic_url="https://leap-deployment.kb.europe-west2.gcp.elastic-cloud.com:9243",
+                elastic_api_key=None,
+                elastic_index=None,
+                elastic_timestamp_field="@timestamp_ros",
+                conditions=_default_conditions(),
+            )
+        try:
+            data = json.loads(path.read_text())
+            # Rehydrate conditions
+            conds = []
+            for idx, c in enumerate(data.get("conditions", [])):
+                color = c.get("color") or DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
+                conds.append(Condition(name=c.get("name", ""), query=c.get("query", ""), color=color))
+            # Ensure we always have target slots
+            target_len = len(DEFAULT_COND_PRESETS)
+            while len(conds) < target_len:
+                idx = len(conds)
+                color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
+                conds.append(Condition(color=color))
+            # Backfill missing preset queries/names
+            for idx, (name, query) in enumerate(DEFAULT_COND_PRESETS):
+                if idx >= len(conds):
+                    break
+                if not conds[idx].query and query:
+                    conds[idx].query = query
+                if not conds[idx].name and name:
+                    conds[idx].name = name
+                # Enforce key colors: Start green, Caution orange, EStop red.
+                lower = conds[idx].name.lower()
+                if lower == "start":
+                    conds[idx].color = "#52c41a"
+                elif lower == "caution":
+                    conds[idx].color = "#fa8c16"
+                elif lower == "estop":
+                    conds[idx].color = "#ff4d4f"
+                elif not conds[idx].color:
+                    conds[idx].color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
+            # If loaded conditions are all blank, seed defaults.
+            if all(not c.name and not c.query for c in conds):
+                conds = _default_conditions()
+            data["conditions"] = conds
+            custom_filters = []
+            for idx, entry in enumerate(data.get("custom_filters", [])):
+                custom_filters.append(
+                    CustomFilterPreset(
+                        name=entry.get("name", f"Preset {idx + 1}"),
+                        filter_in=entry.get("filter_in", ""),
+                        filter_out=entry.get("filter_out", ""),
+                        enabled=False,
+                    )
+                )
+            while len(custom_filters) < 5:
+                custom_filters.append(CustomFilterPreset(name=f"Preset {len(custom_filters) + 1}"))
+            filter_presets = []
+            for idx, entry in enumerate(data.get("filter_presets", [])):
+                filter_presets.append(
+                    FilterPreset(
+                        name=entry.get("name", f"Preset {idx + 1}"),
+                        sources=list(entry.get("sources", [])),
+                        states=list(entry.get("states", [])),
+                        messages=list(entry.get("messages", [])),
+                    )
+                )
+            while len(filter_presets) < 15:
+                filter_presets.append(FilterPreset(name=f"Preset {len(filter_presets) + 1}"))
+            customers = []
+            for raw in data.get("customers", []):
+                value = str(raw or "").strip()
+                if value and value not in customers:
+                    customers.append(value)
+            customer_logos = {}
+            for key, value in (data.get("customer_logos", {}) or {}).items():
+                name = str(key or "").strip()
+                logo = str(value or "").strip()
+                if name and logo:
+                    customer_logos[name] = logo
+            customer_start_collapsed = {}
+            for key, value in (data.get("customer_start_collapsed", {}) or {}).items():
+                name = str(key or "").strip()
+                if name:
+                    customer_start_collapsed[name] = bool(value)
+            system_layouts = []
+            for entry in data.get("system_layouts", []):
+                if not isinstance(entry, dict):
+                    continue
+                system_name = str(entry.get("system_name", "")).strip()
+                if not system_name:
+                    continue
+                system_layouts.append(
+                    SystemLayoutEntry(
+                        system_name=system_name,
+                        customer=str(entry.get("customer", "")).strip(),
+                        production_line=str(entry.get("production_line", "")).strip(),
+                    )
+                )
+            fleetwide_searches = []
+            for entry in data.get("fleetwide_searches", []):
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("name", "")).strip()
+                query = str(entry.get("query", "")).strip()
+                if name and query:
+                    fleetwide_searches.append(FleetwideSearchDefinition(name=name, query=query))
+            # Migrate the initial placeholder shipped with the first dashboard
+            # version wherever it appears. Other searches are preserved.
+            replacement = _default_fleetwide_searches()[0]
+            fleetwide_searches = [
+                FleetwideSearchDefinition(name=replacement.name, query=replacement.query)
+                if search.name == "Enabling failed" and search.query == "enabling_failed"
+                else search
+                for search in fleetwide_searches
+            ]
+            if not fleetwide_searches:
+                fleetwide_searches = _default_fleetwide_searches()
+            return cls(
+                last_parent=data.get("last_parent"),
+                elastic_api_key=data.get("elastic_api_key") or None,
+                elastic_url=data.get("elastic_url") or "https://leap-deployment.kb.europe-west2.gcp.elastic-cloud.com:9243",
+                elastic_index=data.get("elastic_index"),
+                elastic_timestamp_field=data.get("elastic_timestamp_field") or "@timestamp_ros",
+                auto_ocr_sync=bool(data.get("auto_ocr_sync", True)),
+                auto_ocr_open_on_missing=bool(data.get("auto_ocr_open_on_missing", False)),
+                log_panel_pinned=bool(data.get("log_panel_pinned", False)),
+                conditions=conds[:target_len],
+                custom_filters=custom_filters[:5],
+                filter_presets=filter_presets[:15],
+                customers=customers,
+                customer_logos=customer_logos,
+                customer_start_collapsed=customer_start_collapsed,
+                system_layouts=system_layouts,
+                fleetwide_searches=fleetwide_searches,
+            )
+        except Exception:
+            return cls(
+                elastic_url="https://leap-deployment.kb.europe-west2.gcp.elastic-cloud.com:9243",
+                elastic_api_key=None,
+                elastic_index=None,
+                elastic_timestamp_field="@timestamp_ros",
+                conditions=_default_conditions(),
+            )
+
+    def save(self, path: Path = DEFAULT_SETTINGS_PATH) -> None:
+        try:
+            payload = asdict(self)
+            payload["conditions"] = [asdict(c) for c in self.conditions][: len(DEFAULT_COND_PRESETS)]
+            payload["custom_filters"] = [asdict(c) for c in self.custom_filters][:5]
+            payload["filter_presets"] = [asdict(c) for c in self.filter_presets][:15]
+            payload["customers"] = [str(name).strip() for name in self.customers if str(name).strip()]
+            payload["customer_logos"] = {
+                str(name).strip(): str(value).strip()
+                for name, value in (self.customer_logos or {}).items()
+                if str(name).strip() and str(value).strip()
+            }
+            payload["customer_start_collapsed"] = {
+                str(name).strip(): bool(value)
+                for name, value in (self.customer_start_collapsed or {}).items()
+                if str(name).strip()
+            }
+            payload["system_layouts"] = [asdict(c) for c in self.system_layouts if c.system_name.strip()]
+            payload["fleetwide_searches"] = [
+                asdict(search)
+                for search in self.fleetwide_searches
+                if search.name.strip() and search.query.strip()
+            ]
+            path.write_text(json.dumps(payload, indent=2))
+        except Exception:
+            pass
+
+    def export_shareable(self, path: Path) -> None:
+        payload = {
+            "_format": SHAREABLE_EXPORT_FORMAT,
+            "_version": SHAREABLE_EXPORT_VERSION,
+        }
+        for name in SHAREABLE_FIELDS:
+            value = getattr(self, name, None)
+            if isinstance(value, list) and value and hasattr(value[0], "__dataclass_fields__"):
+                payload[name] = [asdict(item) for item in value]
+            else:
+                payload[name] = value
+        path.write_text(json.dumps(payload, indent=2))
+
+    def import_shareable(self, path: Path) -> None:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict) or data.get("_format") != SHAREABLE_EXPORT_FORMAT:
+            raise ValueError("File is not a Logfather settings export.")
+        # Reuse load() to parse with all defaulting / backfilling logic, then
+        # copy only the fields that are actually present in the import file so
+        # locally-stored secrets and per-user paths are left untouched.
+        parsed = Settings.load(path)
+        for name in SHAREABLE_FIELDS:
+            if name in data:
+                setattr(self, name, getattr(parsed, name))
+
+
+def get_system_layout(settings: Settings, system_name: str) -> SystemLayoutEntry:
+    target = str(system_name or "").strip().lower()
+    for entry in settings.system_layouts:
+        if entry.system_name.strip().lower() == target:
+            return entry
+    return SystemLayoutEntry(system_name=str(system_name or "").strip())
+
+
+def customer_sort_key(settings: Settings, customer: str) -> tuple[int, str]:
+    value = str(customer or "").strip()
+    if not value:
+        return (1, "zzz")
+    return (0, value.lower())
+
+
+def production_line_sort_key(line: str) -> tuple[int, object, str]:
+    value = str(line or "").strip()
+    if not value:
+        return (1, "zzz", "")
+    match = re.search(r"(\d+)", value)
+    if match:
+        return (0, int(match.group(1)), value.lower())
+    return (0, value.lower(), value.lower())
+
+
+def system_group_sort_key(settings: Settings, system_name: str) -> tuple:
+    layout = get_system_layout(settings, system_name)
+    return (
+        customer_sort_key(settings, layout.customer),
+        production_line_sort_key(layout.production_line),
+        str(system_name or "").lower(),
+    )
+
+
+def display_customer_name(settings: Settings, system_name: str) -> str:
+    layout = get_system_layout(settings, system_name)
+    return layout.customer.strip() or "Unassigned"
+
+
+def display_line_name(settings: Settings, system_name: str) -> str:
+    layout = get_system_layout(settings, system_name)
+    return layout.production_line.strip()
+
+
+def format_system_button_text(settings: Settings, system_name: str) -> str:
+    customer = display_customer_name(settings, system_name)
+    line = display_line_name(settings, system_name)
+    if line:
+        return f"{customer}\n{line} | {system_name}"
+    return f"{customer}\n{system_name}"
+
+
+def customer_logo_bytes(settings: Settings, customer: str) -> bytes | None:
+    key = str(customer or "").strip()
+    if not key:
+        return None
+    logo = (settings.customer_logos or {}).get(key, "")
+    if not logo:
+        return None
+    try:
+        return base64.b64decode(logo)
+    except Exception:
+        return None
+
+
+def customer_starts_collapsed(settings: Settings, customer: str) -> bool:
+    key = str(customer or "").strip()
+    if not key:
+        return False
+    return bool((settings.customer_start_collapsed or {}).get(key, False))
