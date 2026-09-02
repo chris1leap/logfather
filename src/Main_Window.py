@@ -480,10 +480,16 @@ class MainWindow(QWidget):
         self.track_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.track_toggle.toggled.connect(self._on_track_toggled)
 
+        self.about_btn = QToolButton()
+        self.about_btn.setText("About")
+        self.about_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.about_btn.clicked.connect(self._open_about_dialog)
+
         top_controls.addStretch(1)
         top_controls.addWidget(self.calibrate_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.buffer_toggle, 0, Qt.AlignRight)
+        top_controls.addWidget(self.about_btn, 0, Qt.AlignRight)
 
         layout = QVBoxLayout()
         layout.addLayout(top_controls)
@@ -528,6 +534,12 @@ class MainWindow(QWidget):
         QTimer.singleShot(0, self._apply_initial_timeline_size)
         QTimer.singleShot(0, self._sync_overview_mode)
         QTimer.singleShot(0, lambda: self._on_track_toggled(self.track_toggle.isChecked()))
+
+    def _open_about_dialog(self):
+        from about_page import AboutDialog
+
+        dlg = AboutDialog(self)
+        dlg.exec()
 
     def _current_calibration_system_id(self) -> str:
         if self.system_id_override:
