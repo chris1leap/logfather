@@ -11,6 +11,7 @@ def _candidate_paths() -> list[Path]:
     return [
         base / "version.json",
         Path(__file__).resolve().parent / "version.json",
+        Path(__file__).resolve().parent.parent / "version.json",
     ]
 
 

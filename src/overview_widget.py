@@ -97,7 +97,10 @@ def _timeline_day_date(now_local: datetime) -> date:
 
 def _resolve_asset_path(filename: str) -> str | None:
     try:
-        candidates = [Path(__file__).resolve().parent / filename]
+        candidates = [
+            Path(__file__).resolve().parent.parent / "assets" / filename,
+            Path(__file__).resolve().parent / filename,
+        ]
         if getattr(sys, "_MEIPASS", None):
             candidates.append(Path(sys._MEIPASS) / filename)
         candidates.append(Path(sys.executable).resolve().parent / filename)

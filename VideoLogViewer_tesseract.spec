@@ -29,18 +29,16 @@ if version_file.exists():
 readme_file = Path("README.md")
 if readme_file.exists():
     datas.append((str(readme_file), "."))
-logo_file = Path("logfather.png")
-if logo_file.exists():
-    datas.append((str(logo_file), "."))
-argus_splash = Path("Logfather animated splash screen Argus II.mp4")
-if argus_splash.exists():
-    datas.append((str(argus_splash), "."))
-argus_placeholder = Path("Logfather Argus II.jpg")
-if argus_placeholder.exists():
-    datas.append((str(argus_placeholder), "."))
-icon_file = Path("logfather.ico")
-if icon_file.exists():
-    datas.append((str(icon_file), "."))
+for _asset_name in (
+    "logfather.png",
+    "Logfather animated splash screen Argus II.mp4",
+    "Logfather Argus II.jpg",
+    "Logfather.ico",
+    "logfather_architecture.svg",
+):
+    _asset_file = Path("assets") / _asset_name
+    if _asset_file.exists():
+        datas.append((str(_asset_file), "."))
 
 # Set TESSERACT_ROOT to the directory containing tesseract.exe and tessdata.
 _tesseract_root = os.environ.get("TESSERACT_ROOT")
@@ -59,7 +57,7 @@ if tessdata_dir.exists():
     datas.append((str(tessdata_dir), "tesseract/tessdata"))
 
 a = Analysis(
-    ["Main_Window.py"],
+    ["src/Main_Window.py"],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -79,7 +77,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="The Logfather",
-    icon="logfather.ico",
+    icon="assets/Logfather.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

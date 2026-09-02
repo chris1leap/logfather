@@ -34,16 +34,21 @@ Desktop GUI for browsing CCTV clips by date/time, playing video, and aligning cl
 - Argus II placeholder artwork when no video is loaded
 
 ## Project Structure
-- `Main_Window.py` - App entry point, wiring between date picker, time picker, and viewer
-- `Log_vid_gui.py` - Main video/log viewer UI and playback logic
-- `Time_Picker.py` - Timeline view and clip loading
-- `Date_Picker_frontend.py` - Date picker UI
-- `overview_widget.py` - Multi-system live overview board for the current day
-- `fleetwide_elastic_search_widget.py` - Fleetwide Elastic search dashboard, system cards, graphs, and search settings
-- `elastic_loader.py` / `elastic_errors.py` - Elastic query + error handling
-- `settings_store.py` / `settings_dialog.py` - Settings model + UI
-- `time_ocr.py` / `time_ocr_settings.json` - OCR sync tooling and settings
-- `Vid_Frame_Differencing.py` / `logs_to_srt.py` - Utilities (optional)
+- `src/` - All application modules
+  - `Main_Window.py` - App entry point, wiring between date picker, time picker, and viewer
+  - `Log_vid_gui.py` - Main video/log viewer UI and playback logic
+  - `Time_Picker.py` - Timeline view and clip loading
+  - `Date_Picker_frontend.py` - Date picker UI
+  - `overview_widget.py` - Multi-system live overview board for the current day
+  - `fleetwide_elastic_search_widget.py` - Fleetwide Elastic search dashboard, system cards, graphs, and search settings
+  - `elastic_loader.py` / `elastic_errors.py` - Elastic query + error handling
+  - `settings_store.py` / `settings_dialog.py` - Settings model + UI
+  - `time_ocr.py` - OCR sync tooling
+- `assets/` - Icons, splash media, architecture diagram
+- `docs/ARCHITECTURE.md` - Deep architecture notes and file map
+- `tools/` - Smoke test, Elastic API check, standalone utilities
+- `tests/` - Unit tests (pytest)
+- `legacy/` - Old prototype variants, kept for reference
 - `VideoLogViewer.iss` - Inno Setup packaging script
 
 ## Requirements
@@ -66,7 +71,7 @@ Desktop GUI for browsing CCTV clips by date/time, playing video, and aligning cl
    ```
 3. Run the app:
    ```
-   python Main_Window.py
+   python src\Main_Window.py
    ```
 4. For local OCR (non-bundled), install Tesseract and ensure it's on PATH.
 

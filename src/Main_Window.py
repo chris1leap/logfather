@@ -2029,6 +2029,7 @@ def _resolve_asset_path(filename: str) -> str | None:
         candidates = []
         if getattr(sys, "_MEIPASS", None):
             candidates.append(Path(sys._MEIPASS) / filename)
+        candidates.append(Path(__file__).resolve().parent.parent / "assets" / filename)
         candidates.append(Path(__file__).resolve().parent / filename)
         candidates.append(Path(sys.executable).resolve().parent / filename)
         for path in candidates:

@@ -493,6 +493,7 @@ class ReadmePanel(QWidget):
         candidates = []
         base = Path(__file__).resolve().parent
         candidates.append(base / "README.md")
+        candidates.append(base.parent / "README.md")
         try:
             import sys
             if hasattr(sys, "_MEIPASS"):

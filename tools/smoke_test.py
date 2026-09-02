@@ -19,7 +19,7 @@ from pathlib import Path
 
 # Run Qt without a display and keep the real user settings untouched.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 MODULES = [
     "app_version",
@@ -28,8 +28,6 @@ MODULES = [
     "elastic_loader",
     "conveyor_calibration",
     "time_ocr",
-    "logs_to_srt",
-    "Vid_Frame_Differencing",
     "Time_Picker",
     "Date_Picker_frontend",
     "settings_dialog",

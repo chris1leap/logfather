@@ -6,11 +6,18 @@ Chris directs the work and reviews visually; Claude implements, tests, and commi
 ## Run / test commands
 
 ```
-.venv\Scripts\python.exe Main_Window.py            # run the app
+.venv\Scripts\python.exe src\Main_Window.py        # run the app
 .venv\Scripts\python.exe tools\smoke_test.py       # after EVERY edit: imports + offscreen window build
 .venv\Scripts\python.exe -m pytest                 # unit tests
 .venv\Scripts\python.exe tools\elastic_api_check.py  # live Elastic query with the app's settings
 ```
+
+## Repo layout
+
+`src/` all app modules (flat imports — they must stay in one directory) · `assets/`
+icons/splash media/diagram · `docs/` architecture notes · `tools/` smoke test, Elastic
+check, standalone scripts · `tests/` pytest · `legacy/` old variants, don't touch.
+Deep architecture map: `docs/ARCHITECTURE.md`.
 
 ## Per-change loop
 

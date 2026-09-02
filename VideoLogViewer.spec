@@ -16,22 +16,20 @@ if version_file.exists():
 readme_file = Path('README.md')
 if readme_file.exists():
     datas.append((str(readme_file), '.'))
-logo_file = Path('logfather.png')
-if logo_file.exists():
-    datas.append((str(logo_file), '.'))
-placeholder_file = Path('Logfather Argus II.jpg')
-if placeholder_file.exists():
-    datas.append((str(placeholder_file), '.'))
-splash_file = Path('Logfather animated splash screen Argus II.mp4')
-if splash_file.exists():
-    datas.append((str(splash_file), '.'))
-icon_file = Path('logfather.ico')
-if icon_file.exists():
-    datas.append((str(icon_file), '.'))
+for asset_name in (
+    'logfather.png',
+    'Logfather Argus II.jpg',
+    'Logfather animated splash screen Argus II.mp4',
+    'Logfather.ico',
+    'logfather_architecture.svg',
+):
+    asset_file = Path('assets') / asset_name
+    if asset_file.exists():
+        datas.append((str(asset_file), '.'))
 
 
 a = Analysis(
-    ['Main_Window.py'],
+    ['src/Main_Window.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -51,7 +49,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='The Logfather',
-    icon='logfather.ico',
+    icon='assets/Logfather.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
