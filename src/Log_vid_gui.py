@@ -96,6 +96,32 @@ def format_timecode(td: timedelta) -> str:
     return f"{hours:02}:{minutes:02}:{seconds:02},{ms:03}"
 
 
+# Forward jumps up to this many frames are decoded via grab() instead of a
+# CAP_PROP_POS_FRAMES seek: a seek on H.264 jumps to the previous keyframe and
+# decodes forward, which usually costs more than grabbing a handful of frames.
+MAX_GRAB_SKIP_FRAMES = 15
+
+
+def _position_capture_sequential(cap, in_sequence: bool, next_frame: int, target_frame: int) -> bool:
+    """Try to reach target_frame without seeking.
+
+    Returns True if cap's next read() will deliver target_frame (already there,
+    or reached by grabbing a few frames forward). Returns False if the caller
+    must seek. `in_sequence` says whether next_frame is trustworthy for cap.
+    """
+    if not in_sequence:
+        return False
+    delta = target_frame - next_frame
+    if delta == 0:
+        return True
+    if 0 < delta <= MAX_GRAB_SKIP_FRAMES:
+        for _ in range(delta):
+            if not cap.grab():
+                return False
+        return True
+    return False
+
+
 def _to_local_naive(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
@@ -1722,6 +1748,14 @@ class VideoLogViewer(QWidget):
         self.frame_count = 0
         self.current_frame = 0
         self.playing = False
+        # Sequential-read tracking: which capture we last read from without
+        # seeking, and the frame index its next read() will deliver. Seeking
+        # (CAP_PROP_POS_FRAMES) forces a keyframe jump + decode-forward on
+        # H.264, so it must only happen when playback actually jumps.
+        self._seq_cap = None
+        self._seq_next_frame = -1
+        self._seq_secondary_cap = None
+        self._seq_secondary_next_frame = -1
 
         self.last_qimage: QImage | None = None
         self.last_frame_rgb: np.ndarray | None = None
@@ -1826,6 +1860,16 @@ class VideoLogViewer(QWidget):
         self._cache_status_future: Future | None = None
         self._cache_status_pending = False
         self._prefetch_pending: set[str] = set()
+        # Async clip download: (generation, source path on Z:, cache target).
+        # Generation invalidates a pending download when another clip is
+        # chosen before the copy finishes.
+        self._pending_video_load: tuple[int, Path, Path] | None = None
+        # Seek requested while the clip was still downloading; replayed once
+        # the download opens (generation, seconds, pause).
+        self._pending_seek: tuple[int, float, bool] | None = None
+        self._video_load_generation = 0
+        self._video_load_t0 = 0.0
+        self._video_busy_dialog: QProgressDialog | None = None
         self._log_future: Future | None = None
         self._log_future_id = 0
         self.logs_ready.connect(self._on_elastic_logs_ready)
@@ -3178,6 +3222,11 @@ class VideoLogViewer(QWidget):
     def load_video_from_path(self, file_path: str) -> bool:
         t0 = time.perf_counter()
         print(f"[viewer] load_video_from_path start: {file_path}", flush=True)
+        # Supersede any download still pending from a previous clip choice.
+        self._video_load_generation += 1
+        self._pending_video_load = None
+        self._pending_seek = None
+        self._set_video_busy(False)
         if self.cap is not None:
             self.cap.release()
             self.cap = None
@@ -3196,14 +3245,66 @@ class VideoLogViewer(QWidget):
         except Exception:
             cache_path = None
         if cache_path is not None and not self._is_cached_copy_current(path_obj, cache_path):
-            try:
-                t_copy = time.perf_counter()
-                if self._ensure_cached_copy(path_obj, cache_path):
-                    print(f"[viewer] cache copy took {time.perf_counter() - t_copy:.2f}s", flush=True)
-            except Exception as exc:
-                print(f"[viewer] cache copy failed: {exc}", flush=True)
+            # Download on the cache executor and finish loading when it lands
+            # (_on_prefetch_done) — copying from the CCTV share takes ~15-20s
+            # per clip and must not freeze the UI.
+            self._video_load_t0 = t0
+            self._begin_async_video_download(path_obj, cache_path)
+            return True
+        if cache_path is not None and cache_path.exists():
+            self._touch_cache_entry(cache_path)
 
         open_path = str(cache_path) if cache_path and cache_path.exists() else file_path
+        return self._open_downloaded_video(open_path, path_obj, t0)
+
+    def _begin_async_video_download(self, path_obj: Path, cache_path: Path) -> None:
+        key = str(cache_path)
+        self._pending_video_load = (self._video_load_generation, path_obj, cache_path)
+        self._set_video_busy(True, f"Downloading {path_obj.name} from the CCTV share...")
+        if key in self._prefetch_pending:
+            return  # already being copied (adjacent-clip prefetch); reuse it
+        self._prefetch_pending.add(key)
+        future = self._cache_executor.submit(self._copy_to_cache, path_obj, cache_path)
+        future.add_done_callback(
+            lambda fut, p=path_obj, k=key: self._schedule_prefetch_done(fut, p, k)
+        )
+
+    def _set_video_busy(self, busy: bool, message: str | None = None):
+        if busy:
+            if self._video_busy_dialog is None:
+                dlg = QProgressDialog(message or "Working...", None, 0, 0, self)
+                dlg.setWindowTitle("Loading clip")
+                dlg.setCancelButton(None)
+                dlg.setWindowModality(Qt.NonModal)
+                dlg.setMinimumDuration(0)
+                dlg.setRange(0, 0)
+                self._video_busy_dialog = dlg
+            self._video_busy_dialog.setLabelText(message or "Working...")
+            self._video_busy_dialog.show()
+        elif self._video_busy_dialog is not None:
+            self._video_busy_dialog.close()
+            self._video_busy_dialog = None
+
+    def _finish_pending_video_load(self, source_path: str, ok: bool) -> None:
+        pending = self._pending_video_load
+        if pending is None:
+            return
+        generation, p_source, p_cache = pending
+        if str(p_source) != source_path:
+            return
+        self._pending_video_load = None
+        self._set_video_busy(False)
+        if generation != self._video_load_generation:
+            return  # a different clip was chosen while this one downloaded
+        print(
+            f"[viewer] async cache copy finished (ok={ok}) after "
+            f"{time.perf_counter() - self._video_load_t0:.2f}s",
+            flush=True,
+        )
+        open_path = str(p_cache) if ok and p_cache.exists() else str(p_source)
+        self._open_downloaded_video(open_path, p_source, self._video_load_t0)
+
+    def _open_downloaded_video(self, open_path: str, path_obj: Path, t0: float) -> bool:
         self.current_video_path = open_path
         t_open = time.perf_counter()
         self.cap = cv2.VideoCapture(open_path)
@@ -3276,6 +3377,13 @@ class VideoLogViewer(QWidget):
             elif self.first_log_dt is not None and self._confirm_ocr_sync():
                 self._auto_sync_with_ocr()
         self.current_video_original_path = path_obj
+        pending_seek = self._pending_seek
+        self._pending_seek = None
+        if pending_seek is not None and pending_seek[0] == self._video_load_generation:
+            _, seek_seconds, seek_pause = pending_seek
+            QTimer.singleShot(
+                0, lambda: self.seek_to_seconds(seek_seconds, pause=seek_pause)
+            )
         print(f"[viewer] load_video_from_path total {time.perf_counter() - t0:.2f}s", flush=True)
         return True
 
@@ -4417,7 +4525,14 @@ class VideoLogViewer(QWidget):
         self.show_frame(self.current_frame)
 
     def seek_to_seconds(self, seconds: float, pause: bool = True):
-        if self.cap is None or self.fps <= 0:
+        if self.cap is None:
+            # The clip may still be downloading; replay the seek once it opens.
+            if self._pending_video_load is not None:
+                self._pending_seek = (
+                    self._pending_video_load[0], float(seconds), bool(pause)
+                )
+            return
+        if self.fps <= 0:
             return
         if pause:
             self.pause()
@@ -4598,14 +4713,20 @@ class VideoLogViewer(QWidget):
             self.analysis_prev_frame_rgb = self.last_frame_rgb.copy()
             self.analysis_prev_frame_index = self._last_frame_index
 
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        if not _position_capture_sequential(
+            self.cap, self._seq_cap is self.cap, self._seq_next_frame, frame_index
+        ):
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
         t_read = time.perf_counter()
         ret, frame = self.cap.read()
         read_dt = time.perf_counter() - t_read
         if read_dt > 0.5:
             print(f"[viewer] frame read took {read_dt:.2f}s", flush=True)
         if not ret or frame is None:
+            self._seq_cap = None
             return
+        self._seq_cap = self.cap
+        self._seq_next_frame = frame_index + 1
         if getattr(frame, "ndim", 0) != 3 or frame.shape[0] <= 0 or frame.shape[1] <= 0:
             return
 
@@ -5652,6 +5773,7 @@ class VideoLogViewer(QWidget):
                 self.cache_clip_ready.emit(Path(source_path))
             except Exception:
                 self.cache_clip_ready.emit(Path(source_path))
+        self._finish_pending_video_load(source_path, ok)
 
     def _calculate_cache_stats(self) -> tuple[int, int]:
         if not self.cache_root.exists():
@@ -6134,12 +6256,23 @@ class VideoLogViewer(QWidget):
         if frame_index == self.secondary_current_frame and self.secondary_last_qimage is not None:
             return
         self.secondary_current_frame = frame_index
-        self.secondary_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        if not _position_capture_sequential(
+            self.secondary_cap,
+            self._seq_secondary_cap is self.secondary_cap,
+            self._seq_secondary_next_frame,
+            frame_index,
+        ):
+            self.secondary_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
         t_read = time.perf_counter()
         ret, frame = self.secondary_cap.read()
         read_dt = time.perf_counter() - t_read
         if read_dt > 0.5:
             print(f"[viewer] secondary frame read took {read_dt:.2f}s", flush=True)
+        if ret:
+            self._seq_secondary_cap = self.secondary_cap
+            self._seq_secondary_next_frame = frame_index + 1
+        else:
+            self._seq_secondary_cap = None
         if not ret:
             dt = time.perf_counter() - t0
             if dt > 0.5:

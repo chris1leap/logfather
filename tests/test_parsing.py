@@ -94,3 +94,60 @@ class TestParseTimeFromName:
 
     def test_invalid_date_digits(self):
         assert parse_time_from_name(Path("cam_99999999999999.mp4")) is None
+
+
+class _FakeCap:
+    """Stands in for cv2.VideoCapture; counts grab() calls."""
+
+    def __init__(self, grab_results=None):
+        self.grab_calls = 0
+        self._grab_results = list(grab_results or [])
+
+    def grab(self):
+        self.grab_calls += 1
+        if self._grab_results:
+            return self._grab_results.pop(0)
+        return True
+
+
+class TestPositionCaptureSequential:
+    def _fn(self):
+        from Log_vid_gui import _position_capture_sequential
+        return _position_capture_sequential
+
+    def test_next_frame_needs_no_work(self):
+        cap = _FakeCap()
+        assert self._fn()(cap, True, 100, 100) is True
+        assert cap.grab_calls == 0
+
+    def test_out_of_sequence_requires_seek(self):
+        cap = _FakeCap()
+        assert self._fn()(cap, False, 100, 100) is False
+        assert cap.grab_calls == 0
+
+    def test_backward_jump_requires_seek(self):
+        cap = _FakeCap()
+        assert self._fn()(cap, True, 100, 50) is False
+        assert cap.grab_calls == 0
+
+    def test_small_forward_jump_grabs(self):
+        cap = _FakeCap()
+        assert self._fn()(cap, True, 100, 103) is True
+        assert cap.grab_calls == 3
+
+    def test_large_forward_jump_requires_seek(self):
+        from Log_vid_gui import MAX_GRAB_SKIP_FRAMES
+        cap = _FakeCap()
+        assert self._fn()(cap, True, 100, 100 + MAX_GRAB_SKIP_FRAMES + 1) is False
+        assert cap.grab_calls == 0
+
+    def test_boundary_forward_jump_grabs(self):
+        from Log_vid_gui import MAX_GRAB_SKIP_FRAMES
+        cap = _FakeCap()
+        assert self._fn()(cap, True, 0, MAX_GRAB_SKIP_FRAMES) is True
+        assert cap.grab_calls == MAX_GRAB_SKIP_FRAMES
+
+    def test_failed_grab_falls_back_to_seek(self):
+        cap = _FakeCap(grab_results=[True, False])
+        assert self._fn()(cap, True, 100, 103) is False
+        assert cap.grab_calls == 2
