@@ -26,7 +26,19 @@ if ($Clean) {
 
 $buildDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 if (-not $Version -or $Version -eq "0.0.0") {
-    $Version = Get-Date -Format "yyyy.MM.dd.HHmm"
+    # Versions are 0.<commit count>: every commit bumps the number and maps
+    # back to exactly one commit (see src/app_version.py).
+    $commitCount = ""
+    try {
+        $commitCount = (git rev-list --count HEAD).Trim()
+    } catch {
+        $commitCount = ""
+    }
+    if ($commitCount -match '^\d+$') {
+        $Version = "0.$commitCount"
+    } else {
+        $Version = Get-Date -Format "yyyy.MM.dd.HHmm"
+    }
 }
 $gitSha = ""
 try {

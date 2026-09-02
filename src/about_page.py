@@ -157,6 +157,8 @@ def _version_text() -> str:
     version = str(info.get("version") or "dev")
     if getattr(sys, "_MEIPASS", None):
         return f"v{version}"
+    if version != "dev":
+        return f"v{version} (source)"
     return "source checkout"
 
 
