@@ -41,7 +41,7 @@ def version_from_git() -> dict | None:
     if not count or not count.isdigit():
         return None
     sha = _git("rev-parse", "--short", "HEAD") or ""
-    return {"version": f"0.{count}", "build_date": "", "git_sha": sha}
+    return {"version": f"0.{int(count):03d}", "build_date": "", "git_sha": sha}
 
 
 _cached_info: dict | None = None

@@ -35,7 +35,7 @@ if (-not $Version -or $Version -eq "0.0.0") {
         $commitCount = ""
     }
     if ($commitCount -match '^\d+$') {
-        $Version = "0.$commitCount"
+        $Version = "0.{0:D3}" -f [int]$commitCount
     } else {
         $Version = Get-Date -Format "yyyy.MM.dd.HHmm"
     }
