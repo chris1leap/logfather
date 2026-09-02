@@ -24,7 +24,7 @@ Deep architecture map: `docs/ARCHITECTURE.md`.
 1. Small, single-purpose change.
 2. Smoke test, then pytest. Both must pass before showing Chris.
 3. Relaunch the app (background) for Chris's visual check.
-4. Commit once verified; push at session end. When a function with pure logic is
+4. Commit once verified and push immediately (no need to ask). When a function with pure logic is
    touched, add/extend its tests in `tests/`.
 
 ## Gotchas — learned the hard way (2026-09-02)
