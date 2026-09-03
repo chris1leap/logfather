@@ -6,6 +6,7 @@ paginates through `paginate()`; none hand-roll search_after/retry/truncation.
 """
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import dataclass, field
 from typing import Callable
@@ -40,6 +41,72 @@ def search_url(base: str, index_id: str) -> str:
         f"{base}/{index_id}/_search"
         "?ignore_unavailable=true&allow_no_indices=true&request_cache=true"
     )
+
+
+def msearch_url(base: str, index_id: str) -> str:
+    base = (base or "").rstrip("/")
+    if "kb." in base:
+        base = base.replace(".kb.", ".es.")
+    return f"{base}/{index_id}/_msearch"
+
+
+def msearch_first_pages(
+    bodies: list[dict],
+    *,
+    session: requests.Session,
+    endpoint: str,
+    headers: dict,
+    timeout_sec: float,
+    label: str = "msearch",
+) -> list[list[dict] | None] | None:
+    """POST one _msearch carrying several queries (their first page each).
+
+    Returns one entry per body: that query's hit dicts, or None when the
+    item errored server-side. Returns None outright on a transport/shape
+    failure. Never raises — this is a fast path; the caller falls back to
+    per-query paginate() for anything unanswered.
+    """
+    if not bodies:
+        return []
+    lines: list[str] = []
+    for body in bodies:
+        # Per-item header mirrors the _search URL params paginate() uses.
+        lines.append(
+            json.dumps(
+                {
+                    "ignore_unavailable": True,
+                    "allow_no_indices": True,
+                    "request_cache": True,
+                }
+            )
+        )
+        lines.append(json.dumps(body))
+    payload = "\n".join(lines) + "\n"
+    msearch_headers = dict(headers)
+    msearch_headers["Content-Type"] = "application/x-ndjson"
+    try:
+        resp = session.post(
+            endpoint,
+            data=payload.encode("utf-8"),
+            headers=msearch_headers,
+            timeout=timeout_sec,
+        )
+        resp.raise_for_status()
+        responses = resp.json().get("responses")
+    except Exception as exc:
+        print(f"[elastic] {label} failed; falling back to per-query requests: {exc}")
+        return None
+    if not isinstance(responses, list) or len(responses) != len(bodies):
+        print(f"[elastic] {label} returned unexpected shape; falling back")
+        return None
+    results: list[list[dict] | None] = []
+    for item in responses:
+        if not isinstance(item, dict) or item.get("error") or "hits" not in item:
+            results.append(None)
+            continue
+        hits = item.get("hits", {}).get("hits", [])
+        results.append([hit for hit in hits if isinstance(hit, dict)])
+    return results
 
 
 def api_headers(api_key: str) -> dict:

@@ -26,8 +26,11 @@ from logfather.data.settings_store import Settings, Condition
 from logfather.data.elastic_errors import ElasticFetchError
 from logfather.core.sku_timeline import build_sku_bands
 from logfather.data.elastic_client import (
+    PageOutcome,
     api_headers,
     get_thread_session as _get_thread_session,
+    msearch_first_pages,
+    msearch_url as _msearch_url,
     paginate,
     search_url as _search_url,
 )
@@ -767,29 +770,49 @@ def fetch_events(
     active_conditions = [(idx, cond) for idx, cond in enumerate(settings.conditions) if cond.query]
     _perf_log(f"active conditions: {len(active_conditions)} / {len(settings.conditions)}")
 
-    def fetch_for_condition(idx: int, cond: Condition) -> tuple[List[TimelineItem], str | None]:
-        t_cond_start = perf_counter()
-        session = _get_thread_session()
-        outcome = paginate(
-            lambda size, search_after: _build_query(
+    # Fast path: one _msearch fetches page 1 of every condition in a single
+    # round trip (per-request latency dominates: ~0.3-0.5s each even for
+    # zero hits). A condition whose first page came back full may have more
+    # pages, so it falls through to paginate() below; so does everything on
+    # any msearch failure. Typical day: 1 HTTP request instead of 12.
+    first_pages: dict[int, list[dict]] = {}
+    if active_conditions:
+        t_msearch = perf_counter()
+        bodies = [
+            _build_query(
                 cond,
                 robot_id,
                 start_iso,
                 end_iso,
                 ts_fields,
-                size=size,
-                search_after=search_after,
-            ),
-            session=session,
-            endpoint=search_endpoint,
+                size=ELASTIC_EVENT_PAGE_SIZE,
+                search_after=None,
+            )
+            for _idx, cond in active_conditions
+        ]
+        msearch_results = msearch_first_pages(
+            bodies,
+            session=_get_thread_session(),
+            endpoint=_msearch_url(url, index_id),
             headers=headers,
-            page_size=ELASTIC_EVENT_PAGE_SIZE,
-            min_page_size=ELASTIC_EVENT_MIN_PAGE_SIZE,
-            max_pages=ELASTIC_EVENT_MAX_PAGES,
             timeout_sec=ELASTIC_EVENT_TIMEOUT_SEC,
-            label=f"condition {idx+1}",
-            on_error="warn",
+            label="conditions msearch",
         )
+        if msearch_results is not None:
+            for (idx, _cond), hits in zip(active_conditions, msearch_results):
+                if hits is None:
+                    continue
+                if len(hits) >= ELASTIC_EVENT_PAGE_SIZE and hits[-1].get("sort"):
+                    continue  # may have further pages: refetch via paginate()
+                first_pages[idx] = hits
+        _perf_log(
+            f"conditions msearch: queries={len(bodies)} satisfied={len(first_pages)} "
+            f"time={(perf_counter() - t_msearch) * 1000:.0f}ms"
+        )
+
+    def _condition_items_from_outcome(
+        idx: int, cond: Condition, outcome: PageOutcome, t_cond_start: float
+    ) -> tuple[List[TimelineItem], str | None]:
         warning_msg: str | None = outcome.warning
         hits_collected: List[TimelineItem] = []
         for hit in outcome.hits:
@@ -829,6 +852,34 @@ def fetch_events(
             f"time={(perf_counter() - t_cond_start) * 1000:.0f}ms"
         )
         return hits_collected, warning_msg
+
+    def fetch_for_condition(idx: int, cond: Condition) -> tuple[List[TimelineItem], str | None]:
+        t_cond_start = perf_counter()
+        first_page = first_pages.get(idx)
+        if first_page is not None:
+            outcome = PageOutcome(hits=list(first_page), pages=1, requests_made=0)
+        else:
+            outcome = paginate(
+                lambda size, search_after: _build_query(
+                    cond,
+                    robot_id,
+                    start_iso,
+                    end_iso,
+                    ts_fields,
+                    size=size,
+                    search_after=search_after,
+                ),
+                session=_get_thread_session(),
+                endpoint=search_endpoint,
+                headers=headers,
+                page_size=ELASTIC_EVENT_PAGE_SIZE,
+                min_page_size=ELASTIC_EVENT_MIN_PAGE_SIZE,
+                max_pages=ELASTIC_EVENT_MAX_PAGES,
+                timeout_sec=ELASTIC_EVENT_TIMEOUT_SEC,
+                label=f"condition {idx+1}",
+                on_error="warn",
+            )
+        return _condition_items_from_outcome(idx, cond, outcome, t_cond_start)
 
     warnings: list[str] = []
     tasks = []
