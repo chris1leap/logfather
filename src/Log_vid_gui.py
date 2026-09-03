@@ -23,6 +23,10 @@ except Exception:
 from settings_store import Settings, DEFAULT_SETTINGS_PATH, CustomFilterPreset, FilterPreset
 from elastic_loader import fetch_logs_for_range
 from elastic_errors import ElasticFetchError
+from app_assets import (
+    load_placeholder_image as _load_placeholder_image,
+    resolve_asset_path as _resolve_asset_path,
+)
 from frame_analysis import (
     compute_optical_flow_view,
     compute_pixel_diff_view,
@@ -136,32 +140,6 @@ def _to_local_naive(dt: datetime | None) -> datetime | None:
 def _format_display_timestamp(dt: datetime) -> str:
     local_dt = _to_local_naive(dt) or dt
     return local_dt.strftime("%H:%M:%S.%f")[:-3]
-
-
-def _resolve_asset_path(filename: str) -> str | None:
-    try:
-        candidates = []
-        if getattr(sys, "_MEIPASS", None):
-            candidates.append(Path(sys._MEIPASS) / filename)
-        candidates.append(Path(__file__).resolve().parent.parent / "assets" / filename)
-        candidates.append(Path(__file__).resolve().parent / filename)
-        candidates.append(Path(sys.executable).resolve().parent / filename)
-        for path in candidates:
-            if path.exists():
-                return str(path)
-    except Exception:
-        return None
-    return None
-
-
-def _load_placeholder_image() -> QImage | None:
-    image_path = _resolve_asset_path("Logfather Argus II.jpg")
-    if not image_path:
-        return None
-    img = QImage(image_path)
-    if img.isNull():
-        return None
-    return img
 
 
 def build_log_text_from_row(row: dict) -> str:

@@ -49,6 +49,7 @@ from Time_Picker import (
     _path_key,
 )
 from elastic_loader import fetch_events, fetch_logs_for_range, set_system_id_override
+from app_assets import resolve_asset_path as _resolve_asset_path
 from settings_store import Settings, display_customer_name, display_line_name
 from Log_vid_gui import VideoLogViewer
 from overview_widget import OverviewWidget
@@ -1924,21 +1925,6 @@ def _build_splash_image() -> QSplashScreen | None:
     except Exception:
         return None
 
-
-def _resolve_asset_path(filename: str) -> str | None:
-    try:
-        candidates = []
-        if getattr(sys, "_MEIPASS", None):
-            candidates.append(Path(sys._MEIPASS) / filename)
-        candidates.append(Path(__file__).resolve().parent.parent / "assets" / filename)
-        candidates.append(Path(__file__).resolve().parent / filename)
-        candidates.append(Path(sys.executable).resolve().parent / filename)
-        for path in candidates:
-            if path.exists():
-                return str(path)
-    except Exception:
-        return None
-    return None
 
 
 if __name__ == "__main__":

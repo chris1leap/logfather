@@ -37,6 +37,7 @@ from Time_Picker import (
     _cache_key_for,
 )
 from elastic_loader import fetch_overview_event_chunks
+from app_assets import resolve_asset_path as _resolve_asset_path
 from qt_worker import park_thread_until_finished
 from settings_store import (
     Settings,
@@ -94,23 +95,6 @@ def _start_of_day_local(now_local: datetime) -> datetime:
 
 def _timeline_day_date(now_local: datetime) -> date:
     return now_local.date()
-
-
-def _resolve_asset_path(filename: str) -> str | None:
-    try:
-        candidates = [
-            Path(__file__).resolve().parent.parent / "assets" / filename,
-            Path(__file__).resolve().parent / filename,
-        ]
-        if getattr(sys, "_MEIPASS", None):
-            candidates.append(Path(sys._MEIPASS) / filename)
-        candidates.append(Path(sys.executable).resolve().parent / filename)
-        for path in candidates:
-            if path.exists():
-                return str(path)
-    except Exception:
-        return None
-    return None
 
 
 def _build_video_items(pikpak_root: Path, day_value: date) -> list[TimelineItem]:
