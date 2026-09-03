@@ -327,6 +327,13 @@ class MainWindow(QWidget):
 
         self.system_id_override: str | None = None
         self.settings = Settings.load()
+        if self.settings.load_warning:
+            QTimer.singleShot(
+                0,
+                lambda: QMessageBox.warning(
+                    self, "Settings recovered", self.settings.load_warning
+                ),
+            )
         self.viewer = VideoLogViewer()
         cache_root = getattr(self.viewer, "cache_root", None)
         self.overview_widget = OverviewWidget(

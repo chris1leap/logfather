@@ -192,3 +192,72 @@ class TestEventsCacheSkuComplete:
         today_utc = datetime.now(timezone.utc).date()
         assert elastic_loader._is_past_day(today_utc - timedelta(days=1)) is True
         assert elastic_loader._is_past_day(today_utc) is False
+
+
+class TestSettingsResilience:
+    def test_save_and_load_round_trip(self, tmp_path):
+        from settings_store import Settings
+        path = tmp_path / "settings.json"
+        s = Settings.load(path)
+        s.elastic_api_key = "secret-key"
+        s.save(path)
+        loaded = Settings.load(path)
+        assert loaded.elastic_api_key == "secret-key"
+        assert loaded.load_warning is None
+
+    def test_second_save_keeps_backup(self, tmp_path):
+        from settings_store import Settings
+        path = tmp_path / "settings.json"
+        s = Settings.load(path)
+        s.elastic_api_key = "v1"
+        s.save(path)
+        s.elastic_api_key = "v2"
+        s.save(path)
+        bak = tmp_path / "settings.json.bak"
+        assert bak.exists()
+        assert '"v1"' in bak.read_text()
+
+    def test_corrupt_file_restores_from_backup(self, tmp_path):
+        from settings_store import Settings
+        path = tmp_path / "settings.json"
+        s = Settings.load(path)
+        s.elastic_api_key = "good-key"
+        s.save(path)
+        s.save(path)  # ensure .bak holds the good content
+        path.write_text("{ this is not json", encoding="utf-8")
+        loaded = Settings.load(path)
+        assert loaded.elastic_api_key == "good-key"
+        assert loaded.load_warning is not None
+        assert list(tmp_path.glob("settings.json.corrupt-*"))
+
+    def test_corrupt_file_without_backup_warns_and_defaults(self, tmp_path):
+        from settings_store import Settings, _default_conditions
+        path = tmp_path / "settings.json"
+        path.write_text("garbage", encoding="utf-8")
+        loaded = Settings.load(path)
+        assert loaded.elastic_api_key is None
+        assert loaded.load_warning is not None
+        assert len(loaded.conditions) == len(_default_conditions())
+        assert list(tmp_path.glob("settings.json.corrupt-*"))
+
+    def test_load_warning_not_persisted(self, tmp_path):
+        from settings_store import Settings
+        path = tmp_path / "settings.json"
+        s = Settings.load(path)
+        s.load_warning = "boom"
+        s.save(path)
+        assert "load_warning" not in path.read_text()
+
+    def test_malformed_import_raises_and_preserves(self, tmp_path):
+        import pytest
+        from settings_store import Settings, SHAREABLE_EXPORT_FORMAT
+        export = tmp_path / "export.json"
+        export.write_text(
+            '{"_format": "%s", "conditions": 42}' % SHAREABLE_EXPORT_FORMAT,
+            encoding="utf-8",
+        )
+        s = Settings.load(tmp_path / "none.json")
+        s.elastic_url = "https://keep-me.example"
+        with pytest.raises(ValueError):
+            s.import_shareable(export)
+        assert s.elastic_url == "https://keep-me.example"

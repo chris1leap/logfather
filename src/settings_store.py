@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import base64
+import os
+import shutil
+import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional, List
@@ -141,6 +144,9 @@ class Settings:
     customer_start_collapsed: dict[str, bool] = field(default_factory=dict)
     system_layouts: List[SystemLayoutEntry] = field(default_factory=list)
     fleetwide_searches: List[FleetwideSearchDefinition] = field(default_factory=_default_fleetwide_searches)
+    # Set by load() when the settings file was unreadable; never persisted.
+    # The UI shows it once at startup so a recovery is not silent.
+    load_warning: Optional[str] = None
 
     @classmethod
     def load(cls, path: Path = DEFAULT_SETTINGS_PATH) -> "Settings":
@@ -154,6 +160,47 @@ class Settings:
             )
         try:
             data = json.loads(path.read_text())
+            return cls._from_dict(data)
+        except Exception as exc:
+            # A corrupt settings file must NOT silently become a factory
+            # reset (losing the API key, customers, and all conditions).
+            # Preserve the evidence, then try the backup save() keeps.
+            print(f"[settings] FAILED to load {path}: {exc}", flush=True)
+            warning = f"Settings file could not be read ({exc})."
+            try:
+                quarantine = path.with_name(
+                    path.name + f".corrupt-{time.strftime('%Y%m%d-%H%M%S')}"
+                )
+                shutil.copy2(path, quarantine)
+                warning += f"\nThe unreadable file was kept as {quarantine.name}."
+                print(f"[settings] corrupt file preserved as {quarantine}", flush=True)
+            except Exception:
+                pass
+            backup = path.with_name(path.name + ".bak")
+            if backup.exists():
+                try:
+                    settings = cls._from_dict(json.loads(backup.read_text()))
+                    warning += "\nSettings were restored from the last backup."
+                    settings.load_warning = warning
+                    print(f"[settings] restored from backup {backup}", flush=True)
+                    return settings
+                except Exception as backup_exc:
+                    print(f"[settings] backup also unreadable: {backup_exc}", flush=True)
+            settings = cls(
+                elastic_url="https://leap-deployment.kb.europe-west2.gcp.elastic-cloud.com:9243",
+                elastic_api_key=None,
+                elastic_index=None,
+                elastic_timestamp_field="@timestamp_ros",
+                conditions=_default_conditions(),
+            )
+            settings.load_warning = (
+                warning + "\nNo usable backup was found; defaults are in use."
+            )
+            return settings
+
+    @classmethod
+    def _from_dict(cls, data: dict) -> "Settings":
+        try:
             # Rehydrate conditions
             conds = []
             for idx, c in enumerate(data.get("conditions", [])):
@@ -279,13 +326,9 @@ class Settings:
                 fleetwide_searches=fleetwide_searches,
             )
         except Exception:
-            return cls(
-                elastic_url="https://leap-deployment.kb.europe-west2.gcp.elastic-cloud.com:9243",
-                elastic_api_key=None,
-                elastic_index=None,
-                elastic_timestamp_field="@timestamp_ros",
-                conditions=_default_conditions(),
-            )
+            # Parse errors propagate: load() decides how to recover
+            # (quarantine + backup), import_shareable() refuses the file.
+            raise
 
     def save(self, path: Path = DEFAULT_SETTINGS_PATH) -> None:
         try:
@@ -310,9 +353,21 @@ class Settings:
                 for search in self.fleetwide_searches
                 if search.name.strip() and search.query.strip()
             ]
-            path.write_text(json.dumps(payload, indent=2))
-        except Exception:
-            pass
+            payload.pop("load_warning", None)
+            text = json.dumps(payload, indent=2)
+            # Atomic write: a crash mid-save must not leave a truncated file
+            # (which load() would then have to quarantine). Keep the previous
+            # good file as .bak for load()'s recovery path.
+            tmp_path = path.with_name(path.name + ".tmp")
+            tmp_path.write_text(text)
+            if path.exists():
+                try:
+                    shutil.copy2(path, path.with_name(path.name + ".bak"))
+                except Exception:
+                    pass
+            os.replace(tmp_path, path)
+        except Exception as exc:
+            print(f"[settings] FAILED to save {path}: {exc}", flush=True)
 
     def export_shareable(self, path: Path) -> None:
         payload = {
@@ -331,10 +386,15 @@ class Settings:
         data = json.loads(path.read_text())
         if not isinstance(data, dict) or data.get("_format") != SHAREABLE_EXPORT_FORMAT:
             raise ValueError("File is not a Logfather settings export.")
-        # Reuse load() to parse with all defaulting / backfilling logic, then
-        # copy only the fields that are actually present in the import file so
-        # locally-stored secrets and per-user paths are left untouched.
-        parsed = Settings.load(path)
+        # Parse with all defaulting / backfilling logic, then copy only the
+        # fields that are actually present in the import file so locally
+        # stored secrets and per-user paths are left untouched. A malformed
+        # export must raise, never fall back to defaults (which would wipe
+        # the live settings with factory values).
+        try:
+            parsed = Settings._from_dict(data)
+        except Exception as exc:
+            raise ValueError(f"Settings export could not be parsed: {exc}") from exc
         for name in SHAREABLE_FIELDS:
             if name in data:
                 setattr(self, name, getattr(parsed, name))
