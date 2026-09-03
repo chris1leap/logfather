@@ -1317,7 +1317,11 @@ def analyze_video_offset(
     settings_path: Path | None = None,
     settings_key: str | None = None,
     parent: QWidget | None = None,
+    should_abort=None,
 ) -> OcrOffsetResult | None:
+    """`should_abort` (callable -> bool) is polled between frames so a
+    worker-thread run can be interrupted quickly (e.g. at app shutdown);
+    aborted runs return None."""
     _ensure_tesseract()
     base_dt = parse_filename_datetime(video_path)
     if base_dt is None:
@@ -1352,6 +1356,9 @@ def analyze_video_offset(
     )
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
+    def _aborted() -> bool:
+        return should_abort is not None and should_abort()
+
     fast_seconds = OCR_SYNC_FAST_SECONDS
     fallback_seconds = OCR_SYNC_FALLBACK_SECONDS
     samples = _find_second_boundary_samples_for_cap(
@@ -1363,9 +1370,10 @@ def analyze_video_offset(
         roi=roi,
         parent=parent,
         progress_label=f"Scanning first {fast_seconds}s (coarse)...",
+        should_abort=should_abort,
     )
     best_start = _estimate_start_from_samples(samples, base_dt)
-    if best_start is None:
+    if best_start is None and not _aborted():
         samples = _collect_ocr_samples_for_cap(
             cap,
             fps,
@@ -1375,9 +1383,10 @@ def analyze_video_offset(
             roi=roi,
             parent=parent,
             progress_label=f"Analyzing first {fast_seconds}s...",
+            should_abort=should_abort,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
-    if best_start is None and fallback_seconds > fast_seconds:
+    if best_start is None and fallback_seconds > fast_seconds and not _aborted():
         samples = _find_second_boundary_samples_for_cap(
             cap,
             fps,
@@ -1387,9 +1396,10 @@ def analyze_video_offset(
             roi=roi,
             parent=parent,
             progress_label=f"Scanning first {fallback_seconds}s (coarse)...",
+            should_abort=should_abort,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
-    if best_start is None and fallback_seconds > fast_seconds:
+    if best_start is None and fallback_seconds > fast_seconds and not _aborted():
         samples = _collect_ocr_samples_for_cap(
             cap,
             fps,
@@ -1399,9 +1409,10 @@ def analyze_video_offset(
             roi=roi,
             parent=parent,
             progress_label=f"Analyzing first {fallback_seconds}s...",
+            should_abort=should_abort,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
-    if best_start is None:
+    if best_start is None or _aborted():
         cap.release()
         return None
 
@@ -1433,6 +1444,7 @@ def _collect_ocr_samples_for_cap(
     roi: Roi,
     parent: QWidget | None,
     progress_label: str,
+    should_abort=None,
 ) -> list[tuple[int, float, datetime, str]]:
     if frame_count <= 0 or fps <= 0:
         return []
@@ -1452,6 +1464,8 @@ def _collect_ocr_samples_for_cap(
         progress.setMinimumDuration(0)
         progress.setValue(0)
     for frame_idx in range(0, max_frames):
+        if should_abort is not None and should_abort():
+            break
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
         ret, frame = cap.read()
         if not ret or frame is None:
@@ -1508,6 +1522,7 @@ def _find_second_boundary_samples_for_cap(
     roi: Roi,
     parent: QWidget | None,
     progress_label: str,
+    should_abort=None,
 ) -> list[tuple[int, float, datetime, str]]:
     if frame_count <= 0 or fps <= 0:
         return []
@@ -1533,6 +1548,8 @@ def _find_second_boundary_samples_for_cap(
 
     prev: tuple[int, float, datetime, str] | None = None
     for idx, frame_idx in enumerate(frame_indices):
+        if should_abort is not None and should_abort():
+            break
         sample = _ocr_sample_for_frame(cap, frame_idx, fps, base_dt, roi)
         if progress:
             progress.setValue(idx + 1)
@@ -1551,6 +1568,8 @@ def _find_second_boundary_samples_for_cap(
                         end = max(prev[0], sample[0])
                         boundary_sample = None
                         for frame_scan in range(start, end + 1):
+                            if should_abort is not None and should_abort():
+                                break
                             scanned = _ocr_sample_for_frame(
                                 cap,
                                 frame_scan,

@@ -4376,16 +4376,33 @@ class VideoLogViewer(QWidget):
             return path, None
 
     @staticmethod
-    def _ocr_video_source(src: Path, copy_to: Path | None) -> Path:
+    def _ocr_video_source(src: Path, copy_to: Path | None, should_abort=None) -> Path:
         """Worker-side: materialize the OCR source decided by
-        _plan_ocr_video_source, falling back to the share on copy failure."""
+        _plan_ocr_video_source, falling back to the share on copy failure.
+        The copy is chunked so shutdown can abort it mid-file (an
+        uninterruptible SMB copy held the close for seconds)."""
         if copy_to is None:
             return src
+        tmp_path = copy_to.with_suffix(copy_to.suffix + ".part")
         try:
             if not copy_to.exists():
-                shutil.copy2(src, copy_to)
+                with open(src, "rb") as fin, open(tmp_path, "wb") as fout:
+                    while True:
+                        if should_abort is not None and should_abort():
+                            raise InterruptedError("OCR copy aborted")
+                        chunk = fin.read(4 * 1024 * 1024)
+                        if not chunk:
+                            break
+                        fout.write(chunk)
+                shutil.copystat(src, tmp_path)
+                tmp_path.replace(copy_to)
             return copy_to
         except Exception:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except Exception:
+                pass
             return src
 
     def open_ocr_roi_tool(self, auto_start: bool = True, auto_close_on_success: bool = False):
@@ -4443,7 +4460,9 @@ class VideoLogViewer(QWidget):
             dlg.open_video(str(ready_path))
 
         self._ocr_sync_slot.start(
-            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(src, copy_to),
+            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(
+                src, copy_to, should_abort=job.interrupted
+            ),
             on_result=_open_when_ready,
         )
 
@@ -4506,7 +4525,9 @@ class VideoLogViewer(QWidget):
             dlg.open_video(str(ready_path))
 
         self._ocr_secondary_sync_slot.start(
-            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(src, copy_to),
+            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(
+                src, copy_to, should_abort=job.interrupted
+            ),
             on_result=_open_when_ready,
         )
 
@@ -4551,12 +4572,13 @@ class VideoLogViewer(QWidget):
         settings_path = self.ocr_settings_path
 
         def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
-            video_path = self._ocr_video_source(src, copy_to)
+            video_path = self._ocr_video_source(src, copy_to, should_abort=job.interrupted)
             return analyze_video_offset(
                 str(video_path),
                 settings_path=settings_path,
                 settings_key=pikpak_id,
                 parent=None,
+                should_abort=job.interrupted,
             )
 
         def _apply(result, src=src, key=key):
@@ -4633,12 +4655,13 @@ class VideoLogViewer(QWidget):
         settings_path = self.ocr_settings_path
 
         def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
-            video_path = self._ocr_video_source(src, copy_to)
+            video_path = self._ocr_video_source(src, copy_to, should_abort=job.interrupted)
             return analyze_video_offset(
                 str(video_path),
                 settings_path=settings_path,
                 settings_key=pikpak_id,
                 parent=None,
+                should_abort=job.interrupted,
             )
 
         def _apply(result, src=src, key=key):
