@@ -6,16 +6,18 @@ when adding items; move items to the changelog section when shipped.
 
 ## Open
 
-- **Calibration window transport controls** (Chris, 2026-09-03): the
-  conveyor calibration dialog currently mirrors whatever frame the main
-  viewer shows, and the only way to choose the start/end frames is to
-  scrub the main window underneath — which is not discoverable. Add
-  transport controls to the dialog itself (at minimum step-back /
-  step-forward buttons and a small scrub slider that drive the viewer's
-  playhead), plus a visible current-playhead timestamp and a hint that
-  the dialog follows the viewer.
+(nothing at the moment)
 
 ## Shipped
+
+- Calibration window transport controls (2026-09-03, Chris): the dialog
+  now has −10/−1/+1/+10 frame-step buttons, a scrub slider that drives
+  the main viewer's playhead (and follows it), a live playhead
+  timestamp, and a hint that the preview mirrors the viewer. The dialog
+  emits transport_step / transport_seek_fraction; TargetOverlayController
+  applies them via scrub_by_frames / seek_to_seconds. Also fixed: the
+  live frame feed now connects even when the dialog opens before the
+  clip finishes loading.
 
 - Session resume (2026-09-03, Chris): the app remembers the open system,
   day, and playhead time at shutdown and offers to restore them at

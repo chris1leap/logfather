@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QGroupBox,
     QSizePolicy,
+    QSlider,
     QMessageBox,
 )
 
@@ -163,6 +164,10 @@ class _FrameCanvas(QLabel):
 
 class ConveyorCalibrationDialog(QDialog):
     calibration_saved = Signal(object)
+    # Transport requests: the dialog has no video of its own — the owner
+    # (TargetOverlayController) applies these to the main viewer's playhead.
+    transport_step = Signal(int)          # +/- frames
+    transport_seek_fraction = Signal(float)  # 0.0..1.0 within the loaded clip
 
     def __init__(self, cal: ConveyorCalibration, parent=None):
         super().__init__(parent, Qt.Window)
@@ -193,6 +198,44 @@ class ConveyorCalibrationDialog(QDialog):
         self._canvas = _FrameCanvas()
         self._canvas.clicked_norm.connect(self._on_canvas_click)
         left.addWidget(self._canvas, 1)
+
+        transport_row = QHBoxLayout()
+        transport_row.setSpacing(4)
+        for label, delta, tip in (
+            ("−10", -10, "Step the viewer back 10 frames"),
+            ("−1", -1, "Step the viewer back 1 frame"),
+        ):
+            btn = QPushButton(label)
+            btn.setFixedWidth(44)
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
+            transport_row.addWidget(btn)
+        self._scrub = QSlider(Qt.Horizontal)
+        self._scrub.setRange(0, 1000)
+        self._scrub.setToolTip("Scrub the main viewer within the loaded clip")
+        self._scrub.valueChanged.connect(self._on_scrub_changed)
+        transport_row.addWidget(self._scrub, 1)
+        for label, delta, tip in (
+            ("+1", 1, "Step the viewer forward 1 frame"),
+            ("+10", 10, "Step the viewer forward 10 frames"),
+        ):
+            btn = QPushButton(label)
+            btn.setFixedWidth(44)
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
+            transport_row.addWidget(btn)
+        self._time_lbl = QLabel("--:--:--.---")
+        self._time_lbl.setStyleSheet("font-family: monospace; color: #d7dde2;")
+        self._time_lbl.setToolTip("Current playhead time (local)")
+        transport_row.addWidget(self._time_lbl)
+        left.addLayout(transport_row)
+
+        hint = QLabel(
+            "The preview follows the main viewer — these controls move the viewer's playhead."
+        )
+        hint.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+        hint.setWordWrap(True)
+        left.addWidget(hint)
 
         self._mode_lbl = QLabel("Mode: idle")
         self._mode_lbl.setStyleSheet("color: #7f8c8d; font-size: 10px;")
@@ -256,7 +299,22 @@ class ConveyorCalibrationDialog(QDialog):
 
     def on_time(self, dt: datetime) -> None:
         self._current_time = dt.astimezone(timezone.utc) if dt.tzinfo else dt.astimezone(timezone.utc)
+        self._time_lbl.setText(self._current_time.astimezone().strftime("%H:%M:%S.%f")[:-3])
         self._refresh_overlays()
+
+    def on_clip_position(self, fraction: float) -> None:
+        """Reflect the viewer's position on the scrub slider (0.0..1.0)."""
+        if self._scrub.isSliderDown():
+            return  # the user is dragging; don't fight them
+        value = int(round(max(0.0, min(1.0, fraction)) * 1000))
+        self._scrub.blockSignals(True)
+        self._scrub.setValue(value)
+        self._scrub.blockSignals(False)
+
+    def _on_scrub_changed(self, value: int) -> None:
+        # Only ever fires for user interaction: programmatic updates go
+        # through on_clip_position with signals blocked.
+        self.transport_seek_fraction.emit(value / 1000.0)
 
     def _refresh_status(self):
         parts = [f"Belt: {self._cal.belt_pixels_per_sec:.5f} norm-x/s"]

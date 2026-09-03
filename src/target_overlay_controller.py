@@ -246,13 +246,16 @@ class TargetOverlayController(QObject):
         dialog = ConveyorCalibrationDialog(self._conveyor_cal, parent=self._parent_widget)
         dialog.calibration_saved.connect(self._on_calibration_saved)
         dialog.finished.connect(self._on_cal_dialog_closed)
+        dialog.transport_step.connect(self._on_cal_transport_step)
+        dialog.transport_seek_fraction.connect(self._on_cal_transport_seek)
 
-        # Feed dialog the current frame if available
+        # Live frame updates. Connected unconditionally: previously this only
+        # connected when a frame existed at open time, so a dialog opened
+        # before the clip finished loading never received frames.
+        self._viewer.current_time_changed.connect(self._feed_cal_dialog_frame)
         frame = self._viewer.video_label._frame
         if frame is not None:
             dialog.on_frame(frame)
-            # Live frame updates
-            self._viewer.current_time_changed.connect(self._feed_cal_dialog_frame)
 
         # Feed current targets
         if self._buffer_events and self._last_playhead_dt:
@@ -262,7 +265,28 @@ class TargetOverlayController(QObject):
             dialog.on_time(self._last_playhead_dt)
 
         self._cal_dialog = dialog
+        self._feed_cal_dialog_position()
         dialog.show()
+
+    def _on_cal_transport_step(self, delta_frames: int) -> None:
+        self._viewer.scrub_by_frames(int(delta_frames))
+
+    def _on_cal_transport_seek(self, fraction: float) -> None:
+        viewer = self._viewer
+        if viewer.cap is None or viewer.fps <= 0 or viewer.frame_count <= 0:
+            return
+        duration = viewer.frame_count / viewer.fps
+        viewer.seek_to_seconds(max(0.0, min(1.0, float(fraction))) * duration)
+
+    def _feed_cal_dialog_position(self) -> None:
+        if self._cal_dialog is None:
+            return
+        viewer = self._viewer
+        if viewer.cap is None or viewer.frame_count <= 1:
+            return
+        self._cal_dialog.on_clip_position(
+            viewer.current_frame / (viewer.frame_count - 1)
+        )
 
     def _feed_cal_dialog_frame(self, dt: datetime) -> None:
         if self._cal_dialog is None:
@@ -270,6 +294,7 @@ class TargetOverlayController(QObject):
         frame = self._viewer.video_label._frame
         if frame is not None:
             self._cal_dialog.on_frame(frame)
+        self._feed_cal_dialog_position()
         if self._buffer_events:
             if dt.tzinfo is None:
                 dt = dt.astimezone(timezone.utc)
