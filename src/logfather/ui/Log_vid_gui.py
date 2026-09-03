@@ -33,6 +33,7 @@ from logfather.core.frame_analysis import (
 )
 from logfather.ui.annotated_video_widget import AnnotatedVideoWidget
 from logfather.data.clip_cache import ClipCache
+from logfather.data.ocr_offset_store import OcrOffsetStore
 from logfather.core.log_events import (
     LOCAL_TIMEZONE,
     MESSAGE_COLUMN,
@@ -230,7 +231,8 @@ class VideoLogViewer(QWidget):
         self.ocr_frame_offset = 0
         self._ocr_sync_prompt_choice: bool | None = None
         self.ocr_settings_path: Path | None = None
-        self.offset_cache_path: Path | None = None
+        self.offset_store = OcrOffsetStore()
+        self.secondary_offset_store = OcrOffsetStore()
         self.pending_pikpak_path: str | None = None
         self.pending_start_iso: str | None = None
         self.pending_end_iso: str | None = None
@@ -556,8 +558,8 @@ class VideoLogViewer(QWidget):
         self.cache_root = self.clip_cache.root
         settings_root = DEFAULT_SETTINGS_PATH.parent
         self.ocr_settings_path = settings_root / "ocr_settings.json"
-        self.offset_cache_path = self.cache_root / "ocr_offsets.json"
-        self.secondary_offset_cache_path = self.cache_root / "ocr_offsets_additional.json"
+        self.offset_store = OcrOffsetStore(self.cache_root / "ocr_offsets.json")
+        self.secondary_offset_store = OcrOffsetStore(self.cache_root / "ocr_offsets_additional.json")
         self._load_pinned_annotations()
         self.cache_status_label = QLabel("")
         self.cache_status_label.setStyleSheet("color: #888888;")
@@ -1713,7 +1715,7 @@ class VideoLogViewer(QWidget):
         self.current_video_original_path = path_obj
         self._load_clip_annotations()
         key = self._offset_cache_key(Path(self.current_video_path))
-        cached = self._get_cached_offset(key, self.offset_cache_path)
+        cached = self.offset_store.get(key)
         if cached:
             try:
                 self.ocr_offset_seconds = float(cached.get("offset_seconds"))
@@ -1750,7 +1752,7 @@ class VideoLogViewer(QWidget):
     def _confirm_ocr_sync(self) -> bool:
         if self.current_video_path:
             key = self._offset_cache_key(Path(self.current_video_path))
-            if self._get_cached_offset(key, self.offset_cache_path):
+            if self.offset_store.get(key):
                 return True
         settings = Settings.load()
         if not settings.auto_ocr_sync:
@@ -4154,7 +4156,7 @@ class VideoLogViewer(QWidget):
         self.secondary_locked = True
         key_path = self.secondary_video_original_path or Path(self.secondary_video_path)
         key = self._offset_cache_key(key_path, tag="additional")
-        cached = self._get_cached_offset(key, self.secondary_offset_cache_path)
+        cached = self.secondary_offset_store.get(key)
         if isinstance(cached, dict) and cached.get("source") == "additional":
             try:
                 self.secondary_ocr_offset_seconds = float(cached.get("offset_seconds"))
@@ -4325,73 +4327,12 @@ class VideoLogViewer(QWidget):
         if dt > 0.5:
             print(f"[viewer] secondary update took {dt:.2f}s", flush=True)
 
-    def _load_offset_cache(self, cache_path: Path | None = None) -> dict:
-        target = cache_path or self.offset_cache_path
-        if not target:
-            return {}
-        if not target.exists():
-            return {}
-        try:
-            return json.loads(target.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-    def _save_offset_cache(self, data: dict, cache_path: Path | None = None) -> None:
-        target = cache_path or self.offset_cache_path
-        if not target:
-            return
-        try:
-            target.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-
-    def _get_cached_offset(self, key: str, cache_path: Path | None = None) -> dict | None:
-        data = self._load_offset_cache(cache_path)
-        offsets = data.get("offsets", {})
-        if not isinstance(offsets, dict):
-            return None
-        item = offsets.get(key)
-        if not isinstance(item, dict):
-            return None
-        return item
-
     def _offset_cache_key(self, path: Path, *, tag: str | None = None) -> str:
         pikpak_id = self._extract_pikpak_id(path) or "unknown"
         ts = parse_filename_datetime(path)
         ts_key = ts.strftime("%Y%m%d%H%M%S") if ts else path.stem
         suffix = f":{tag}" if tag else ""
         return f"{pikpak_id}:{ts_key}{suffix}"
-
-    def _set_cached_offset(
-        self,
-        key: str,
-        offset_seconds: float,
-        frame_offset: int,
-        *,
-        source: str | None = None,
-        cache_path: Path | None = None,
-    ) -> None:
-        data = self._load_offset_cache(cache_path)
-        offsets = data.get("offsets")
-        if not isinstance(offsets, dict):
-            offsets = {}
-            data["offsets"] = offsets
-        entry = {
-            "offset_seconds": float(offset_seconds),
-            "frame_offset": int(frame_offset),
-        }
-        if source:
-            entry["source"] = source
-        offsets[key] = entry
-        self._save_offset_cache(data, cache_path)
-
-    def _clear_cached_offset(self, key: str, cache_path: Path | None = None) -> None:
-        data = self._load_offset_cache(cache_path)
-        offsets = data.get("offsets")
-        if not isinstance(offsets, dict) or key not in offsets:
-            return
-        offsets.pop(key, None)
-        self._save_offset_cache(data, cache_path)
 
     def _plan_ocr_video_source(self, path: Path) -> tuple[Path, Path | None]:
         """Decide on the UI thread where OCR should read the clip from.
@@ -4440,12 +4381,7 @@ class VideoLogViewer(QWidget):
                 self.ocr_offset_seconds = float(offset_seconds)
                 self.ocr_frame_offset = int(frame_offset)
                 self.video_start_dt = video_start_dt
-                self._set_cached_offset(
-                    key,
-                    offset_seconds,
-                    frame_offset,
-                    cache_path=self.offset_cache_path,
-                )
+                self.offset_store.set(key, offset_seconds, frame_offset)
                 self._apply_auto_sync_if_possible()
                 self._main_sync_done = True
                 self._update_sync_button_style()
@@ -4506,12 +4442,8 @@ class VideoLogViewer(QWidget):
                 self.secondary_ocr_offset_seconds = float(offset_seconds)
                 self.secondary_ocr_frame_offset = int(frame_offset)
                 self.secondary_video_start_dt = video_start_dt
-                self._set_cached_offset(
-                    key,
-                    offset_seconds,
-                    frame_offset,
-                    source="additional",
-                    cache_path=self.secondary_offset_cache_path,
+                self.secondary_offset_store.set(
+                    key, offset_seconds, frame_offset, source="additional"
                 )
                 self._refresh_secondary_after_sync()
                 self._secondary_sync_done = True
@@ -4562,7 +4494,7 @@ class VideoLogViewer(QWidget):
         pikpak_id = self._extract_pikpak_id(path)
         key = self._offset_cache_key(path)
         settings = Settings.load()
-        cached = None if force else self._get_cached_offset(key, self.offset_cache_path)
+        cached = None if force else self.offset_store.get(key)
         if cached:
             try:
                 self.ocr_offset_seconds = float(cached.get("offset_seconds"))
@@ -4618,12 +4550,7 @@ class VideoLogViewer(QWidget):
             self.ocr_offset_seconds = result.offset_seconds
             self.ocr_frame_offset = result.frame_offset
             self.video_start_dt = result.video_start_dt
-            self._set_cached_offset(
-                key,
-                result.offset_seconds,
-                result.frame_offset,
-                cache_path=self.offset_cache_path,
-            )
+            self.offset_store.set(key, result.offset_seconds, result.frame_offset)
             self._apply_auto_sync_if_possible()
 
         self._ocr_sync_slot.start(
@@ -4640,7 +4567,7 @@ class VideoLogViewer(QWidget):
         pikpak_id = self._extract_pikpak_id(key_path)
         key = self._offset_cache_key(key_path, tag="additional")
         settings = Settings.load()
-        cached = None if force else self._get_cached_offset(key, self.secondary_offset_cache_path)
+        cached = None if force else self.secondary_offset_store.get(key)
         if isinstance(cached, dict) and cached.get("source") != "additional":
             cached = None
         if cached:
@@ -4704,12 +4631,8 @@ class VideoLogViewer(QWidget):
             self.secondary_ocr_offset_seconds = result.offset_seconds
             self.secondary_ocr_frame_offset = result.frame_offset
             self.secondary_video_start_dt = result.video_start_dt
-            self._set_cached_offset(
-                key,
-                result.offset_seconds,
-                result.frame_offset,
-                source="additional",
-                cache_path=self.secondary_offset_cache_path,
+            self.secondary_offset_store.set(
+                key, result.offset_seconds, result.frame_offset, source="additional"
             )
             self._refresh_secondary_after_sync()
 

@@ -675,3 +675,36 @@ class TestWindowGeometryClamp:
         out = self._clamp((-1900, 10, 800, 600), (-1920, 0, 1920, 1080))
         assert out.x() == -1900
         assert out.y() == 10
+
+
+class TestOcrOffsetStore:
+    def _store(self, tmp_path):
+        from logfather.data.ocr_offset_store import OcrOffsetStore
+        return OcrOffsetStore(tmp_path / "offsets.json")
+
+    def test_round_trip(self, tmp_path):
+        store = self._store(tmp_path)
+        store.set("PikPak012:20260901052919", 1.24, 3)
+        entry = store.get("PikPak012:20260901052919")
+        assert entry == {"offset_seconds": 1.24, "frame_offset": 3}
+
+    def test_source_tag_persisted(self, tmp_path):
+        store = self._store(tmp_path)
+        store.set("k", 0.5, 1, source="additional")
+        assert store.get("k")["source"] == "additional"
+
+    def test_missing_key_returns_none(self, tmp_path):
+        assert self._store(tmp_path).get("nope") is None
+
+    def test_pathless_store_is_inert(self):
+        from logfather.data.ocr_offset_store import OcrOffsetStore
+        store = OcrOffsetStore()
+        store.set("k", 1.0, 0)
+        assert store.get("k") is None
+
+    def test_corrupt_file_reads_as_empty(self, tmp_path):
+        store = self._store(tmp_path)
+        store.path.write_text("{not json", encoding="utf-8")
+        assert store.get("k") is None
+        store.set("k", 2.0, 4)  # recovers by rewriting
+        assert store.get("k")["offset_seconds"] == 2.0
