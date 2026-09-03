@@ -408,58 +408,48 @@ def fetch_overview_event_chunks(
         start_iso = chunk_start.isoformat().replace("+00:00", "Z")
         end_iso = chunk_end.isoformat().replace("+00:00", "Z")
         grouped: dict[str, list[dict]] = {robot_id: [] for robot_id in robot_to_root}
-        search_after: list[str] | None = None
-        page = 0
-        max_pages = 60
-        page_size = 3000
-
-        while page < max_pages:
-            body = _build_overview_query(
-                list(robot_to_root.keys()),
-                start_iso,
-                end_iso,
-                ts_fields,
-                sort_field,
-                size=page_size,
-                search_after=search_after,
+        try:
+            outcome = paginate(
+                lambda size, search_after: _build_overview_query(
+                    list(robot_to_root.keys()),
+                    start_iso,
+                    end_iso,
+                    ts_fields,
+                    sort_field,
+                    size=size,
+                    search_after=search_after,
+                ),
+                session=session,
+                endpoint=search_endpoint,
+                headers=headers,
+                page_size=3000,
+                max_pages=60,
+                timeout_sec=15,
+                label="overview query",
             )
-            try:
-                resp = session.post(search_endpoint, json=body, headers=headers, timeout=15)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as exc:
-                raise ElasticFetchError(f"[elastic] overview query failed: {exc}", []) from exc
-            hits = data.get("hits", {}).get("hits", [])
-            if not hits:
-                break
-            for hit in hits:
-                src = hit.get("_source", {})
-                if not isinstance(src, dict):
-                    continue
-                robot_id = _extract_hit_robot_id(src)
-                if not robot_id or robot_id not in grouped:
-                    continue
-                ts_val = src.get("@timestamp_ros") or src.get(sort_field) or src.get("@timestamp")
-                ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
-                if not ts:
-                    continue
-                grouped[robot_id].append(
-                    {
-                        "ts": _ensure_utc(ts),
-                        "state_name": str(src.get("state_name") or "").strip(),
-                        "message": str(src.get("message") or "").strip(),
-                        "service_name": _extract_service_name(src),
-                        "source": str(src.get("source") or "").strip(),
-                        "selection": _extract_ui_selection(src),
-                    }
-                )
-            if len(hits) < page_size:
-                break
-            last_sort = hits[-1].get("sort")
-            if not last_sort:
-                break
-            search_after = last_sort
-            page += 1
+        except ElasticFetchError as exc:
+            raise ElasticFetchError(str(exc), []) from exc
+        for hit in outcome.hits:
+            src = hit.get("_source", {})
+            if not isinstance(src, dict):
+                continue
+            robot_id = _extract_hit_robot_id(src)
+            if not robot_id or robot_id not in grouped:
+                continue
+            ts_val = src.get("@timestamp_ros") or src.get(sort_field) or src.get("@timestamp")
+            ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
+            if not ts:
+                continue
+            grouped[robot_id].append(
+                {
+                    "ts": _ensure_utc(ts),
+                    "state_name": str(src.get("state_name") or "").strip(),
+                    "message": str(src.get("message") or "").strip(),
+                    "service_name": _extract_service_name(src),
+                    "source": str(src.get("source") or "").strip(),
+                    "selection": _extract_ui_selection(src),
+                }
+            )
 
         for items in grouped.values():
             items.sort(key=lambda item: item.get("ts") or datetime.min.replace(tzinfo=timezone.utc))
