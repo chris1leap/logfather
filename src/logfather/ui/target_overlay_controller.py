@@ -252,7 +252,7 @@ class TargetOverlayController(QObject):
         dialog.transport_play.connect(self._viewer.play)
         dialog.transport_pause.connect(self._viewer.pause)
         dialog.transport_jump_fraction.connect(self._on_cal_transport_jump)
-        dialog.set_clip_context(self._current_clip_key())
+        dialog.set_clip_context(self._current_clip_key(), self._cal_position_info)
 
         # Live frame updates. Connected unconditionally: previously this only
         # connected when a frame existed at open time, so a dialog opened
@@ -281,6 +281,22 @@ class TargetOverlayController(QObject):
         if not path:
             return None
         return re.sub(r"_[0-9a-f]{16}$", "", Path(path).stem)
+
+    def _cal_position_info(self, fraction: float) -> tuple[int, datetime | None]:
+        """Frame number and playback time for a captured clip fraction —
+        the same maths the go-to jump and the viewer's clock use."""
+        viewer = self._viewer
+        frame = int(round(max(0.0, min(1.0, float(fraction))) * max(1, viewer.frame_count - 1)))
+        dt = None
+        if viewer.fps > 0:
+            t = frame / viewer.fps
+            if viewer.video_start_dt is not None:
+                dt = viewer.alignment.playback_datetime(viewer.video_start_dt, t)
+            elif viewer.current_video_filename_dt is not None:
+                dt = viewer.alignment.playback_datetime_from_filename(
+                    viewer.current_video_filename_dt, t
+                )
+        return frame, dt
 
     def _on_cal_transport_step(self, delta_frames: int) -> None:
         self._viewer.scrub_by_frames(int(delta_frames))
