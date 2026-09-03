@@ -393,6 +393,10 @@ class ConveyorCalibrationDialog(QDialog):
         line_start, line_end, dt = resolved
 
         self._line_capture_mode = None
+        # Clear the pending start capture: _refresh_overlays gives it
+        # priority, so leaving it set drew a zero-length line at the start
+        # point instead of the finished A->B line with its end marker.
+        self._line_start_capture = None
         self._cal.tracking_line_start_norm = [line_start[0], line_start[1]]
         self._cal.tracking_line_end_norm = [line_end[0], line_end[1]]
         self._cal.tracking_line_duration_sec = dt
