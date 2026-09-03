@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve
 from PySide6.QtWidgets import (
+    QApplication,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -653,19 +654,50 @@ class MainWindow(QWidget):
         # Qt delivers close events only to the top-level window: the panels'
         # own closeEvents never fire inside the app, so every worker thread
         # must be stopped from here or it races Qt teardown and crashes.
-        self._overlay_controller.shutdown()
-        for shutdown in (
-            self._stop_report_slot.shutdown,
-            self.date_picker.stop_scan_thread,
-            self.time_picker.shutdown_workers,
-            self.overview_widget.shutdown_workers,
-            self.fleetwide_search_widget.shutdown_workers,
-            self.viewer.shutdown_workers,
-        ):
+        # A small always-on-top popup narrates the steps (Chris, 2026-09-03:
+        # closing could take seconds with no sign anything was happening),
+        # and each step's duration is printed so slow ones are attributable.
+        if getattr(self, "_shutdown_in_progress", False):
+            event.accept()
+            return
+        self._shutdown_in_progress = True
+        popup = QLabel(
+            "Shutting down...",
+            None,
+            Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint,
+        )
+        popup.setStyleSheet(
+            "background-color: #10151a; color: #d7dde2; padding: 18px 28px;"
+            "border: 1px solid #4a5560; font-size: 12px;"
+        )
+        popup.setAlignment(Qt.AlignCenter)
+        popup.setMinimumWidth(340)
+
+        def _step(label: str):
+            popup.setText(f"Shutting down...\n\n{label}")
+            popup.show()
+            QApplication.processEvents()
+
+        steps = (
+            ("Stopping target-overlay worker", self._overlay_controller.shutdown),
+            ("Stopping stop-report worker", self._stop_report_slot.shutdown),
+            ("Stopping date scan", self.date_picker.stop_scan_thread),
+            ("Stopping timeline loader", self.time_picker.shutdown_workers),
+            ("Stopping overview loader", self.overview_widget.shutdown_workers),
+            ("Stopping fleetwide search", self.fleetwide_search_widget.shutdown_workers),
+            ("Saving settings, stopping viewer workers", self.viewer.shutdown_workers),
+        )
+        for label, shutdown in steps:
+            _step(label)
+            t0 = time.perf_counter()
             try:
                 shutdown()
             except Exception as exc:
                 print(f"[main] shutdown step failed: {exc}", flush=True)
+            dt_ms = (time.perf_counter() - t0) * 1000
+            if dt_ms > 100:
+                print(f"[shutdown] '{label}' took {dt_ms:.0f}ms", flush=True)
+        _step("Saving session")
         # Geometry capture and session save must come AFTER
         # viewer.shutdown_workers: its settings flush emits settings_saved,
         # which makes _reload_settings_from_viewer REPLACE self.settings —
@@ -690,6 +722,7 @@ class MainWindow(QWidget):
             self.settings.save()
         except Exception:
             pass
+        popup.close()
         super().closeEvent(event)
 
     def on_time_chosen(self, item: TimelineItem):
