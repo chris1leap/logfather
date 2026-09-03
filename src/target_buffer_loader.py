@@ -6,7 +6,9 @@ from datetime import datetime
 from pathlib import Path
 
 from elastic_client import (
+    api_headers,
     get_thread_session as _get_thread_session,
+    paginate,
     search_url as _search_url,
 )
 from elastic_loader import (
@@ -136,65 +138,50 @@ def fetch_buffer_events(
     print(f"[buffer] window {start_iso} → {end_iso}")
     ts_fields = list(ELASTIC_TIMESTAMP_FIELDS)
     sort_field = ts_fields[0] if ts_fields else "@timestamp"
-    headers = {
-        "Content-Type": "application/json",
-        "kbn-xsrf": "true",
-        "Authorization": f"ApiKey {api_key}",
-    }
+    headers = api_headers(api_key)
     search_endpoint = _search_url(url, index_id)
     session = _get_thread_session()
+
+    # Errors keep whatever pages arrived: partial buffer state beats none.
+    outcome = paginate(
+        lambda size, search_after: _build_buffer_query(
+            robot_id, start_iso, end_iso, ts_fields, sort_field,
+            size=size, search_after=search_after,
+        ),
+        session=session,
+        endpoint=search_endpoint,
+        headers=headers,
+        page_size=1000,
+        max_pages=20,
+        timeout_sec=12,
+        label="buffer query",
+        on_error="warn",
+    )
 
     # Separate buckets for the two message types
     targeting: dict[int, dict] = {}        # target_index -> source_doc
     motion: list[tuple[datetime, dict]] = []
 
-    search_after: list | None = None
+    for hit in outcome.hits:
+        src = hit.get("_source", {})
+        ts_val = src.get("@timestamp_ros") or src.get("@timestamp")
+        ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
+        if not ts:
+            continue
+        ts = _ensure_utc(ts)
+        source_str = str(src.get("source") or "").lower()
+        message = str(src.get("message") or "").lower()
 
-    for _ in range(20):
-        body = _build_buffer_query(
-            robot_id, start_iso, end_iso, ts_fields, sort_field,
-            size=1000, search_after=search_after,
-        )
-        try:
-            resp = session.post(search_endpoint, json=body, headers=headers, timeout=12)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
-            print(f"[buffer] query failed: {exc}")
-            break
+        if "targeting_node" in source_str and "received new unique pick target" in message:
+            idx = src.get("target_index")
+            if idx is not None:
+                try:
+                    targeting[int(idx)] = src
+                except (TypeError, ValueError):
+                    pass
 
-        hits = data.get("hits", {}).get("hits", [])
-        print(f"[buffer] page hits={len(hits)}  targeting={len(targeting)}  motion={len(motion)}")
-        if not hits:
-            break
-
-        for hit in hits:
-            src = hit.get("_source", {})
-            ts_val = src.get("@timestamp_ros") or src.get("@timestamp")
-            ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
-            if not ts:
-                continue
-            ts = _ensure_utc(ts)
-            source_str = str(src.get("source") or "").lower()
-            message = str(src.get("message") or "").lower()
-
-            if "targeting_node" in source_str and "received new unique pick target" in message:
-                idx = src.get("target_index")
-                if idx is not None:
-                    try:
-                        targeting[int(idx)] = src
-                    except (TypeError, ValueError):
-                        pass
-
-            elif "motion_control_node" in source_str and "adding new target to queue" in message:
-                motion.append((ts, src))
-
-        if len(hits) < 1000:
-            break
-        last_sort = hits[-1].get("sort")
-        if not last_sort:
-            break
-        search_after = last_sort
+        elif "motion_control_node" in source_str and "adding new target to queue" in message:
+            motion.append((ts, src))
 
     motion.sort(key=lambda x: x[0])
     print(
