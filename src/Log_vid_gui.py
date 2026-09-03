@@ -5760,7 +5760,15 @@ class VideoLogViewer(QWidget):
     def cancel_queued_prefetches(self) -> None:
         """Drop prefetch jobs that haven't started copying yet (e.g. when the
         user switches to a different day/system). Active copies finish."""
+        # Never cancel the copy a click-triggered load is waiting on: its
+        # completion callback is what closes the "Downloading..." dialog and
+        # opens the clip, and a cancelled future never delivers it.
+        protected_key = None
+        if self._pending_video_load is not None:
+            protected_key = str(self._pending_video_load[2])
         for key, future in list(self._prefetch_futures.items()):
+            if key == protected_key:
+                continue
             if future.cancel():
                 self._prefetch_futures.pop(key, None)
                 self._prefetch_pending.discard(key)
@@ -6808,6 +6816,10 @@ class VideoLogViewer(QWidget):
             try:
                 rows = future.result()
             except ElasticFetchError as exc:
+                # Record the key BEFORE clearing it: assigning after the
+                # clear stored None, so the same partial range was refetched
+                # on every retrigger.
+                request_key = self._active_log_request_key
                 self._active_log_request_key = None
                 print(f"[viewer] log future {fetch_id} partial failure: {exc}", flush=True)
                 if exc.items:
@@ -6815,7 +6827,7 @@ class VideoLogViewer(QWidget):
                         f"[viewer] delivering {len(exc.items)} partial rows despite failure",
                         flush=True,
                     )
-                    self._loaded_log_request_key = self._active_log_request_key
+                    self._loaded_log_request_key = request_key
                     self.logs_ready.emit(exc.items)
                 self.logs_failed.emit(str(exc))
                 return
