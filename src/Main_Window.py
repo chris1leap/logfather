@@ -1,18 +1,13 @@
-import sys
-import time
 import shutil
-import subprocess
-from dataclasses import dataclass
-from concurrent.futures import as_completed
+import time
 from bisect import bisect_left
 from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 
 import cv2
-from PySide6.QtCore import Qt, QTimer, QEvent, Signal, QVariantAnimation, QEasingCurve, QSize, QThread
-from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QIcon, QImage, QPen, QPalette
+from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QApplication,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -21,12 +16,8 @@ from PySide6.QtWidgets import (
     QToolButton,
     QSizePolicy,
     QPushButton,
-    QDialog,
     QLabel,
-    QScrollArea,
-    QProgressDialog,
     QStackedWidget,
-    QSplashScreen,
     QFileDialog,
 )
 
@@ -37,9 +28,6 @@ from Time_Picker import (
     TimelineItem,
     parse_time_from_name,
     ensure_utc,
-    local_day_start_utc,
-    local_day_end_utc,
-    format_local_time,
     MIN_BLOCK_DURATION,
     inferred_live_clip_end,
     VIDEO_COLOR_CACHED,
@@ -48,17 +36,16 @@ from Time_Picker import (
     _build_cache_index,
     _path_key,
 )
-from elastic_loader import fetch_events, fetch_logs_for_range, set_system_id_override
-from app_assets import resolve_asset_path as _resolve_asset_path
+from elastic_loader import fetch_events, set_system_id_override
 from qt_worker import JobSlot
+from stop_report import StopReportDialog, StopReportEntry, build_stop_report_entries
 from settings_store import Settings, display_customer_name, display_line_name
 from Log_vid_gui import VideoLogViewer
 from overview_widget import OverviewWidget
 from fleetwide_elastic_search_widget import FleetwideElasticSearchWidget
-from app_version import format_version_label
 from target_buffer_loader import fetch_buffer_events
 from target_buffer_widget import TargetBufferWidget, _summary_rows, _detail_rows, _display_target_id
-from conveyor_calibration import ConveyorCalibration, load_calibration, save_calibration
+from conveyor_calibration import ConveyorCalibration, load_calibration
 from conveyor_calibration_dialog import ConveyorCalibrationDialog
 
 
@@ -70,196 +57,9 @@ ENABLE_PREFETCH_ADJACENT = True
 # Elastic Cloud, and saturating it made every timeline/log fetch crawl.
 ENABLE_DAY_PREFETCH = False
 ENABLE_LOG_BUTTON = True
-STOP_THUMB_SIZE = (352, 198)
 TIMELINE_MIN_HEIGHT = 165
 TIMELINE_MAX_HEIGHT = 360
 TIMELINE_EXPAND_DELAY_MS = 1500
-
-
-@dataclass
-class StopReportEntry:
-    event_time: datetime
-    category: str
-    label: str
-    video_item: TimelineItem | None
-    video_path: Path | None
-    seek_seconds: float
-    thumbnail: QPixmap
-    source: str = ""
-    state_name: str = ""
-    sku_info: str = ""
-
-
-class StopReportDialog(QDialog):
-    open_requested = Signal(object)  # StopReportEntry
-
-    def __init__(self, entries: list[StopReportEntry], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Stop Report")
-        self.resize(1050, 700)
-        self._entries = list(entries)
-        self._row_widgets: list[tuple[QWidget, str]] = []
-        self._filter_buttons: dict[str, QPushButton] = {}
-        self._media_content_size = QSize(STOP_THUMB_SIZE[0] - 20, STOP_THUMB_SIZE[1] - 20)
-
-        root = QVBoxLayout(self)
-        self._intro = QLabel()
-        root.addWidget(self._intro)
-
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(8)
-        filter_label = QLabel("Filters:")
-        filter_row.addWidget(filter_label)
-        for label, key in (
-            ("Caution", "caution"),
-            ("E-stop", "estop"),
-            ("Operator stop", "operator"),
-            ("Manual stop", "manual"),
-        ):
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setChecked(True)
-            btn.toggled.connect(self._apply_filters)
-            filter_row.addWidget(btn)
-            self._filter_buttons[key] = btn
-        filter_row.addStretch(1)
-        root.addLayout(filter_row)
-
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(6)
-        content_layout.setContentsMargins(6, 6, 6, 6)
-
-        for entry in entries:
-            row = QWidget()
-            bg_color, border_color = self._entry_colors(entry)
-            row.setStyleSheet(
-                f"background-color: {bg_color.name()}; border: 1px solid {border_color.name()}; border-radius: 6px;"
-            )
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(4, 4, 4, 4)
-            row_layout.setSpacing(10)
-
-            media_frame = self._build_media_frame(entry)
-            row_layout.addWidget(media_frame)
-
-            time_only = format_local_time(entry.event_time)
-            text_col = QVBoxLayout()
-            text_col.setSpacing(4)
-
-            title = QLabel(f"{time_only} | {entry.category}")
-            title_font = QFont(self.font())
-            title_font.setPointSize(title_font.pointSize() + 3)
-            title_font.setBold(True)
-            title.setFont(title_font)
-            title.setWordWrap(True)
-            text_col.addWidget(title)
-
-            detail = QLabel(
-                f"{entry.state_name or entry.label}\n"
-                f"SKU: {entry.sku_info or '-'}"
-            )
-            detail.setWordWrap(True)
-            text_col.addWidget(detail)
-            text_col.addStretch(1)
-            row_layout.addLayout(text_col, 1)
-            content_layout.addWidget(row)
-            self._row_widgets.append((row, self._entry_filter_key(entry)))
-
-        content_layout.addStretch(1)
-        scroll.setWidget(content)
-        root.addWidget(scroll, 1)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.close)
-        root.addWidget(close_btn, 0, Qt.AlignRight)
-        self._apply_filters()
-
-    def _request_open(self, entry: StopReportEntry):
-        self.open_requested.emit(entry)
-        self.accept()
-
-    def _build_media_frame(self, entry: StopReportEntry) -> QWidget:
-        holder = QWidget()
-        holder.setFixedSize(STOP_THUMB_SIZE[0], STOP_THUMB_SIZE[1])
-        holder.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        holder.setStyleSheet("background: #000000; border-radius: 8px;")
-        holder_layout = QVBoxLayout(holder)
-        holder_layout.setContentsMargins(10, 10, 10, 10)
-        holder_layout.setSpacing(0)
-
-        thumb_btn = QPushButton()
-        thumb_btn.setFixedSize(self._media_content_size)
-        thumb_btn.setStyleSheet(
-            "QPushButton { border: none; border-radius: 8px; background: transparent; }"
-            "QPushButton:disabled { color: #d9d9d9; background-color: #3a3a3a; }"
-        )
-        if entry.video_path is None:
-            thumb_btn.setText(f"{entry.category}\n{format_local_time(entry.event_time)}")
-            thumb_btn.setEnabled(False)
-        else:
-            thumb_btn.setIcon(QIcon(entry.thumbnail))
-            thumb_btn.setIconSize(self._media_content_size)
-            thumb_btn.clicked.connect(lambda _checked=False, e=entry: self._request_open(e))
-        holder_layout.addWidget(thumb_btn, 0, Qt.AlignCenter)
-        return holder
-
-    def _entry_colors(self, entry: StopReportEntry) -> tuple[QColor, QColor]:
-        key = StopReportDialog._entry_filter_key(entry)
-        base = self.palette().color(QPalette.Window)
-        if key == "estop":
-            accent = QColor("#c85c5c")
-        elif key == "caution":
-            accent = QColor("#c98732")
-        elif key in ("operator", "manual"):
-            accent = QColor("#4b7fc7")
-        else:
-            accent = self.palette().color(QPalette.Mid)
-        bg_color = self._blend_colors(base, accent, 0.22)
-        border_color = self._blend_colors(base, accent, 0.45)
-        return bg_color, border_color
-
-    @staticmethod
-    def _blend_colors(base: QColor, accent: QColor, amount: float) -> QColor:
-        amount = max(0.0, min(1.0, amount))
-        inv = 1.0 - amount
-        return QColor(
-            int(base.red() * inv + accent.red() * amount),
-            int(base.green() * inv + accent.green() * amount),
-            int(base.blue() * inv + accent.blue() * amount),
-        )
-
-    @staticmethod
-    def _entry_filter_key(entry: StopReportEntry) -> str:
-        category = (entry.category or "").strip().lower()
-        state_name = (entry.state_name or "").strip().lower()
-        label = (entry.label or "").strip().lower()
-        combined = f"{category} {state_name} {label}"
-        if "caution" in combined:
-            return "caution"
-        if "manual" in combined:
-            return "manual"
-        if "operator" in combined:
-            return "operator"
-        if "emergency" in combined or "estop" in combined or "e-stop" in combined:
-            return "estop"
-        return "other"
-
-    def _apply_filters(self):
-        enabled = {key for key, btn in self._filter_buttons.items() if btn.isChecked()}
-        visible_count = 0
-        for row, key in self._row_widgets:
-            is_visible = key not in self._filter_buttons or key in enabled
-            row.setVisible(is_visible)
-            if is_visible:
-                visible_count += 1
-        total = len(self._entries)
-        if visible_count == total:
-            self._intro.setText(f"{total} stop events for selected day")
-        else:
-            self._intro.setText(f"Showing {visible_count} of {total} stop events for selected day")
 
 
 class MainWindow(QWidget):
@@ -1224,7 +1024,14 @@ class MainWindow(QWidget):
         return items
 
     def open_stop_report(self):
-        entries = self._build_stop_report_entries()
+        entries = build_stop_report_entries(
+            list(self.time_picker._items or []),
+            settings=self.settings,
+            day=self.time_picker._current_date,
+            root=self.time_picker.current_root,
+            clip_cache=self.viewer.clip_cache,
+            parent=self,
+        )
         if not entries:
             QMessageBox.information(self, "Stop Report", "No stop events found for this day.")
             return
@@ -1237,307 +1044,6 @@ class MainWindow(QWidget):
             return
         self.open_in_viewer(entry.video_item)
         self.viewer.seek_to_seconds(entry.seek_seconds, pause=True)
-
-    def _build_stop_report_entries(self) -> list[StopReportEntry]:
-        items = list(self.time_picker._items or [])
-        if not items:
-            return []
-        has_operator_stop_in_timeline = any(self._is_operator_stop_item(itm) for itm in items)
-        video_items = [itm for itm in items if itm.kind == "video" and isinstance(itm.payload, Path)]
-        video_items.sort(key=lambda i: i.start)
-        sku_items = [itm for itm in items if itm.kind == "sku" and itm.start is not None and itm.end is not None]
-        sku_items.sort(key=lambda i: i.start)
-        stop_items: list[tuple[TimelineItem, str, dict]] = []
-        required_paths: set[Path] = set()
-        for itm in items:
-            if itm.kind in ("video", "additional"):
-                continue
-            category = self._categorize_stop_event(itm)
-            if category is None:
-                continue
-            src = {}
-            if isinstance(itm.payload, dict):
-                src_val = itm.payload.get("_source")
-                if isinstance(src_val, dict):
-                    src = src_val
-            stop_items.append((itm, category, src))
-            video_item = self._find_video_item_for_time(video_items, itm.start)
-            if video_item and isinstance(video_item.payload, Path):
-                required_paths.add(video_item.payload)
-        if required_paths:
-            self._cache_paths_for_report(sorted(required_paths, key=lambda p: str(p)))
-
-        entries: list[StopReportEntry] = []
-        thumb_cache: dict[tuple[str, int], QPixmap] = {}
-        seen_keys: set[tuple[int, str]] = set()
-        for itm, category, src in stop_items:
-            state_name = str(src.get("state_name") or "").strip()
-            source = str(src.get("source") or "").strip()
-            video_item = self._find_video_item_for_time(video_items, itm.start)
-            video_path = video_item.payload if (video_item and isinstance(video_item.payload, Path)) else None
-            seek_seconds = 0.0
-            if video_item is not None:
-                seek_seconds = max(0.0, (itm.start - video_item.start).total_seconds())
-            thumb = self._thumbnail_for_event(video_path, seek_seconds, itm.start, category, thumb_cache)
-            key = (int(itm.start.timestamp()), state_name.lower() or category.lower())
-            seen_keys.add(key)
-            sku_info = self._sku_for_time(sku_items, itm.start)
-            entries.append(
-                StopReportEntry(
-                    event_time=itm.start,
-                    category=category,
-                    label=itm.label,
-                    video_item=video_item,
-                    video_path=video_path,
-                    seek_seconds=seek_seconds,
-                    thumbnail=thumb,
-                    source=source,
-                    state_name=state_name,
-                    sku_info=sku_info,
-                )
-            )
-
-        # Ensure behaviour-node operator_stop entries are included even when not
-        # represented by configured timeline conditions.
-        if not has_operator_stop_in_timeline:
-            for ts, source, state_name, message in self._fetch_operator_stop_events():
-                key = (int(ts.timestamp()), state_name.lower() or "operator_stop")
-                if key in seen_keys:
-                    continue
-                video_item = self._find_video_item_for_time(video_items, ts)
-                video_path = video_item.payload if (video_item and isinstance(video_item.payload, Path)) else None
-                seek_seconds = 0.0
-                if video_item is not None:
-                    seek_seconds = max(0.0, (ts - video_item.start).total_seconds())
-                thumb = self._thumbnail_for_event(video_path, seek_seconds, ts, "Operator Stop", thumb_cache)
-                sku_info = self._sku_for_time(sku_items, ts)
-                entries.append(
-                    StopReportEntry(
-                        event_time=ts,
-                        category="Operator Stop",
-                        label=message or state_name or "operator_stop",
-                        video_item=video_item,
-                        video_path=video_path,
-                        seek_seconds=seek_seconds,
-                        thumbnail=thumb,
-                        source=source,
-                        state_name=state_name,
-                        sku_info=sku_info,
-                    )
-                )
-                seen_keys.add(key)
-
-        entries.sort(key=lambda e: e.event_time)
-        return entries
-
-    def _fetch_operator_stop_events(self) -> list[tuple[datetime, str, str, str]]:
-        day = self.time_picker._current_date
-        if day is None:
-            return []
-        root = self.time_picker.current_root
-        start_dt = local_day_start_utc(day)
-        end_dt = local_day_end_utc(day)
-        try:
-            rows = fetch_logs_for_range(
-                self.settings,
-                root,
-                start_dt,
-                end_dt,
-                max_hits=30000,
-            )
-        except Exception:
-            return []
-        matches: list[tuple[datetime, str, str, str]] = []
-        for ts, _text, source, state_name, message in rows:
-            s_state = str(state_name or "").strip().lower()
-            s_source = str(source or "").strip().lower()
-            if s_state != "operator_stop":
-                continue
-            if "behaviour_node" not in s_source:
-                continue
-            matches.append((ts, str(source or ""), str(state_name or ""), str(message or "")))
-        return matches
-
-    @staticmethod
-    def _is_operator_stop_item(item: TimelineItem) -> bool:
-        payload = item.payload if isinstance(item.payload, dict) else {}
-        src = payload.get("_source") if isinstance(payload.get("_source"), dict) else {}
-        state_name = str(src.get("state_name") or "").strip().lower()
-        source = str(src.get("source") or "").strip().lower()
-        return state_name == "operator_stop" and "behaviour_node" in source
-
-    def _cache_paths_for_report(self, paths: list[Path]):
-        if not paths:
-            return
-        progress = QProgressDialog("Preparing report clips...", "Cancel", 0, 1, self)
-        progress.setWindowTitle("Stop Report")
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setMinimumDuration(0)
-        progress.show()
-        QApplication.processEvents()
-        futures = []
-        executor = self.viewer._cache_executor
-        for src_path in paths:
-            if progress.wasCanceled():
-                break
-            try:
-                cache_path = self.viewer._cache_path_for(src_path)
-            except Exception:
-                continue
-            if cache_path.exists():
-                continue
-            futures.append(executor.submit(self.viewer._copy_to_cache, src_path, cache_path))
-        progress.setMaximum(max(1, len(futures)))
-        completed = 0
-        for fut in as_completed(futures):
-            completed += 1
-            progress.setValue(completed)
-            QApplication.processEvents()
-            if progress.wasCanceled():
-                break
-            try:
-                _ = fut.result()
-            except Exception:
-                continue
-        progress.close()
-
-    @staticmethod
-    def _find_video_item_for_time(video_items: list[TimelineItem], ts: datetime) -> TimelineItem | None:
-        for itm in video_items:
-            if itm.start <= ts < itm.end:
-                return itm
-        return None
-
-    @staticmethod
-    def _sku_for_time(sku_items: list[TimelineItem], ts: datetime) -> str:
-        # Prefer an active SKU interval, then fall back to the most recent
-        # known SKU at/just before the stop boundary.
-        last_known_sku = ""
-        for itm in sku_items:
-            if itm.start is None or itm.end is None:
-                continue
-            payload = itm.payload if isinstance(itm.payload, dict) else {}
-            is_manual = bool(payload.get("_ui_manual"))
-            label = MainWindow._format_sku_label(itm)
-            if not is_manual and label:
-                last_known_sku = label
-            # Inclusive end boundary so stop events that close a SKU run at the
-            # same timestamp still resolve to that SKU.
-            if itm.start <= ts <= itm.end:
-                if is_manual:
-                    return "Manual"
-                return label or last_known_sku
-            if ts < itm.start:
-                break
-        if last_known_sku:
-            return last_known_sku
-        return ""
-
-    @staticmethod
-    def _format_sku_label(item: TimelineItem) -> str:
-        payload = item.payload if isinstance(item.payload, dict) else {}
-        sku = str(payload.get("_ui_sku") or item.label or "").strip()
-        tray = str(payload.get("_ui_tray") or "").strip()
-        tool = str(payload.get("_ui_tool") or "").strip()
-        parts = [p for p in (sku, tray, tool) if p]
-        return " | ".join(parts) if parts else sku
-
-    @staticmethod
-    def _categorize_stop_event(item: TimelineItem) -> str | None:
-        # SKU manual segments are explicit stop periods.
-        if item.kind == "sku" and isinstance(item.payload, dict) and item.payload.get("_ui_manual"):
-            return "Manual Stop"
-
-        state_name = ""
-        message = item.label or ""
-        if isinstance(item.payload, dict):
-            src = item.payload.get("_source")
-            if isinstance(src, dict):
-                state_name = str(src.get("state_name") or "").strip().lower()
-                message = str(src.get("message") or message).strip()
-        track = (item.track_label or "").strip().lower()
-        text = f"{track} {state_name} {message}".lower()
-        if "go_home_check" in text:
-            return None
-        if "start_pnp" in text or "automatic_mode" in text or "start" == track:
-            return None
-        # Include any stop-like condition.
-        if "manual_mode" in text or "manual" in text:
-            return "Manual Stop"
-        if "caution" in text:
-            return "Caution Stop"
-        if "emergency" in text or "estop" in text or "protective" in text:
-            return "E-stop"
-        if "manual" in text:
-            return "Manual Stop"
-        if "stop" in text:
-            return "Normal Stop"
-        return None
-
-    def _thumbnail_for_event(
-        self,
-        video_path: Path | None,
-        seek_seconds: float,
-        event_time: datetime,
-        category: str,
-        thumb_cache: dict[tuple[str, int], QPixmap],
-    ) -> QPixmap:
-        if video_path is not None:
-            cache_key = (str(video_path), int(round(seek_seconds * 10)))
-            if cache_key in thumb_cache:
-                return thumb_cache[cache_key]
-        source_path = self._thumbnail_source_path(video_path)
-        if source_path is not None and source_path.exists():
-            cap = cv2.VideoCapture(str(source_path))
-            try:
-                if cap.isOpened():
-                    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-                    frame_idx = max(0, int(round(seek_seconds * fps)))
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                    ok, frame = cap.read()
-                    if ok and frame is not None:
-                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        h, w = rgb.shape[:2]
-                        qimg = QImage(rgb.data, w, h, rgb.strides[0], QImage.Format_RGB888).copy()
-                        pix = QPixmap.fromImage(qimg).scaled(
-                            STOP_THUMB_SIZE[0],
-                            STOP_THUMB_SIZE[1],
-                            Qt.KeepAspectRatioByExpanding,
-                            Qt.SmoothTransformation,
-                        )
-                        if video_path is not None:
-                            thumb_cache[(str(video_path), int(round(seek_seconds * 10)))] = pix
-                        return pix
-            finally:
-                cap.release()
-        # Placeholder when clip/frame unavailable.
-        pm = QPixmap(STOP_THUMB_SIZE[0], STOP_THUMB_SIZE[1])
-        pm.fill(QColor("#2d2d2d"))
-        painter = QPainter(pm)
-        painter.setPen(QColor("#dddddd"))
-        painter.drawText(pm.rect(), Qt.AlignCenter, f"{category}\n{format_local_time(event_time)}")
-        painter.end()
-        if video_path is not None:
-            thumb_cache[(str(video_path), int(round(seek_seconds * 10)))] = pm
-        return pm
-
-    def _thumbnail_source_path(self, video_path: Path | None) -> Path | None:
-        if video_path is None:
-            return None
-        # Avoid network reads in the UI thread: only use already-cached local files.
-        cache_root = self.viewer.cache_root
-        if cache_root is None:
-            return None
-        try:
-            cached = self.viewer.get_valid_cached_path(video_path)
-            if cached and isinstance(cached, Path):
-                return cached
-            cached = self.viewer._cache_path_for(video_path)
-            if cached and isinstance(cached, Path) and cached.exists():
-                return cached
-        except Exception:
-            return None
-        return None
 
     def _export_source_path(self, original_path: Path) -> Path | None:
         viewer_original = self.viewer.current_video_original_path
