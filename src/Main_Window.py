@@ -10,7 +10,7 @@ from pathlib import Path
 
 import cv2
 from PySide6.QtCore import Qt, QTimer, QEvent, Signal, QVariantAnimation, QEasingCurve, QSize, QThread
-from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QFontMetrics, QIcon, QGuiApplication, QImage, QPen, QPalette
+from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QIcon, QImage, QPen, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -20,9 +20,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QToolButton,
     QSizePolicy,
-    QGraphicsScene,
-    QGraphicsView,
-    QGraphicsTextItem,
     QPushButton,
     QDialog,
     QLabel,
@@ -44,7 +41,6 @@ from Time_Picker import (
     local_day_end_utc,
     format_local_time,
     MIN_BLOCK_DURATION,
-    LAST_BLOCK_DURATION,
     inferred_live_clip_end,
     VIDEO_COLOR_CACHED,
     VIDEO_COLOR_UNCACHED,
@@ -62,11 +58,9 @@ from target_buffer_loader import fetch_buffer_events
 from target_buffer_widget import TargetBufferWidget, _summary_rows, _detail_rows, _display_target_id
 from conveyor_calibration import ConveyorCalibration, load_calibration, save_calibration
 from conveyor_calibration_dialog import ConveyorCalibrationDialog
-from target_scope_widget import TargetScopeWidget
 
 SPLASH_IMAGE_FILENAME = "Logfather Argus II.jpg"
 
-DISABLE_CLIP_LOG_LOADING = True
 DEBUG_CLIP_TIMING = True
 ENABLE_CACHE_COLOR_UPDATE = True
 ENABLE_EVENT_MARKERS = True
@@ -417,7 +411,6 @@ class MainWindow(QWidget):
         self._tracking_enabled: bool = True
         self._close_gap_target_ids: set[str] = set()
         self._wide_gap_target_ids: set[str] = set()
-        self._scope: TargetScopeWidget | None = None
 
         self.left_toggle = QToolButton()
         self.left_toggle.setText("Hide Date Picker")
@@ -814,15 +807,10 @@ class MainWindow(QWidget):
     def _on_track_toggled(self, enabled: bool) -> None:
         self._tracking_enabled = enabled
         if enabled:
-            if self._scope is not None:
-                self._scope.hide()
             if self._last_playhead_dt:
                 self._push_conveyor_overlays(self._last_playhead_dt)
         else:
-            if self._scope is not None:
-                self._scope.hide()
-            if hasattr(self.viewer, "video_label"):
-                self.viewer.video_label.set_target_overlays([])
+            self.viewer.video_label.set_target_overlays([])
 
     def _push_conveyor_overlays(self, dt: datetime) -> None:
         """Update the target scope panel, target panel, and line-tracked overlays."""
@@ -1132,12 +1120,6 @@ class MainWindow(QWidget):
         self._cancel_timeline_expand()
         self._set_timeline_expanded(False)
 
-    def _find_horizontal_splitter(self) -> QSplitter:
-        # The first splitter inside the vertical splitter is the horizontal one.
-        for child in self.findChildren(QSplitter):
-            if child.orientation() == Qt.Horizontal:
-                return child
-        return QSplitter(Qt.Horizontal)
 
     def _auto_hide_if_outside(self):
         if not self.date_picker.isVisible():
@@ -1677,94 +1659,6 @@ class MainWindow(QWidget):
             return None
         return None
 
-    def _export_timeline_clip_range(self, start_dt: datetime, end_dt: datetime):
-        if end_dt <= start_dt:
-            QMessageBox.information(self, "Export Clip", "Select a non-zero clip range first.")
-            return
-        items = list(getattr(self.time_picker, "_items", []) or [])
-        video_items = [itm for itm in items if itm.kind == "video" and isinstance(itm.payload, Path)]
-        video_items.sort(key=lambda i: i.start)
-        epsilon = timedelta(milliseconds=1)
-        start_item = self._find_video_item_for_time(video_items, start_dt)
-        end_lookup = end_dt - epsilon if end_dt > start_dt else end_dt
-        end_item = self._find_video_item_for_time(video_items, end_lookup)
-        if start_item is None or end_item is None:
-            QMessageBox.information(self, "Export Clip", "The selected range is not fully covered by a video clip.")
-            return
-        if Path(start_item.payload) != Path(end_item.payload):
-            QMessageBox.information(
-                self,
-                "Export Clip",
-                "The selected range spans more than one clip. Please keep the export range within a single clip.",
-            )
-            return
-        source_path = self._export_source_path(Path(start_item.payload))
-        if source_path is None or not source_path.exists():
-            QMessageBox.warning(self, "Export Clip", "Unable to access the source clip for export.")
-            return
-        clip_start_seconds = max(0.0, (start_dt - start_item.start).total_seconds())
-        clip_duration_seconds = max(0.0, (end_dt - start_dt).total_seconds())
-        if clip_duration_seconds <= 0.0:
-            QMessageBox.information(self, "Export Clip", "Select a non-zero clip range first.")
-            return
-        default_name = (
-            f"{source_path.stem}_"
-            f"{format_local_time(start_dt, '%H%M%S')}_"
-            f"{format_local_time(end_dt, '%H%M%S')}.mp4"
-        )
-        target_path_str, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Clip",
-            str(source_path.with_name(default_name)),
-            "MP4 Files (*.mp4);;All Files (*)",
-        )
-        if not target_path_str:
-            return
-        ffmpeg_path = shutil.which("ffmpeg")
-        if not ffmpeg_path:
-            QMessageBox.warning(self, "Export Clip", "ffmpeg was not found on PATH.")
-            return
-        target_path = Path(target_path_str)
-        cmd = [
-            ffmpeg_path,
-            "-y",
-            "-ss",
-            f"{clip_start_seconds:.3f}",
-            "-i",
-            str(source_path),
-            "-t",
-            f"{clip_duration_seconds:.3f}",
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "18",
-            "-c:a",
-            "aac",
-            "-movflags",
-            "+faststart",
-            str(target_path),
-        ]
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-        finally:
-            QApplication.restoreOverrideCursor()
-        if proc.returncode != 0:
-            stderr = (proc.stderr or "").strip()
-            QMessageBox.warning(
-                self,
-                "Export Clip",
-                f"Clip export failed.\n\n{stderr[:800] if stderr else 'ffmpeg returned an error.'}",
-            )
-            return
-        QMessageBox.information(self, "Export Clip", f"Clip exported to:\n{target_path}")
-
     def _export_source_path(self, original_path: Path) -> Path | None:
         viewer_original = getattr(self.viewer, "current_video_original_path", None)
         viewer_loaded = getattr(self.viewer, "current_video_path", None)
@@ -1867,10 +1761,6 @@ class MainWindow(QWidget):
             self.viewer.settings_panel.settings = self.settings
         if hasattr(self.viewer, "system_layout_panel"):
             self.viewer.system_layout_panel.settings = self.settings
-
-    def _recheck_ocr_offset(self):
-        if hasattr(self.viewer, "recheck_ocr_offset"):
-            self.viewer.recheck_ocr_offset()
 
     def _should_show_overview(self) -> bool:
         return self.overview_btn.isChecked()
