@@ -372,3 +372,75 @@ class TestClipCache:
         os.utime(cache.meta_path_for(target), (old, old))
         cache.prune()
         assert not target.exists()
+
+
+class TestElasticSchema:
+    def test_robot_id_from_folder(self):
+        from elastic_schema import robot_id_from_folder
+        assert robot_id_from_folder("PikPak012") == "35-2300-012"
+        assert robot_id_from_folder("Spare003") == "35-2300-003"
+        assert robot_id_from_folder("PikPak") is None
+        assert robot_id_from_folder("") is None
+
+    def test_identity_filter_single_shape(self):
+        from elastic_schema import identity_filter, IDENTITY_FIELDS
+        f = identity_filter(["35-2300-007"])
+        clauses = f["bool"]["should"]
+        assert len(clauses) == 3 * len(IDENTITY_FIELDS)
+        assert f["bool"]["minimum_should_match"] == 1
+        assert {"term": {"leap_robot_id.keyword": "35-2300-007"}} in clauses
+        assert {"match_phrase": {"system_id": "35-2300-007"}} in clauses
+
+    def test_identity_filter_multi_nests_per_robot(self):
+        from elastic_schema import identity_filter
+        f = identity_filter(["35-2300-007", "35-2300-010"])
+        outer = f["bool"]["should"]
+        assert len(outer) == 2
+        assert all("bool" in clause for clause in outer)
+
+    def test_sku_argus1_nested_data_collection(self):
+        from elastic_schema import extract_ui_selection
+        doc = {"data_collection": {"user_selection": "SKU-A", "tray_selection": "T1", "tool_selection": "tool_9"}}
+        sel = extract_ui_selection(doc)
+        assert sel == {"sku": "SKU-A", "tray": "T1", "tool": "tool_9"}
+
+    def test_sku_argus2_sku_name_fields(self):
+        from elastic_schema import extract_ui_selection
+        doc = {"data_collection": {"sku_name": "SKU-B", "sku_tray": "ALDI_Full_Tray", "sku_tool": "tool_4834"}}
+        sel = extract_ui_selection(doc)
+        assert sel == {"sku": "SKU-B", "tray": "ALDI_Full_Tray", "tool": "tool_4834"}
+
+    def test_sku_argus2_flat_dotted_field(self):
+        from elastic_schema import extract_ui_selection
+        sel = extract_ui_selection({"data_collection.sku_name": "SKU-C"})
+        assert sel is not None and sel["sku"] == "SKU-C"
+
+    def test_sku_block(self):
+        from elastic_schema import extract_ui_selection
+        sel = extract_ui_selection({"sku": {"name": "SKU-D", "tray": "T", "tool": "X"}})
+        assert sel == {"sku": "SKU-D", "tray": "T", "tool": "X"}
+
+    def test_sku_from_ui_node_json_request(self):
+        from elastic_schema import extract_ui_selection
+        doc = {
+            "source": "/leap/manip1/ui_node",
+            "json_request": {"params": '{"data": {"user_selection": "SKU-E", "tray_selection": "T2", "tool_selection": "tool_1"}}'},
+        }
+        sel = extract_ui_selection(doc)
+        assert sel == {"sku": "SKU-E", "tray": "T2", "tool": "tool_1"}
+
+    def test_disallowed_source_without_sku_fields_rejected(self):
+        from elastic_schema import extract_ui_selection
+        assert extract_ui_selection({"source": "/leap/manip1/motion_control_node"}) is None
+
+    def test_no_sku_returns_none(self):
+        from elastic_schema import extract_ui_selection
+        assert extract_ui_selection({}) is None
+
+    def test_stop_like_states(self):
+        from elastic_schema import is_stop_like_event
+        assert is_stop_like_event("system_stop", "") is True
+        assert is_stop_like_event("emergency_stop", "") is True
+        assert is_stop_like_event("start_pnp", "") is False
+        assert is_stop_like_event("", "Shutting down system now") is True
+        assert is_stop_like_event("", "", "system_shutdown") is True
