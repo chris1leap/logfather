@@ -248,6 +248,8 @@ class TargetOverlayController(QObject):
         dialog.finished.connect(self._on_cal_dialog_closed)
         dialog.transport_step.connect(self._on_cal_transport_step)
         dialog.transport_seek_fraction.connect(self._on_cal_transport_seek)
+        dialog.transport_play.connect(self._viewer.play)
+        dialog.transport_pause.connect(self._viewer.pause)
 
         # Live frame updates. Connected unconditionally: previously this only
         # connected when a frame existed at open time, so a dialog opened

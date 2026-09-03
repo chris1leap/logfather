@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QMessageBox,
+    QStyle,
 )
 
 from logfather.data.conveyor_calibration import ConveyorCalibration, save_calibration
@@ -169,6 +170,8 @@ class ConveyorCalibrationDialog(QDialog):
     # (TargetOverlayController) applies these to the main viewer's playhead.
     transport_step = Signal(int)          # +/- frames
     transport_seek_fraction = Signal(float)  # 0.0..1.0 within the loaded clip
+    transport_play = Signal()
+    transport_pause = Signal()
 
     def __init__(self, cal: ConveyorCalibration, parent=None):
         super().__init__(parent, Qt.Window)
@@ -202,6 +205,17 @@ class ConveyorCalibrationDialog(QDialog):
 
         transport_row = QHBoxLayout()
         transport_row.setSpacing(4)
+        # Standard media icons rather than words (Chris, 2026-09-04).
+        for icon, signal, tip in (
+            (QStyle.SP_MediaPlay, self.transport_play, "Play the main viewer"),
+            (QStyle.SP_MediaPause, self.transport_pause, "Pause the main viewer"),
+        ):
+            btn = QPushButton()
+            btn.setIcon(self.style().standardIcon(icon))
+            btn.setFixedWidth(36)
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _checked=False, s=signal: s.emit())
+            transport_row.addWidget(btn)
         for label, delta, tip in (
             ("−10", -10, "Step the viewer back 10 frames"),
             ("−1", -1, "Step the viewer back 1 frame"),
