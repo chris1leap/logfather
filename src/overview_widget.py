@@ -68,6 +68,9 @@ class OverviewSystemState:
     thumbnail_image: QImage | None = None
     last_stop_time: datetime | None = None
     last_thumbnail_queue_time: datetime | None = None
+    # Bumped on every data merge; keys the per-system summary cache so the
+    # event state machine reruns only when the data actually changed.
+    events_version: int = 0
 
 
 _THUMBNAIL_CACHE: OrderedDict[str, tuple[int, QImage | None]] = OrderedDict()
@@ -544,6 +547,18 @@ class OverviewWidget(QWidget):
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setInterval(OVERVIEW_REDRAW_MS)
         self._redraw_timer.timeout.connect(self._on_redraw_timer)
+        # All rebuild requests funnel through this zero-length single-shot:
+        # coalesces bursts (range animation + timer) and, crucially, keeps
+        # scene.clear() out of scene event dispatch — clearing the scene
+        # under a QGraphicsItem's mouse handler is a use-after-free (the
+        # same shape that crashed the timeline).
+        self._redraw_soon = QTimer(self)
+        self._redraw_soon.setSingleShot(True)
+        self._redraw_soon.setInterval(0)
+        self._redraw_soon.timeout.connect(self._redraw)
+        self._summary_cache: dict[str, tuple[int, datetime, dict]] = {}
+        self._now_label_item = None
+        self._last_drawn_window: tuple[datetime, datetime] | None = None
         self._range_anim = QVariantAnimation(self)
         self._range_anim.setDuration(OVERVIEW_RANGE_ANIM_MS)
         self._range_anim.setEasingCurve(QEasingCurve.OutCubic)
@@ -594,7 +609,7 @@ class OverviewWidget(QWidget):
     def refresh(self, force_full: bool = False):
         if self.parent_dir is None:
             if self._active:
-                self._redraw()
+                self._schedule_redraw()
             return
         if not self._active and not self._background_enabled:
             return
@@ -602,6 +617,7 @@ class OverviewWidget(QWidget):
         if self._last_day and self._last_day != now_local.date():
             force_full = True
             self._states.clear()
+            self._summary_cache.clear()
             self._latest_event_ts = None
         full_refresh = force_full or self._last_refreshed_local is None
         if not full_refresh and self._last_full_refresh_local is not None:
@@ -635,13 +651,14 @@ class OverviewWidget(QWidget):
             x = max(12, (page_rect.width() - label_size.width()) // 2)
             y = max(12, page_rect.height() - label_size.height() - 18)
             self._loading_label.setGeometry(x, y, label_size.width(), label_size.height())
-        self._redraw()
+        self._schedule_redraw()
 
     def shutdown_workers(self):
         """Stop timers and background work. Called by MainWindow.closeEvent —
         panel closeEvents never fire inside the app."""
         self._refresh_timer.stop()
         self._redraw_timer.stop()
+        self._redraw_soon.stop()
         self._stop_load_thread()
         self._stop_loading_video()
 
@@ -730,26 +747,82 @@ class OverviewWidget(QWidget):
             self._range_anim.setStartValue(float(current_span))
             self._range_anim.setEndValue(float(target_span))
             self._range_anim.start()
-        self._redraw()
+        self._schedule_redraw()
 
     def _on_refresh_timer(self):
         self.refresh(force_full=False)
 
+    def _schedule_redraw(self):
+        self._redraw_soon.start()
+
     def _on_redraw_timer(self):
-        if self._active:
-            self._redraw()
+        if not self._active:
+            return
+        if self._window_shift_needs_redraw():
+            self._schedule_redraw()
+        else:
+            # The window hasn't moved a visible amount: just tick the clock.
+            self._update_now_label()
+
+    def _window_shift_needs_redraw(self) -> bool:
+        """True when the now-anchored window has slid far enough since the
+        last rebuild that band positions are visibly stale (>= 0.5 px)."""
+        if self._last_drawn_window is None or self._hover_timeline_width <= 0:
+            return True
+        window = self._visible_window()
+        if window is None:
+            return True
+        new_start, new_end = window
+        old_start, old_end = self._last_drawn_window
+        if new_end.astimezone().date() != old_end.astimezone().date():
+            return True
+        total_seconds = max(60.0, (new_end - new_start).total_seconds())
+        px_per_second = self._hover_timeline_width / total_seconds
+        shift_px = abs((new_end - old_end).total_seconds()) * px_per_second
+        # Window-start shifts differently when clamped to the day start.
+        shift_px = max(shift_px, abs((new_start - old_start).total_seconds()) * px_per_second)
+        return shift_px >= 0.5
+
+    def _update_now_label(self):
+        """Update the persistent HH:MM:SS marker in place between rebuilds."""
+        if (
+            self._hover_timeline_width <= 0
+            or self._hover_window_start is None
+            or self._hover_window_end is None
+        ):
+            return
+        item = self._now_label_item
+        if item is not None:
+            try:
+                if item.scene() is None:
+                    item = None
+            except RuntimeError:
+                item = None
+        now_local = _local_now()
+        total_seconds = max(1.0, (self._hover_window_end - self._hover_window_start).total_seconds())
+        ratio = (ensure_utc(now_local) - self._hover_window_start).total_seconds() / total_seconds
+        timeline_x = self._hover_timeline_x
+        timeline_width = self._hover_timeline_width
+        x = timeline_x + max(0.0, min(1.0, ratio)) * timeline_width
+        if item is None:
+            item = self.scene.addText("")
+            item.setDefaultTextColor(QColor("#ffe08a"))
+            item.setZValue(3)
+        self._now_label_item = item
+        item.setPlainText(now_local.strftime("%H:%M:%S"))
+        item.setPos(min(max(timeline_x, x - 20), timeline_x + timeline_width - 64), 4)
 
     def _on_range_anim_value_changed(self, value):
         try:
             self._range_anim_span_seconds = float(value)
         except Exception:
             self._range_anim_span_seconds = None
-        self._redraw()
+        self._schedule_redraw()
 
     def _on_range_anim_finished(self):
         self._range_anim_now_local = None
         self._range_anim_span_seconds = None
-        self._redraw()
+        self._schedule_redraw()
 
     def _on_loading_media_status_changed(self, status):
         if status == QMediaPlayer.EndOfMedia and self._content_stack.currentWidget() is self._loading_page:
@@ -789,6 +862,7 @@ class OverviewWidget(QWidget):
             now_local = _local_now()
         if full_refresh and replace:
             self._states.clear()
+            self._summary_cache.clear()
             self._latest_event_ts = None
         if full_refresh and is_final:
             self._last_full_refresh_local = now_local
@@ -842,6 +916,7 @@ class OverviewWidget(QWidget):
                     latest_ts = state.last_event_time
             else:
                 state.last_event_time = None
+            state.events_version += 1
             new_last_stop = self._latest_stop_time(state)
             stop_changed = new_last_stop is not None and new_last_stop != state.last_stop_time
             state.last_stop_time = new_last_stop
@@ -849,7 +924,7 @@ class OverviewWidget(QWidget):
         if is_final:
             self._latest_event_ts = latest_ts
             self._set_loading_visible(False)
-        self._redraw()
+        self._schedule_redraw()
 
     def _on_loaded(self, payload: dict):
         if payload is None:
@@ -890,6 +965,17 @@ class OverviewWidget(QWidget):
         else:
             start_local = max(day_start_local, now_local - timedelta(hours=5))
         return start_local.astimezone(timezone.utc), now_local.astimezone(timezone.utc)
+
+    def _summary_for(self, state: OverviewSystemState, data_cutoff_utc: datetime) -> dict:
+        """Cached _summarize_system: the redraw timer fires every second but
+        the underlying events change only when a refresh merges data."""
+        key = str(state.root)
+        cached = self._summary_cache.get(key)
+        if cached is not None and cached[0] == state.events_version and cached[1] == data_cutoff_utc:
+            return cached[2]
+        summary = self._summarize_system(state, data_cutoff_utc)
+        self._summary_cache[key] = (state.events_version, data_cutoff_utc, summary)
+        return summary
 
     def _summarize_system(self, state: OverviewSystemState, data_cutoff_utc: datetime) -> dict:
         order = {"stop": 0, "auto": 1, "manual": 2, "start": 3, "select": 4}
@@ -1153,7 +1239,7 @@ class OverviewWidget(QWidget):
         self._preview_label.hide()
 
     def refresh_layout(self):
-        self._redraw()
+        self._schedule_redraw()
 
     def toggle_customer_collapsed(self, customer_name: str):
         key = str(customer_name or "").strip()
@@ -1163,10 +1249,18 @@ class OverviewWidget(QWidget):
             self._collapsed_customers.discard(key)
         else:
             self._collapsed_customers.add(key)
-        self._redraw()
+        self._schedule_redraw()
 
     def _redraw(self):
+        self._redraw_soon.stop()
         self.scene.clear()
+        # Everything the clear just deleted; early returns below must leave
+        # a consistent "nothing drawn" state.
+        self._hover_line_item = None
+        self._hover_label_item = None
+        self._now_label_item = None
+        self._hover_timeline_width = 0
+        self._last_drawn_window = None
         self.hide_thumbnail_preview()
         if self.parent_dir is None:
             self.status_label.setText("Set a parent folder to enable overview")
@@ -1268,18 +1362,10 @@ class OverviewWidget(QWidget):
                 label.setZValue(2)
             tick += timedelta(minutes=minor_step_min)
 
-        now_ratio = (ensure_utc(now_local) - window_start).total_seconds() / total_seconds
-        if 0.0 <= now_ratio <= 1.0:
-            now_x = timeline_x + now_ratio * timeline_width
-            current_time_label = self.scene.addText(now_local.strftime("%H:%M:%S"))
-            current_time_label.setDefaultTextColor(QColor("#ffe08a"))
-            current_time_label.setPos(min(max(timeline_x, now_x - 20), timeline_x + timeline_width - 64), 4)
-            current_time_label.setZValue(3)
-
-        # The scene was cleared above; hover items will be lazily recreated.
-        self._hover_line_item = None
-        self._hover_label_item = None
+        self._update_now_label()
+        # The scene was cleared above; hover items are lazily recreated.
         self._update_hover_indicator()
+        self._last_drawn_window = (window_start, window_end)
 
         current_y = top_pad
         system_row_index = 0
@@ -1334,7 +1420,7 @@ class OverviewWidget(QWidget):
             self.scene.addItem(lane)
 
             data_cutoff_utc = ensure_utc(self._last_refreshed_local or now_local)
-            summary = self._summarize_system(state, data_cutoff_utc)
+            summary = self._summary_for(state, data_cutoff_utc)
             lane.setToolTip(self._row_tooltip(state, summary))
 
             for video_item in state.video_items:
