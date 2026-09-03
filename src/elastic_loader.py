@@ -1205,13 +1205,9 @@ def _fetch_logs_range_raw(
     ts_field = ELASTIC_TIMESTAMP_FIELDS[0]
     session = _get_thread_session()
 
-    rows: list[tuple[datetime, str, str, str, str]] = []
-    fetched = 0
-    search_after = None
-    page_size = 2000
-    while fetched < max_hits:
+    def build_body(size: int, search_after: list | None) -> dict:
         body = {
-            "size": min(page_size, max_hits - fetched),
+            "size": size,
             "track_total_hits": False,
             "_source": [
                 "@timestamp_ros",
@@ -1243,23 +1239,10 @@ def _fetch_logs_range_raw(
         }
         if search_after:
             body["search_after"] = search_after
-        try:
-            resp = session.post(search_endpoint, json=body, headers=headers, timeout=6)
-            resp.raise_for_status()
-            data = resp.json()
-            hits = data.get("hits", {}).get("hits", [])
-        except Exception as exc:
-            err_text = ""
-            if isinstance(exc, requests.RequestException) and exc.response is not None:
-                try:
-                    err_text = exc.response.text
-                except Exception:
-                    err_text = ""
-            message = f"[elastic] log range query failed: {exc} {err_text}"
-            print(message)
-            raise ElasticFetchError(message, rows) from exc
-        if not hits:
-            break
+        return body
+
+    def hits_to_rows(hits: list[dict]) -> list[tuple[datetime, str, str, str, str]]:
+        rows: list[tuple[datetime, str, str, str, str]] = []
         for hit in hits:
             src = hit.get("_source", {})
             ts_val = src.get("@timestamp_ros") or src.get(ts_field) or src.get("@timestamp")
@@ -1272,14 +1255,25 @@ def _fetch_logs_range_raw(
             parts = [p for p in [source_key, state_val, message_key] if p]
             text = " | ".join(parts) if parts else message_key or state_val or source_key or "(event)"
             rows.append((ts, text, source_key, state_val, message_key))
-        fetched += len(hits)
-        if len(hits) < min(page_size, max_hits - (fetched - len(hits))):
-            break
-        last_sort = hits[-1].get("sort")
-        if not last_sort:
-            break
-        search_after = last_sort
-    return rows
+        return rows
+
+    page_size = 2000
+    try:
+        outcome = paginate(
+            build_body,
+            session=session,
+            endpoint=search_endpoint,
+            headers=headers,
+            page_size=page_size,
+            max_pages=max(1, -(-max_hits // page_size)),
+            timeout_sec=6,
+            max_hits=max_hits,
+            label="log range query",
+        )
+    except ElasticFetchError as exc:
+        # Callers use exc.items as processed rows, not raw hits.
+        raise ElasticFetchError(str(exc), hits_to_rows(exc.items)) from exc
+    return hits_to_rows(outcome.hits)
 
 
 def fetch_logs_for_range(
