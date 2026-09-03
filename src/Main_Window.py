@@ -50,6 +50,7 @@ from Time_Picker import (
 )
 from elastic_loader import fetch_events, fetch_logs_for_range, set_system_id_override
 from app_assets import resolve_asset_path as _resolve_asset_path
+from qt_worker import JobSlot
 from settings_store import Settings, display_customer_name, display_line_name
 from Log_vid_gui import VideoLogViewer
 from overview_widget import OverviewWidget
@@ -73,28 +74,6 @@ STOP_THUMB_SIZE = (352, 198)
 TIMELINE_MIN_HEIGHT = 165
 TIMELINE_MAX_HEIGHT = 360
 TIMELINE_EXPAND_DELAY_MS = 1500
-
-
-class _BufferLoaderThread(QThread):
-    done = Signal(list)
-
-    def __init__(self, settings, pikpak_root, clip_start, clip_end):
-        super().__init__()
-        self._settings = settings
-        self._pikpak_root = pikpak_root
-        self._clip_start = clip_start
-        self._clip_end = clip_end
-
-    def run(self):
-        try:
-            events = fetch_buffer_events(
-                self._settings, self._pikpak_root,
-                self._clip_start, self._clip_end,
-            )
-        except Exception as exc:
-            print(f"[buffer] load failed: {exc}")
-            events = []
-        self.done.emit(events)
 
 
 @dataclass
@@ -367,9 +346,8 @@ class MainWindow(QWidget):
         self._buffer_panel_visible = False
         self._buffer_panel_target_width = 280
         self._buffer_events = []
-        self._buffer_loader_thread = None
+        self._buffer_slot = JobSlot(self)
         self._day_prefetch_timer: QTimer | None = None
-        self._buffer_loader_refs: list = []   # keeps stale threads alive until they finish
         self._buffer_clip_start: datetime | None = None
         self._buffer_clip_end: datetime | None = None
 
@@ -586,32 +564,17 @@ class MainWindow(QWidget):
         if pikpak_root is None or clip_start is None or clip_end is None:
             return
 
-        if self._buffer_loader_thread is not None:
-            # Disconnect so stale results are ignored, but keep the Python
-            # reference alive until the OS thread exits — dropping it while
-            # the thread is still running causes "QThread destroyed while
-            # running" crashes.  Wrap every signal op in try/except: if the
-            # previous thread already finished and its C++ object was queued
-            # for deletion, any signal call raises RuntimeError.
-            try:
-                self._buffer_loader_thread.done.disconnect(self._on_buffer_events_loaded)
-            except RuntimeError:
-                pass
-            try:
-                stale = self._buffer_loader_thread
-                self._buffer_loader_refs.append(stale)
-                stale.finished.connect(lambda t=stale: self._buffer_loader_refs.remove(t)
-                                       if t in self._buffer_loader_refs else None)
-            except RuntimeError:
-                pass
-            self._buffer_loader_thread = None
-
-        loader = _BufferLoaderThread(self.settings, pikpak_root, clip_start, clip_end)
-        loader.done.connect(self._on_buffer_events_loaded)
-        loader.finished.connect(loader.deleteLater)
-        self._buffer_loader_thread = loader
         print(f"[buffer] starting load for {pikpak_root}  {clip_start} → {clip_end}")
-        loader.start()
+        settings = self.settings
+        self._buffer_slot.start(
+            lambda job: fetch_buffer_events(settings, pikpak_root, clip_start, clip_end),
+            on_result=self._on_buffer_events_loaded,
+            on_error=self._on_buffer_events_failed,
+        )
+
+    def _on_buffer_events_failed(self, message: str) -> None:
+        print(f"[buffer] load failed: {message}")
+        self._on_buffer_events_loaded([])
 
     def _on_buffer_events_loaded(self, events: list) -> None:
         self._buffer_events = events
@@ -1084,14 +1047,7 @@ class MainWindow(QWidget):
         # Qt delivers close events only to the top-level window: the panels'
         # own closeEvents never fire inside the app, so every worker thread
         # must be stopped from here or it races Qt teardown and crashes.
-        thread = self._buffer_loader_thread
-        self._buffer_loader_thread = None
-        if thread is not None:
-            try:
-                thread.requestInterruption()
-                thread.wait(3000)
-            except RuntimeError:
-                pass
+        self._buffer_slot.shutdown()
         for shutdown in (
             self.date_picker.stop_scan_thread,
             self.time_picker.shutdown_workers,
