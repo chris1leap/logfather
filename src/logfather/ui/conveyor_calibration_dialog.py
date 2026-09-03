@@ -127,15 +127,19 @@ class _FrameCanvas(QLabel):
             (sx, sy), (ex, ey) = self._motion_line
             start_px = QPointF(x + sx * dw, y + sy * dh)
             end_px = QPointF(x + ex * dw, y + ey * dh)
-            painter.setPen(QPen(QColor("#f39c12"), 2, Qt.DashLine))
+            painter.setPen(QPen(QColor(theme.CAL_TRACK_LINE), 2, Qt.DashLine))
             painter.drawLine(start_px, end_px)
-            painter.setBrush(QBrush(QColor("#f39c12")))
+            painter.setBrush(QBrush(QColor(theme.CAL_TRACK_LINE)))
             painter.drawEllipse(start_px, 5, 5)
             painter.drawEllipse(end_px, 5, 5)
-            painter.setPen(QPen(Qt.white))
-            painter.setFont(QFont("monospace", 8))
-            painter.drawText(int(start_px.x()) + 8, int(start_px.y()) - 8, "A")
-            painter.drawText(int(end_px.x()) + 8, int(end_px.y()) - 8, "B")
+            painter.setFont(QFont("monospace", 9, QFont.Bold))
+            for label, pt in (("Start", start_px), ("End", end_px)):
+                tx, ty = int(pt.x()) + 8, int(pt.y()) - 8
+                # Shadow first so the label reads on any footage.
+                painter.setPen(QPen(Qt.black))
+                painter.drawText(tx + 1, ty + 1, label)
+                painter.setPen(QPen(Qt.white))
+                painter.drawText(tx, ty, label)
             if self._motion_marker is not None:
                 mx, my = self._motion_marker
                 marker_pt = QPointF(x + mx * dw, y + my * dh)
