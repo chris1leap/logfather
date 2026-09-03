@@ -830,3 +830,24 @@ class TestTimelineLoaderConcurrency:
         )
         assert result is not None
         assert seen["value"] is None
+
+
+class TestActivityEta:
+    """ETA text on the activity bar (MainWindow._eta_text)."""
+
+    @staticmethod
+    def _eta(remaining, rate):
+        from logfather.ui.Main_Window import MainWindow
+        return MainWindow._eta_text(remaining, rate)
+
+    def test_under_five_seconds(self):
+        assert self._eta(4 * 1024, 1024) == "a few seconds left"
+
+    def test_seconds_form(self):
+        assert self._eta(45 * 1024, 1024) == "~45s left"
+
+    def test_minutes_form(self):
+        assert self._eta(130 * 1024, 1024) == "~2m 10s left"
+
+    def test_minutes_pads_seconds(self):
+        assert self._eta(125 * 1024, 1024) == "~2m 05s left"

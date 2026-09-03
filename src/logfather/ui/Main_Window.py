@@ -286,6 +286,9 @@ class MainWindow(QWidget):
         # the app is waiting on — clip downloads with size and a green
         # progress bar, OCR sync stages (Chris, 2026-09-04).
         self._activity_items: dict[str, tuple[str, int | None, int | None, float]] = {}
+        # key -> (t0, bytes0): first progress report of a transfer, for the
+        # rate behind the time-remaining estimate.
+        self._activity_rate_anchors: dict[str, tuple[float, int]] = {}
         self._activity_bar = QWidget()
         self._activity_bar.setFixedHeight(24)
         self._activity_bar.setStyleSheet(theme.ACTIVITY_BAR)
@@ -327,12 +330,40 @@ class MainWindow(QWidget):
         return f"{n / (1024 * 1024):.0f}"
 
     def _set_activity(self, key: str, label: str, done: int | None, total: int | None):
-        self._activity_items[key] = (label, done, total, time.monotonic())
+        now = time.monotonic()
+        if total:
+            anchor = self._activity_rate_anchors.get(key)
+            # Re-anchor when a new transfer reuses the key (bytes went down).
+            if anchor is None or int(done or 0) < anchor[1]:
+                self._activity_rate_anchors[key] = (now, int(done or 0))
+        self._activity_items[key] = (label, done, total, now)
         self._update_activity_bar()
 
     def _clear_activity(self, key: str):
+        self._activity_rate_anchors.pop(key, None)
         if self._activity_items.pop(key, None) is not None:
             self._update_activity_bar()
+
+    def _activity_rate(self, key: str, done: int) -> float | None:
+        """Observed transfer rate in bytes/sec, None until measurable."""
+        anchor = self._activity_rate_anchors.get(key)
+        if anchor is None:
+            return None
+        t0, bytes0 = anchor
+        elapsed = time.monotonic() - t0
+        if elapsed < 1.0 or done <= bytes0:
+            return None
+        return (done - bytes0) / elapsed
+
+    @staticmethod
+    def _eta_text(remaining_bytes: float, rate_bytes_per_sec: float) -> str:
+        secs = remaining_bytes / rate_bytes_per_sec
+        if secs < 5:
+            return "a few seconds left"
+        if secs < 90:
+            return f"~{int(round(secs))}s left"
+        minutes, seconds = divmod(int(round(secs)), 60)
+        return f"~{minutes}m {seconds:02d}s left"
 
     def _on_clip_transfer_progress(self, source_path: str, done, total):
         label = f"Downloading {Path(source_path).name}"
@@ -346,6 +377,7 @@ class MainWindow(QWidget):
         stale = [k for k, v in self._activity_items.items() if v[3] < cutoff]
         for key in stale:
             self._activity_items.pop(key, None)
+            self._activity_rate_anchors.pop(key, None)
         if stale:
             self._update_activity_bar()
 
@@ -363,6 +395,14 @@ class MainWindow(QWidget):
                     f"Downloading {len(downloads)} files — "
                     f"{self._mb(done)} / {self._mb(total)} MB"
                 )
+            rate = sum(
+                r
+                for k, v in downloads.items()
+                if (r := self._activity_rate(k, v[1] or 0)) is not None
+            )
+            remaining = total - done
+            if rate > 0 and remaining > 0:
+                text += f" — {self._eta_text(remaining, rate)}"
             self._activity_label.setText(text)
             self._activity_progress.setRange(0, 1000)
             self._activity_progress.setValue(int(done * 1000 / total) if total else 0)
