@@ -327,7 +327,9 @@ class TargetOverlayController(QObject):
         if viewer.cap is None or viewer.frame_count <= 1:
             return
         self._cal_dialog.on_clip_position(
-            viewer.current_frame / (viewer.frame_count - 1)
+            viewer.current_frame / (viewer.frame_count - 1),
+            viewer.current_frame,
+            viewer.frame_count,
         )
 
     def _feed_cal_dialog_frame(self, dt: datetime) -> None:

@@ -302,6 +302,10 @@ class ConveyorCalibrationDialog(QDialog):
         self._time_lbl.setStyleSheet(theme.MONO_VALUE_LABEL)
         self._time_lbl.setToolTip("Current playhead time (local)")
         transport_row.addWidget(self._time_lbl)
+        self._frame_lbl = QLabel("")
+        self._frame_lbl.setStyleSheet(theme.MONO_VALUE_LABEL)
+        self._frame_lbl.setToolTip("Current frame / last frame of the loaded clip")
+        transport_row.addWidget(self._frame_lbl)
         left.addLayout(transport_row)
 
         hint = QLabel(
@@ -393,9 +397,11 @@ class ConveyorCalibrationDialog(QDialog):
         self._time_lbl.setText(self._current_time.astimezone().strftime("%H:%M:%S.%f")[:-3])
         self._refresh_overlays()
 
-    def on_clip_position(self, fraction: float) -> None:
+    def on_clip_position(self, fraction: float, frame: int | None = None, frame_count: int | None = None) -> None:
         """Reflect the viewer's position on the scrub slider (0.0..1.0)."""
         self._last_position_fraction = max(0.0, min(1.0, float(fraction)))
+        if frame is not None and frame_count:
+            self._frame_lbl.setText(f"Current frame: {int(frame)} / {max(0, int(frame_count) - 1)}")
         if self._scrub.isSliderDown():
             return  # the user is dragging; don't fight them
         value = int(round(max(0.0, min(1.0, fraction)) * 1000))
