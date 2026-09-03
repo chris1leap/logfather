@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QLabel, QCalendarWidget, QMessageBox, QHBoxLayout, QScrollArea, QGridLayout, QButtonGroup,
     QSizePolicy
 )
-from qt_worker import park_thread_until_finished
+from qt_worker import JobSlot
 from settings_store import (
     Settings,
     customer_logo_bytes,
@@ -20,25 +20,6 @@ from settings_store import (
     display_line_name,
     system_group_sort_key,
 )
-
-
-class ScanThread(QThread):
-    result_ready = Signal(object)
-    error = Signal(str)
-
-    def __init__(self, path: Path, scan_func):
-        super().__init__()
-        self.path = path
-        self.scan_func = scan_func
-
-    def run(self):
-        try:
-            dates = self.scan_func(self.path)
-            if not self.isInterruptionRequested():
-                self.result_ready.emit(dates)
-        except Exception as exc:  # pragma: no cover - UI thread handles messaging
-            if not self.isInterruptionRequested():
-                self.error.emit(str(exc))
 
 
 class DatePicker(QWidget):
@@ -55,8 +36,7 @@ class DatePicker(QWidget):
         self.parent_dir: Path | None = None
         self.available_dates: set[date] = set()
         self.active_pikpak_name: str | None = None
-        self.scan_thread: QThread | None = None
-        self._retired_threads: list[QThread] = []
+        self._scan_slot = JobSlot(self)
         self.current_scan_path: Path | None = None
         self.active_day: date | None = None
         self.settings = Settings()
@@ -410,15 +390,14 @@ class DatePicker(QWidget):
             self.calendar.setDateTextFormat(self.active_day, self.selected_fmt)
 
     def start_scan_thread(self, path: Path):
-        self.stop_scan_thread()
         self.current_scan_path = path
         self.set_scanning_state(True, f"Scanning {path.name} for dates...")
-        worker = ScanThread(path, self.scan_dates)
-        worker.result_ready.connect(self.on_scan_finished)
-        worker.error.connect(self.on_scan_error)
-        worker.finished.connect(self.on_scan_thread_done)
-        self.scan_thread = worker
-        worker.start()
+        self._scan_slot.start(
+            lambda job, p=path: self.scan_dates(p),
+            on_result=self.on_scan_finished,
+            on_error=self.on_scan_error,
+            on_finished=self.on_scan_thread_done,
+        )
 
     def on_scan_finished(self, dates):
         self.available_dates = set(dates) if dates else set()
@@ -435,7 +414,6 @@ class DatePicker(QWidget):
     def on_scan_thread_done(self):
         self.set_scanning_state(False)
         self.refresh_highlights()
-        self.scan_thread = None
         self.current_scan_path = None
 
     def set_scanning_state(self, scanning: bool, message: str | None = None):
@@ -445,15 +423,10 @@ class DatePicker(QWidget):
             btn.setEnabled(not scanning)
 
     def stop_scan_thread(self):
-        thread = self.scan_thread
-        self.scan_thread = None
-        if not thread:
-            self.current_scan_path = None
-            return
-        if thread.isRunning():
-            thread.requestInterruption()
-            if not thread.wait(3000):
-                park_thread_until_finished(self._retired_threads, thread)
+        was_running = self._scan_slot.is_running()
+        self._scan_slot.retire()
+        if was_running:
+            self.set_scanning_state(False)
         self.current_scan_path = None
 
     def _apply_active_day(self, qd: QDate):
