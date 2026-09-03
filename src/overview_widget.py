@@ -494,6 +494,10 @@ class OverviewWidget(QWidget):
         self._hover_timeline_width: float = 0.0
         self._hover_grid_top: float = 0.0
         self._hover_grid_bottom: float = 0.0
+        # Persistent hover crosshair items; recreated lazily after scene
+        # rebuilds so mouse-moves never trigger a full redraw.
+        self._hover_line_item = None
+        self._hover_label_item = None
         self._content_stack = QStackedWidget(self)
         self._loading_page = QWidget(self)
         self._loading_page.setStyleSheet("background: #11161a; border: 1px solid #28323a;")
@@ -654,12 +658,59 @@ class OverviewWidget(QWidget):
                     self._hover_scene_x = x
                 else:
                     self._hover_scene_x = None
-                self._redraw()
+                self._update_hover_indicator()
             elif event.type() == QEvent.Leave:
                 if self._hover_scene_x is not None:
                     self._hover_scene_x = None
-                    self._redraw()
+                    self._update_hover_indicator()
         return super().eventFilter(obj, event)
+
+    def _update_hover_indicator(self):
+        """Move (or lazily create) the hover crosshair without rebuilding the
+        scene. This used to trigger a full scene.clear()+rebuild — including
+        re-running every system's event summary — on every mouse move."""
+        for attr in ("_hover_line_item", "_hover_label_item"):
+            item = getattr(self, attr)
+            if item is not None:
+                try:
+                    if item.scene() is None:
+                        setattr(self, attr, None)
+                except RuntimeError:
+                    setattr(self, attr, None)
+        x = self._hover_scene_x
+        valid = (
+            x is not None
+            and self._hover_window_start is not None
+            and self._hover_window_end is not None
+            and self._hover_timeline_width > 0
+        )
+        if not valid:
+            for item in (self._hover_line_item, self._hover_label_item):
+                if item is not None:
+                    item.setVisible(False)
+            return
+        timeline_x = self._hover_timeline_x
+        timeline_width = self._hover_timeline_width
+        hover_x = min(max(x, timeline_x), timeline_x + timeline_width)
+        if self._hover_line_item is None:
+            pen = QPen(QColor("#ffe08a"))
+            pen.setWidth(1)
+            self._hover_line_item = self.scene.addLine(0, 0, 0, 1, pen)
+            self._hover_line_item.setZValue(2.7)
+        self._hover_line_item.setLine(hover_x, self._hover_grid_top, hover_x, self._hover_grid_bottom)
+        self._hover_line_item.setVisible(True)
+        total_seconds = max(1.0, (self._hover_window_end - self._hover_window_start).total_seconds())
+        ratio = (hover_x - timeline_x) / timeline_width
+        hover_dt = self._hover_window_start + timedelta(seconds=ratio * total_seconds)
+        if self._hover_label_item is None:
+            self._hover_label_item = self.scene.addText("")
+            self._hover_label_item.setDefaultTextColor(QColor("#ffe08a"))
+            self._hover_label_item.setZValue(3.2)
+        self._hover_label_item.setPlainText(hover_dt.astimezone().strftime("%H:%M:%S"))
+        self._hover_label_item.setPos(
+            min(max(timeline_x, hover_x - 26), timeline_x + timeline_width - 70), 16
+        )
+        self._hover_label_item.setVisible(True)
 
     def _set_display_mode(self, mode: str):
         if mode == self._display_mode:
@@ -1225,23 +1276,10 @@ class OverviewWidget(QWidget):
             current_time_label.setPos(min(max(timeline_x, now_x - 20), timeline_x + timeline_width - 64), 4)
             current_time_label.setZValue(3)
 
-        if (
-            self._hover_scene_x is not None
-            and self._hover_window_start is not None
-            and self._hover_window_end is not None
-            and self._hover_timeline_width > 0
-        ):
-            hover_x = min(max(self._hover_scene_x, timeline_x), timeline_x + timeline_width)
-            pen = QPen(QColor("#ffe08a"))
-            pen.setWidth(1)
-            hover_line = self.scene.addLine(hover_x, grid_top, hover_x, grid_bottom, pen)
-            hover_line.setZValue(2.7)
-            ratio = (hover_x - timeline_x) / timeline_width
-            hover_dt = window_start + timedelta(seconds=ratio * total_seconds)
-            hover_label = self.scene.addText(hover_dt.astimezone().strftime("%H:%M:%S"))
-            hover_label.setDefaultTextColor(QColor("#ffe08a"))
-            hover_label.setPos(min(max(timeline_x, hover_x - 26), timeline_x + timeline_width - 70), 16)
-            hover_label.setZValue(3.2)
+        # The scene was cleared above; hover items will be lazily recreated.
+        self._hover_line_item = None
+        self._hover_label_item = None
+        self._update_hover_indicator()
 
         current_y = top_pad
         system_row_index = 0
