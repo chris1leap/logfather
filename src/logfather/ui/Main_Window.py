@@ -26,7 +26,6 @@ from logfather.ui import theme
 from logfather.ui.Date_Picker_frontend import DatePicker
 from logfather.ui.Time_Picker import (
     TimePicker,
-    load_day_files,
     TimelineItem,
     parse_time_from_name,
     ensure_utc,
@@ -40,6 +39,7 @@ from logfather.ui.Time_Picker import (
     _path_key,
 )
 from logfather.core.app_version import load_version_info
+from logfather.data.day_listing_cache import load_day_files_cached
 from logfather.data.elastic_loader import fetch_events, set_system_id_override
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.stop_report import (
@@ -137,7 +137,7 @@ class MainWindow(QWidget):
         ]
 
         self.time_picker = TimePicker(
-            load_day_files,
+            load_day_files_cached,
             extra_loaders=extra_loaders,
             static_tracks=static_tracks,
             cache_root=cache_root,
@@ -871,7 +871,7 @@ class MainWindow(QWidget):
 
     def _load_additional_cctv_items(self, pikpak_root: Path, day: date, cache_root: Path | None):
         additional_root = pikpak_root / "AdditionalCCTV"
-        paths = list(load_day_files(additional_root, day))
+        paths = list(load_day_files_cached(additional_root, day))
         if not paths:
             return []
         cache_index = _build_cache_index(cache_root) if cache_root else set()

@@ -28,7 +28,6 @@ from PySide6.QtWidgets import (
 
 from logfather.ui.Time_Picker import (
     TimelineItem,
-    load_day_files,
     parse_time_from_name,
     ensure_utc,
     MIN_BLOCK_DURATION,
@@ -39,6 +38,7 @@ from logfather.ui.Time_Picker import (
 from logfather.data.elastic_loader import fetch_overview_event_chunks
 from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
+from logfather.data.day_listing_cache import load_day_files_cached
 from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
@@ -100,7 +100,7 @@ def _timeline_day_date(now_local: datetime) -> date:
 
 def _build_video_items(pikpak_root: Path, day_value: date) -> list[TimelineItem]:
     try:
-        paths = list(load_day_files(pikpak_root, day_value))
+        paths = list(load_day_files_cached(pikpak_root, day_value))
     except Exception:
         return []
     entries: list[tuple[Path, datetime]] = []

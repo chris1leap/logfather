@@ -42,7 +42,6 @@ from logfather.core.timeline_model import (  # noqa: F401
     format_local_time,
     format_uk_date,
     inferred_live_clip_end,
-    load_day_files,
     local_day_end_utc,
     local_day_start_utc,
     parse_time_from_name,

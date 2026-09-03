@@ -15,7 +15,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from logfather.core.timeline_model import (
     TimelineItem,
-    load_day_files,
     parse_time_from_name,
     LAST_BLOCK_DURATION,
     inferred_live_clip_end,
@@ -25,6 +24,7 @@ from logfather.core.timeline_model import (
 from logfather.data.settings_store import Settings, Condition
 from logfather.data.elastic_errors import ElasticFetchError
 from logfather.core.sku_timeline import build_sku_bands
+from logfather.data.day_listing_cache import load_day_files_cached
 from logfather.data.elastic_client import (
     PageOutcome,
     api_headers,
@@ -936,7 +936,7 @@ def fetch_events(
 
 def _last_video_end(pikpak_root: Path, day) -> datetime | None:
     try:
-        paths = list(load_day_files(pikpak_root, day))
+        paths = list(load_day_files_cached(pikpak_root, day))
     except Exception:
         return None
     entries: list[tuple[Path, datetime]] = []
