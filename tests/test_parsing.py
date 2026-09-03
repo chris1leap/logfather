@@ -851,3 +851,28 @@ class TestActivityEta:
 
     def test_minutes_pads_seconds(self):
         assert self._eta(125 * 1024, 1024) == "~2m 05s left"
+
+
+class TestCalibrationCaptureFields:
+    """Capture clip key + fractions round-trip through the calibration
+    JSON and default to None for pre-existing files."""
+
+    def test_round_trip(self):
+        from logfather.data.conveyor_calibration import ConveyorCalibration
+        cal = ConveyorCalibration(
+            system_id="PikPak012",
+            capture_clip_key="PikPak012 -Line 1-_00_20260901080000",
+            capture_start_fraction=0.25,
+            capture_end_fraction=0.75,
+        )
+        restored = ConveyorCalibration.from_dict(cal.to_dict())
+        assert restored.capture_clip_key == cal.capture_clip_key
+        assert restored.capture_start_fraction == 0.25
+        assert restored.capture_end_fraction == 0.75
+
+    def test_old_files_default_to_none(self):
+        from logfather.data.conveyor_calibration import ConveyorCalibration
+        restored = ConveyorCalibration.from_dict({"system_id": "PikPak012"})
+        assert restored.capture_clip_key is None
+        assert restored.capture_start_fraction is None
+        assert restored.capture_end_fraction is None

@@ -31,6 +31,13 @@ class ConveyorCalibration:
     tracking_line_start_norm: list[float] | None = None
     tracking_line_end_norm: list[float] | None = None
     tracking_line_duration_sec: float = 0.0
+    # Where the line's two points were captured: the clip (normalized stem)
+    # and the positions as fractions of that clip's frame range. Lets the
+    # dialog restore its scrub markers / go-to buttons when reopened on the
+    # same clip; meaningless on any other clip.
+    capture_clip_key: str | None = None
+    capture_start_fraction: float | None = None
+    capture_end_fraction: float | None = None
     cam_axis_0: int = 0     # legacy, pass-through
     cam_axis_1: int = 2     # legacy, pass-through
     homography: list[list[float]] | None = None  # legacy, pass-through
@@ -78,6 +85,9 @@ class ConveyorCalibration:
             "tracking_line_start_norm": self.tracking_line_start_norm,
             "tracking_line_end_norm": self.tracking_line_end_norm,
             "tracking_line_duration_sec": self.tracking_line_duration_sec,
+            "capture_clip_key": self.capture_clip_key,
+            "capture_start_fraction": self.capture_start_fraction,
+            "capture_end_fraction": self.capture_end_fraction,
             "cam_axis_0": self.cam_axis_0,
             "cam_axis_1": self.cam_axis_1,
             "homography": self.homography,
@@ -93,6 +103,9 @@ class ConveyorCalibration:
             tracking_line_start_norm=d.get("tracking_line_start_norm"),
             tracking_line_end_norm=d.get("tracking_line_end_norm"),
             tracking_line_duration_sec=d.get("tracking_line_duration_sec", 0.0),
+            capture_clip_key=d.get("capture_clip_key"),
+            capture_start_fraction=d.get("capture_start_fraction"),
+            capture_end_fraction=d.get("capture_end_fraction"),
             cam_axis_0=d.get("cam_axis_0", 0),
             cam_axis_1=d.get("cam_axis_1", 2),
             homography=d.get("homography"),

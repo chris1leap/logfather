@@ -12,6 +12,7 @@ clip selection (load_buffer_events).
 """
 from __future__ import annotations
 
+import re
 from bisect import bisect_left
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -251,6 +252,7 @@ class TargetOverlayController(QObject):
         dialog.transport_play.connect(self._viewer.play)
         dialog.transport_pause.connect(self._viewer.pause)
         dialog.transport_jump_fraction.connect(self._on_cal_transport_jump)
+        dialog.set_clip_context(self._current_clip_key())
 
         # Live frame updates. Connected unconditionally: previously this only
         # connected when a frame existed at open time, so a dialog opened
@@ -270,6 +272,15 @@ class TargetOverlayController(QObject):
         self._cal_dialog = dialog
         self._feed_cal_dialog_position()
         dialog.show()
+
+    def _current_clip_key(self) -> str | None:
+        """Stable identity for the open clip whether the viewer holds the
+        share path or the local cache copy (whose stem carries a trailing
+        _<16-hex> content key)."""
+        path = self._viewer.current_video_path
+        if not path:
+            return None
+        return re.sub(r"_[0-9a-f]{16}$", "", Path(path).stem)
 
     def _on_cal_transport_step(self, delta_frames: int) -> None:
         self._viewer.scrub_by_frames(int(delta_frames))

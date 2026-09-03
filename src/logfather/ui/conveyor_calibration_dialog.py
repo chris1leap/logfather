@@ -223,7 +223,11 @@ class ConveyorCalibrationDialog(QDialog):
             tracking_line_start_norm=list(cal.tracking_line_start_norm) if cal.tracking_line_start_norm else None,
             tracking_line_end_norm=list(cal.tracking_line_end_norm) if cal.tracking_line_end_norm else None,
             tracking_line_duration_sec=cal.tracking_line_duration_sec,
+            capture_clip_key=cal.capture_clip_key,
+            capture_start_fraction=cal.capture_start_fraction,
+            capture_end_fraction=cal.capture_end_fraction,
         )
+        self._clip_key: str | None = None
         self._current_time: datetime | None = None
         self._line_start_capture: tuple[datetime, tuple[float, float], float | None] | None = None
         self._line_capture_mode: str | None = None
@@ -456,6 +460,21 @@ class ConveyorCalibrationDialog(QDialog):
         self._mode_lbl.setText("Click the same conveyor reference point at the end frame.")
         self._vel_status_lbl.setText("Waiting for end-point click.")
 
+    def set_clip_context(self, clip_key: str | None) -> None:
+        """Tell the dialog which clip the viewer has open. Restores the
+        saved capture markers when it matches the calibration's capture
+        clip — the fractions are meaningless on any other clip."""
+        self._clip_key = clip_key
+        if (
+            clip_key
+            and self._cal.capture_clip_key == clip_key
+            and self._start_fraction is None
+            and self._end_fraction is None
+        ):
+            self._start_fraction = self._cal.capture_start_fraction
+            self._end_fraction = self._cal.capture_end_fraction
+            self._update_capture_markers()
+
     def _jump_to_capture(self, fraction: float | None):
         if fraction is not None:
             self.transport_jump_fraction.emit(fraction)
@@ -498,6 +517,11 @@ class ConveyorCalibrationDialog(QDialog):
         self._start_fraction = start_fraction
         self._end_fraction = end_fraction
         self._update_capture_markers()
+        # Persisted with the calibration so reopening on this clip restores
+        # the markers and go-to buttons.
+        self._cal.capture_clip_key = self._clip_key
+        self._cal.capture_start_fraction = start_fraction
+        self._cal.capture_end_fraction = end_fraction
         self._cal.tracking_line_start_norm = [line_start[0], line_start[1]]
         self._cal.tracking_line_end_norm = [line_end[0], line_end[1]]
         self._cal.tracking_line_duration_sec = dt
@@ -516,6 +540,9 @@ class ConveyorCalibrationDialog(QDialog):
         self._start_fraction = None
         self._end_fraction = None
         self._update_capture_markers()
+        self._cal.capture_clip_key = None
+        self._cal.capture_start_fraction = None
+        self._cal.capture_end_fraction = None
         self._cal.tracking_line_start_norm = None
         self._cal.tracking_line_end_norm = None
         self._cal.tracking_line_duration_sec = 0.0
