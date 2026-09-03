@@ -883,8 +883,14 @@ class TimePicker(QWidget):
         if SHOW_TIMELINE_INFO_TEXT:
             self.info.setText(text)
 
-    def closeEvent(self, event):
+    def shutdown_workers(self):
+        """Stop background work. Called by MainWindow.closeEvent — Qt only
+        delivers close events to the top-level window, so panel closeEvents
+        never fire inside the app."""
         self._stop_loader_thread()
+
+    def closeEvent(self, event):
+        self.shutdown_workers()
         super().closeEvent(event)
 
     def _stop_loader_thread(self):

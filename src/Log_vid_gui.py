@@ -6843,18 +6843,27 @@ class VideoLogViewer(QWidget):
         print("[viewer] cancelling prior log future", flush=True)
         future.cancel()
 
-    def closeEvent(self, event):
+    def shutdown_workers(self):
+        """Flush settings and stop all executors. Called by
+        MainWindow.closeEvent — a child widget's closeEvent never fires when
+        the app window closes."""
         try:
             self._flush_settings_autosave()
         except Exception:
             pass
         self._cancel_log_future()
-        if self._log_executor:
-            try:
-                self._log_executor.shutdown(wait=False)
-            except Exception:
-                pass
-            self._log_executor = None
+        self.cancel_queued_prefetches()
+        for attr in ("_log_executor", "_cache_executor", "_prefetch_executor"):
+            executor = getattr(self, attr, None)
+            if executor is not None:
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
+    def closeEvent(self, event):
+        self.shutdown_workers()
         super().closeEvent(event)
 
     def keyPressEvent(self, event):

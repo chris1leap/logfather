@@ -1142,6 +1142,31 @@ class MainWindow(QWidget):
         if not self.date_picker.rect().contains(pos):
             self._set_date_picker_visible(False, self._horizontal_splitter)
 
+    def closeEvent(self, event):
+        # Qt delivers close events only to the top-level window: the panels'
+        # own closeEvents never fire inside the app, so every worker thread
+        # must be stopped from here or it races Qt teardown and crashes.
+        thread = self._buffer_loader_thread
+        self._buffer_loader_thread = None
+        if thread is not None:
+            try:
+                thread.requestInterruption()
+                thread.wait(3000)
+            except RuntimeError:
+                pass
+        for shutdown in (
+            self.date_picker.stop_scan_thread,
+            self.time_picker.shutdown_workers,
+            self.overview_widget.shutdown_workers,
+            self.fleetwide_search_widget.shutdown_workers,
+            self.viewer.shutdown_workers,
+        ):
+            try:
+                shutdown()
+            except Exception as exc:
+                print(f"[main] shutdown step failed: {exc}", flush=True)
+        super().closeEvent(event)
+
     def on_time_chosen(self, item: TimelineItem):
         if item.kind == "video" and isinstance(item.payload, Path):
             self.open_in_viewer(item)

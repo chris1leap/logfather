@@ -666,9 +666,16 @@ class OverviewWidget(QWidget):
             self._loading_label.setGeometry(x, y, label_size.width(), label_size.height())
         self._redraw()
 
-    def closeEvent(self, event):
+    def shutdown_workers(self):
+        """Stop timers and background work. Called by MainWindow.closeEvent —
+        panel closeEvents never fire inside the app."""
+        self._refresh_timer.stop()
+        self._redraw_timer.stop()
         self._stop_load_thread()
         self._stop_loading_video()
+
+    def closeEvent(self, event):
+        self.shutdown_workers()
         super().closeEvent(event)
 
     def eventFilter(self, obj, event):

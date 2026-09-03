@@ -711,7 +711,9 @@ class FleetwideElasticSearchWidget(QWidget):
             self._load_thread = None
         thread.deleteLater()
 
-    def closeEvent(self, event):
+    def shutdown_workers(self):
+        """Stop background searches. Called by MainWindow.closeEvent —
+        panel closeEvents never fire inside the app."""
         for thread in list(self._loader_refs):
             thread.requestInterruption()
         for thread in list(self._loader_refs):
@@ -720,6 +722,9 @@ class FleetwideElasticSearchWidget(QWidget):
                 thread.wait()
         self._loader_refs.clear()
         self._load_thread = None
+
+    def closeEvent(self, event):
+        self.shutdown_workers()
         super().closeEvent(event)
 
     def _apply_filters(self):
