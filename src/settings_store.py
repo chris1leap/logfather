@@ -144,6 +144,10 @@ class Settings:
     customer_start_collapsed: dict[str, bool] = field(default_factory=dict)
     system_layouts: List[SystemLayoutEntry] = field(default_factory=list)
     fleetwide_searches: List[FleetwideSearchDefinition] = field(default_factory=_default_fleetwide_searches)
+    # Session resume: what was open at last shutdown, and whether to restore
+    # it on startup ("ask" | "always" | "never").
+    resume_on_startup: str = "ask"
+    last_session: Optional[dict] = None
     # Set by load() when the settings file was unreadable; never persisted.
     # The UI shows it once at startup so a recovery is not silent.
     load_warning: Optional[str] = None
@@ -324,6 +328,8 @@ class Settings:
                 customer_start_collapsed=customer_start_collapsed,
                 system_layouts=system_layouts,
                 fleetwide_searches=fleetwide_searches,
+                resume_on_startup=str(data.get("resume_on_startup") or "ask"),
+                last_session=data.get("last_session") if isinstance(data.get("last_session"), dict) else None,
             )
         except Exception:
             # Parse errors propagate: load() decides how to recover

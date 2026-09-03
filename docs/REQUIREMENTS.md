@@ -17,6 +17,13 @@ when adding items; move items to the changelog section when shipped.
 
 ## Shipped
 
+- Session resume (2026-09-03, Chris): the app remembers the open system,
+  day, and playhead time at shutdown and offers to restore them at
+  startup ("Remember my choice" makes it always/never resume; stored as
+  resume_on_startup / last_session in the settings file). Restoring
+  reuses the signal-driven jump: select system+day, open the containing
+  clip, OCR-sync, seek.
+
 - Reverse-scrub handling in calibration (2026-09-03): capturing the end
   point at an earlier frame than the start now swaps the points into
   time-forward order instead of silently producing a belt that tracks in

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QSizePolicy,
     QPushButton,
+    QCheckBox,
     QLabel,
     QStackedWidget,
     QFileDialog,
@@ -25,6 +26,7 @@ from Time_Picker import (
     TimelineItem,
     parse_time_from_name,
     ensure_utc,
+    ensure_playhead_local,
     MIN_BLOCK_DURATION,
     inferred_live_clip_end,
     VIDEO_COLOR_CACHED,
@@ -276,6 +278,7 @@ class MainWindow(QWidget):
                 self.overview_widget.set_parent_dir(p)
                 self.fleetwide_search_widget.set_parent_dir(p)
         QTimer.singleShot(0, self._apply_initial_timeline_size)
+        QTimer.singleShot(600, self._maybe_resume_last_session)
         QTimer.singleShot(0, self._sync_overview_mode)
         QTimer.singleShot(
             0,
@@ -544,7 +547,71 @@ class MainWindow(QWidget):
         if not self.date_picker.rect().contains(pos):
             self._set_date_picker_visible(False, self._horizontal_splitter)
 
+    def _save_last_session(self) -> None:
+        """Remember system/day/playhead so startup can offer to resume."""
+        root = self.time_picker.current_root
+        day = self.time_picker._current_date
+        if root is None or day is None:
+            return
+        playhead = self._overlay_controller._last_playhead_dt
+        playhead_iso = None
+        if isinstance(playhead, datetime):
+            playhead_iso = ensure_playhead_local(playhead).astimezone(timezone.utc).isoformat()
+        self.settings.last_session = {
+            "root": str(root),
+            "day": day.isoformat(),
+            "playhead": playhead_iso,
+        }
+        self.settings.save()
+
+    def _maybe_resume_last_session(self) -> None:
+        session = self.settings.last_session
+        if not isinstance(session, dict):
+            return
+        mode = str(self.settings.resume_on_startup or "ask")
+        if mode == "never":
+            return
+        try:
+            root = Path(str(session.get("root")))
+            day = date.fromisoformat(str(session.get("day")))
+        except Exception:
+            return
+        target_dt = None
+        playhead_raw = session.get("playhead")
+        if isinstance(playhead_raw, str):
+            try:
+                target_dt = datetime.fromisoformat(playhead_raw)
+            except ValueError:
+                target_dt = None
+        if not root.exists():
+            return
+        if mode != "always":
+            when = (
+                target_dt.astimezone().strftime("%H:%M:%S")
+                if target_dt is not None
+                else "start of day"
+            )
+            box = QMessageBox(self)
+            box.setWindowTitle("Resume session")
+            box.setText(
+                "Resume where you left off?\n\n"
+                f"{root.name} on {day.strftime('%d/%m/%Y')} at {when}"
+            )
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            remember = QCheckBox("Remember my choice")
+            box.setCheckBox(remember)
+            accepted = box.exec() == QMessageBox.Yes
+            if remember.isChecked():
+                self.settings.resume_on_startup = "always" if accepted else "never"
+                self.settings.save()
+            if not accepted:
+                return
+        # Reuse the signal-driven jump: select system+day, open the clip
+        # containing the playhead moment, sync and seek once it is open.
+        self._open_system_from_overview(root, day, target_dt)
+
     def closeEvent(self, event):
+        self._save_last_session()
         # Qt delivers close events only to the top-level window: the panels'
         # own closeEvents never fire inside the app, so every worker thread
         # must be stopped from here or it races Qt teardown and crashes.
