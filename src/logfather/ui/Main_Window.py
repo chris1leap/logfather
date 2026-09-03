@@ -35,6 +35,7 @@ from logfather.ui.Time_Picker import (
     _build_cache_index,
     _path_key,
 )
+from logfather.core.app_version import load_version_info
 from logfather.data.elastic_loader import fetch_events, set_system_id_override
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.stop_report import (
@@ -67,7 +68,11 @@ TIMELINE_EXPAND_DELAY_MS = 1500
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("The Logfather")
+        # Version in the title so it's always obvious which build is being
+        # tested (Chris, 2026-09-03). Dev runs derive it live from git
+        # (0.<commit count>); frozen builds read the stamped version.json.
+        version = str(load_version_info().get("version") or "dev")
+        self.setWindowTitle(f"The Logfather - version {version}")
         self._post_show_started = False
 
         self.system_id_override: str | None = None
