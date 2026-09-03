@@ -757,117 +757,62 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
     def fetch_for_condition(idx: int, cond: Condition) -> tuple[List[TimelineItem], str | None]:
         t_cond_start = perf_counter()
         session = _get_thread_session()
-        hits_collected: List[TimelineItem] = []
-        warning_msg: str | None = None
-        search_after: list[str] | None = None
-        page = 0
-        requests_made = 0
-        max_pages = ELASTIC_EVENT_MAX_PAGES
-        page_size = ELASTIC_EVENT_PAGE_SIZE
-        min_page_size = ELASTIC_EVENT_MIN_PAGE_SIZE
-        timeout_sec = ELASTIC_EVENT_TIMEOUT_SEC
-        timeout_retries = 0
-        while page < max_pages:
-            body = _build_query(
+        outcome = paginate(
+            lambda size, search_after: _build_query(
                 cond,
                 robot_id,
                 start_iso,
                 end_iso,
                 ts_fields,
-                size=page_size,
+                size=size,
                 search_after=search_after,
+            ),
+            session=session,
+            endpoint=search_endpoint,
+            headers=headers,
+            page_size=ELASTIC_EVENT_PAGE_SIZE,
+            min_page_size=ELASTIC_EVENT_MIN_PAGE_SIZE,
+            max_pages=ELASTIC_EVENT_MAX_PAGES,
+            timeout_sec=ELASTIC_EVENT_TIMEOUT_SEC,
+            label=f"condition {idx+1}",
+            on_error="warn",
+        )
+        warning_msg: str | None = outcome.warning
+        hits_collected: List[TimelineItem] = []
+        for hit in outcome.hits:
+            src = hit.get("_source", {})
+            ts_val = src.get("@timestamp_ros") or src.get("@timestamp")
+            ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
+            if not ts:
+                continue
+            selection = _extract_ui_selection(src)
+            if selection:
+                hit["_ui_sku"] = selection.get("sku")
+                hit["_ui_tray"] = selection.get("tray")
+                hit["_ui_tool"] = selection.get("tool")
+            label = src.get("message") or cond.name or cond.query
+            hits_collected.append(
+                TimelineItem(
+                    start=ts,
+                    end=ts + timedelta(seconds=1),
+                    label=label,
+                    kind=f"cond_{idx}",
+                    color=cond.color or "#fa8c16",
+                    payload=hit,
+                    track_label=cond.name or f"Cond {idx+1}",
+                )
             )
-            try:
-                requests_made += 1
-                resp = session.post(
-                    search_endpoint,
-                    json=body,
-                    headers=headers,
-                    timeout=timeout_sec,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                hits = data.get("hits", {}).get("hits", [])
-                timeout_retries = 0
-            except requests.exceptions.Timeout:
-                if page_size > min_page_size:
-                    page_size = max(min_page_size, page_size // 2)
-                    timeout_sec = min(30, timeout_sec + 3)
-                    print(
-                        f"[elastic] condition {idx+1} timed out on page {page}; "
-                        f"reducing page size to {page_size} (timeout {timeout_sec}s) and retrying..."
-                    )
-                    continue
-                if timeout_retries < 2:
-                    timeout_retries += 1
-                    print(
-                        f"[elastic] condition {idx+1} timed out on page {page} "
-                        f"(page size {page_size}); retry {timeout_retries}/2..."
-                    )
-                    continue
-                warning_msg = (
-                    f"[elastic] condition {idx+1} giving up after repeated timeouts "
-                    f"(page {page}, size {page_size})"
-                )
-                print(warning_msg)
-                break
-            except requests.RequestException as exc:
-                err_text = ""
-                if exc.response is not None:
-                    try:
-                        err_text = exc.response.text
-                    except Exception:
-                        err_text = ""
-                warning_msg = (
-                    f"[elastic] query failed for condition {idx+1} page {page}: {exc} {err_text}"
-                )
-                print(warning_msg)
-                break
-
-            if not hits:
-                break
-            for hit in hits:
-                src = hit.get("_source", {})
-                ts_val = src.get("@timestamp_ros") or src.get("@timestamp")
-                ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
-                if not ts:
-                    continue
-                selection = _extract_ui_selection(src)
-                if selection:
-                    hit["_ui_sku"] = selection.get("sku")
-                    hit["_ui_tray"] = selection.get("tray")
-                    hit["_ui_tool"] = selection.get("tool")
-                label = src.get("message") or cond.name or cond.query
-                hits_collected.append(
-                    TimelineItem(
-                        start=ts,
-                        end=ts + timedelta(seconds=1),
-                        label=label,
-                        kind=f"cond_{idx}",
-                        color=cond.color or "#fa8c16",
-                        payload=hit,
-                        track_label=cond.name or f"Cond {idx+1}",
-                    )
-                )
-            if len(hits) < page_size:
-                break
-            last_sort = hits[-1].get("sort")
-            if not last_sort:
-                break
-            search_after = last_sort
-            page += 1
-        if page >= max_pages and warning_msg is None:
-            # Ran out of pages with a full last page: results are truncated.
-            # Surface it as a warning so the day is neither cached nor
-            # silently presented as complete.
+        if outcome.truncated and warning_msg is None:
+            # Surface truncation as a warning so the day is neither cached
+            # nor silently presented as complete.
             warning_msg = (
                 f"[elastic] condition {idx+1} ({cond.name or cond.query}) truncated "
-                f"at {max_pages} pages ({len(hits_collected)} hits); day view incomplete"
+                f"at {ELASTIC_EVENT_MAX_PAGES} pages ({len(hits_collected)} hits); day view incomplete"
             )
             print(warning_msg)
         print(f"[elastic] condition {idx+1} ({cond.name or cond.query}) collected {len(hits_collected)} hits")
         _perf_log(
-            f"condition {idx+1} requests={requests_made} hits={len(hits_collected)} "
+            f"condition {idx+1} requests={outcome.requests_made} hits={len(hits_collected)} "
             f"time={(perf_counter() - t_cond_start) * 1000:.0f}ms"
         )
         return hits_collected, warning_msg
