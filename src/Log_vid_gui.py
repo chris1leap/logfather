@@ -32,6 +32,7 @@ from frame_analysis import (
     compute_pixel_diff_view,
 )
 from annotated_video_widget import AnnotatedVideoWidget
+from clip_cache import ClipCache
 from log_events import (
     LOCAL_TIMEZONE,
     MESSAGE_COLUMN,
@@ -76,9 +77,6 @@ from app_version import format_version_label, format_version_suffix
 
 TARGET_QUEUE_MESSAGE = "adding new target to queue"
 PPM_ROLLING_WINDOW_SECONDS = 60.0
-CACHE_META_SUFFIX = ".meta.json"
-CACHE_MAX_BYTES = 30 * 1024 * 1024 * 1024
-CACHE_MAX_AGE_DAYS = 30
 
 
 
@@ -246,16 +244,20 @@ class VideoLogViewer(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.next_frame)
         self._log_executor = ThreadPoolExecutor(max_workers=1)
-        self._cache_executor = ThreadPoolExecutor(max_workers=1)
-        # Background prefetch runs on its own pool so a click-triggered
-        # download (on _cache_executor) never queues behind a day's worth of
-        # prefetch copies. Two workers: parallel SMB streams usually lift
-        # aggregate throughput on the high-latency HiDrive share.
-        self._prefetch_executor = ThreadPoolExecutor(max_workers=2)
-        self._prefetch_futures: dict[str, Future] = {}
+        # All clip copy/prefetch/prune machinery lives in ClipCache. The
+        # click-download executor is aliased because other code submits its
+        # own jobs to it (stop report thumbnails, secondary-clip copies).
+        self.clip_cache = ClipCache(
+            protected_paths_provider=lambda: (
+                self.current_video_path,
+                self.secondary_video_path,
+            )
+        )
+        self.clip_cache.clip_ready.connect(self.cache_clip_ready)
+        self.clip_cache.transfer_finished.connect(self._on_cache_transfer_finished)
+        self._cache_executor = self.clip_cache.executor
         self._cache_status_future: Future | None = None
         self._cache_status_pending = False
-        self._prefetch_pending: set[str] = set()
         # Async clip download: (generation, source path on Z:, cache target).
         # Generation invalidates a pending download when another clip is
         # chosen before the copy finishes.
@@ -539,12 +541,7 @@ class VideoLogViewer(QWidget):
         self.analysis_main_alpha_slider.setFixedWidth(150)
         self.analysis_main_alpha_slider.valueChanged.connect(self._on_analysis_main_alpha_changed)
 
-        self.cache_root = self._default_cache_root()
-        try:
-            self.cache_root.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            self.cache_root = Path.home() / ".videolog_cache"
-            self.cache_root.mkdir(parents=True, exist_ok=True)
+        self.cache_root = self.clip_cache.root
         settings_root = DEFAULT_SETTINGS_PATH.parent
         self.ocr_settings_path = settings_root / "ocr_settings.json"
         self.offset_cache_path = self.cache_root / "ocr_offsets.json"
@@ -1595,7 +1592,7 @@ class VideoLogViewer(QWidget):
             cache_path = None
         if cache_path is not None and not self._is_cached_copy_current(path_obj, cache_path):
             # Download on the cache executor and finish loading when it lands
-            # (_on_prefetch_done) — copying from the CCTV share takes ~15-20s
+            # (ClipCache.transfer_finished) — copying from the CCTV share takes ~15-20s
             # per clip and must not freeze the UI. (Streaming straight from
             # the share while downloading was tried and reverted: too slow.)
             self._video_load_t0 = t0
@@ -1608,24 +1605,9 @@ class VideoLogViewer(QWidget):
         return self._open_downloaded_video(open_path, path_obj, t0)
 
     def _begin_async_video_download(self, path_obj: Path, cache_path: Path) -> None:
-        key = str(cache_path)
         self._pending_video_load = (self._video_load_generation, path_obj, cache_path)
         self._set_video_busy(True, f"Downloading {path_obj.name} from the CCTV share...")
-        if key in self._prefetch_pending:
-            # A background prefetch already owns this clip. If it is still
-            # queued, cancel it and download on the click executor instead so
-            # the user doesn't wait behind the rest of the prefetch queue; if
-            # it is actively copying, just reuse it.
-            prefetch_future = self._prefetch_futures.get(key)
-            if prefetch_future is None or not prefetch_future.cancel():
-                return
-            self._prefetch_futures.pop(key, None)
-        else:
-            self._prefetch_pending.add(key)
-        future = self._cache_executor.submit(self._copy_to_cache, path_obj, cache_path)
-        future.add_done_callback(
-            lambda fut, p=path_obj, k=key: self._schedule_prefetch_done(fut, p, k)
-        )
+        self.clip_cache.download_with_priority(path_obj, cache_path)
 
     def _set_video_busy(self, busy: bool, message: str | None = None):
         if busy:
@@ -3239,12 +3221,7 @@ class VideoLogViewer(QWidget):
         return list(self._pinned_annotations) + list(self._clip_annotations)
 
     def _annotations_dir(self) -> Path:
-        path = self.cache_root / "annotations"
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-        return path
+        return self.clip_cache.annotations_dir()
 
     def _clip_annotations_path(self) -> Path | None:
         base_path = None
@@ -3774,324 +3751,50 @@ class VideoLogViewer(QWidget):
             "Logs are now aligned so that the FIRST visible log entry matches the CURRENT video frame."
         )
 
-    # ---- Cache helpers ----
-
-    def _default_cache_root(self) -> Path:
-        base = os.environ.get("LOCALAPPDATA")
-        if base:
-            return Path(base) / "VideoLogViewer" / "cache"
-        return Path.home() / ".videolog_cache"
+    # ---- Cache helpers (thin forwarders onto ClipCache) ----
 
     def _cache_path_for(self, original_path: Path) -> Path:
-        self.cache_root.mkdir(parents=True, exist_ok=True)
-        key = hashlib.sha1(str(original_path).encode("utf-8")).hexdigest()[:16]
-        filename = f"{original_path.stem}_{key}{original_path.suffix}"
-        return self.cache_root / filename
-
-    def _cache_meta_path_for(self, cache_path: Path) -> Path:
-        return cache_path.with_name(cache_path.name + CACHE_META_SUFFIX)
+        return self.clip_cache.cache_path_for(original_path)
 
     def _clip_annotation_path_for_cache(self, cache_path: Path) -> Path:
-        return self._annotations_dir() / f"{cache_path.stem}.json"
-
-    def _read_cache_meta(self, cache_path: Path) -> dict | None:
-        try:
-            meta_path = self._cache_meta_path_for(cache_path)
-            if not meta_path.exists():
-                return None
-            payload = json.loads(meta_path.read_text(encoding="utf-8"))
-            return payload if isinstance(payload, dict) else None
-        except Exception:
-            return None
-
-    def _write_cache_meta(self, source_path: Path, cache_path: Path) -> None:
-        try:
-            source_stat = source_path.stat()
-            payload = {
-                "source_path": str(source_path),
-                "source_size": int(source_stat.st_size),
-                "source_mtime_ns": int(source_stat.st_mtime_ns),
-                "cached_at": datetime.now().isoformat(),
-            }
-            self._cache_meta_path_for(cache_path).write_text(json.dumps(payload), encoding="utf-8")
-        except Exception:
-            pass
+        return self.clip_cache.annotation_path_for(cache_path)
 
     def _invalidate_cached_copy(self, cache_path: Path) -> None:
-        for target in (cache_path, self._cache_meta_path_for(cache_path), self._clip_annotation_path_for_cache(cache_path)):
-            try:
-                if target.exists():
-                    target.unlink()
-            except Exception:
-                pass
+        self.clip_cache.invalidate(cache_path)
 
     def _touch_cache_entry(self, cache_path: Path) -> None:
-        now_ts = time.time()
-        for target in (cache_path, self._cache_meta_path_for(cache_path), self._clip_annotation_path_for_cache(cache_path)):
-            try:
-                if target.exists():
-                    os.utime(target, (now_ts, now_ts))
-            except Exception:
-                pass
-
-    def _cache_group_size(self, paths: list[Path]) -> int:
-        total = 0
-        for path in paths:
-            try:
-                if path.exists():
-                    total += int(path.stat().st_size)
-            except Exception:
-                continue
-        return total
-
-    def _cache_group_last_used(self, paths: list[Path]) -> float:
-        latest = 0.0
-        for path in paths:
-            try:
-                if path.exists():
-                    stat = path.stat()
-                    latest = max(latest, float(stat.st_mtime))
-            except Exception:
-                continue
-        return latest
-
-    def _iter_cache_groups(self) -> list[dict]:
-        if not self.cache_root.exists():
-            return []
-        groups: list[dict] = []
-        try:
-            entries = list(self.cache_root.iterdir())
-        except Exception:
-            return []
-        for entry in entries:
-            if not entry.is_file():
-                continue
-            name = entry.name
-            if name.endswith(".part") or name.endswith(CACHE_META_SUFFIX):
-                continue
-            if entry in {self.offset_cache_path, self.secondary_offset_cache_path}:
-                continue
-            paths = [entry, self._cache_meta_path_for(entry), self._clip_annotation_path_for_cache(entry)]
-            groups.append(
-                {
-                    "cache_path": entry,
-                    "paths": paths,
-                    "size": self._cache_group_size(paths),
-                    "last_used": self._cache_group_last_used(paths),
-                }
-            )
-        return groups
-
-    def prune_cache_if_needed(self) -> None:
-        try:
-            self._prune_cache()
-        except Exception:
-            pass
-        self.update_cache_status()
-
-    def _prune_cache(self) -> None:
-        groups = self._iter_cache_groups()
-        if not groups:
-            return
-        cutoff_ts = time.time() - (CACHE_MAX_AGE_DAYS * 24 * 60 * 60)
-        protected_paths: set[str] = set()
-        for active in (self.current_video_path, self.secondary_video_path):
-            if not active:
-                continue
-            try:
-                protected_paths.add(str(Path(active).resolve()))
-            except Exception:
-                protected_paths.add(str(active))
-
-        def _delete_group(group: dict) -> None:
-            cache_path = group.get("cache_path")
-            if isinstance(cache_path, Path):
-                try:
-                    resolved = str(cache_path.resolve())
-                except Exception:
-                    resolved = str(cache_path)
-                if resolved in protected_paths:
-                    return
-            for path in group.get("paths", []):
-                try:
-                    if isinstance(path, Path) and path.exists():
-                        path.unlink()
-                except Exception:
-                    continue
-
-        for group in groups:
-            if group.get("last_used", 0.0) < cutoff_ts:
-                _delete_group(group)
-
-        groups = [g for g in self._iter_cache_groups() if g.get("size", 0) > 0]
-        total_bytes = sum(int(g.get("size", 0)) for g in groups)
-        if total_bytes <= CACHE_MAX_BYTES:
-            return
-        groups.sort(key=lambda g: (float(g.get("last_used", 0.0)), str(g.get("cache_path"))))
-        for group in groups:
-            if total_bytes <= CACHE_MAX_BYTES:
-                break
-            cache_path = group.get("cache_path")
-            if isinstance(cache_path, Path):
-                try:
-                    resolved = str(cache_path.resolve())
-                except Exception:
-                    resolved = str(cache_path)
-                if resolved in protected_paths:
-                    continue
-            size = int(group.get("size", 0))
-            _delete_group(group)
-            total_bytes -= size
+        self.clip_cache.touch_entry(cache_path)
 
     def _is_cached_copy_current(self, source_path: Path, cache_path: Path) -> bool:
-        try:
-            if not cache_path.exists():
-                return False
-        except Exception:
-            return False
-        try:
-            source_stat = source_path.stat()
-        except Exception:
-            return True
-        meta = self._read_cache_meta(cache_path)
-        if meta:
-            try:
-                return (
-                    int(meta.get("source_size")) == int(source_stat.st_size)
-                    and int(meta.get("source_mtime_ns")) == int(source_stat.st_mtime_ns)
-                )
-            except Exception:
-                pass
-        try:
-            cache_stat = cache_path.stat()
-        except Exception:
-            return False
-        return int(cache_stat.st_size) == int(source_stat.st_size)
+        return self.clip_cache.is_cached_copy_current(source_path, cache_path)
 
     def _ensure_cached_copy(self, source_path: Path, cache_path: Path) -> bool:
-        if self._is_cached_copy_current(source_path, cache_path):
-            self._touch_cache_entry(cache_path)
-            return True
-        self._invalidate_cached_copy(cache_path)
-        return self._copy_to_cache(source_path, cache_path)
-
-    def get_valid_cached_path(self, original_path: Path) -> Path | None:
-        try:
-            cache_path = self._cache_path_for(original_path)
-        except Exception:
-            return None
-        if self._is_cached_copy_current(original_path, cache_path):
-            self._touch_cache_entry(cache_path)
-            return cache_path
-        return None
-
-    def prefetch_clips_to_cache(self, paths: list[Path]):
-        if not paths:
-            return
-        for path in paths:
-            try:
-                path_obj = Path(path)
-            except Exception:
-                continue
-            try:
-                cache_path = self._cache_path_for(path_obj)
-            except Exception:
-                continue
-            key = str(cache_path)
-            if key in self._prefetch_pending:
-                continue
-            # No filesystem checks here: this runs on the UI thread, and even
-            # a stat() on the share can block for seconds when the link is
-            # saturated by running copies. The worker decides cached-vs-copy.
-            self._prefetch_pending.add(key)
-            future = self._prefetch_executor.submit(
-                self._check_or_copy_to_cache, path_obj, cache_path
-            )
-            self._prefetch_futures[key] = future
-            future.add_done_callback(
-                lambda fut, p=path_obj, k=key: self._schedule_prefetch_done(fut, p, k)
-            )
-
-    def _check_or_copy_to_cache(self, source_path: Path, cache_path: Path) -> bool:
-        if self._is_cached_copy_current(source_path, cache_path):
-            self._touch_cache_entry(cache_path)
-            return True
-        return self._copy_to_cache(source_path, cache_path)
-
-    def cancel_queued_prefetches(self) -> None:
-        """Drop prefetch jobs that haven't started copying yet (e.g. when the
-        user switches to a different day/system). Active copies finish."""
-        # Never cancel the copy a click-triggered load is waiting on: its
-        # completion callback is what closes the "Downloading..." dialog and
-        # opens the clip, and a cancelled future never delivers it.
-        protected_key = None
-        if self._pending_video_load is not None:
-            protected_key = str(self._pending_video_load[2])
-        for key, future in list(self._prefetch_futures.items()):
-            if key == protected_key:
-                continue
-            if future.cancel():
-                self._prefetch_futures.pop(key, None)
-                self._prefetch_pending.discard(key)
-
-    def _schedule_prefetch_done(self, future: Future, source_path: Path, key: str):
-        if future.cancelled():
-            return  # superseded by a click-triggered download of the same clip
-        try:
-            ok = bool(future.result())
-        except Exception:
-            ok = False
-        QMetaObject.invokeMethod(
-            self,
-            "_on_prefetch_done",
-            Qt.QueuedConnection,
-            Q_ARG(str, str(source_path)),
-            Q_ARG(str, key),
-            Q_ARG(bool, ok),
-        )
+        return self.clip_cache.ensure_cached_copy(source_path, cache_path)
 
     def _copy_to_cache(self, source_path: Path, cache_path: Path) -> bool:
-        tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            if tmp_path.exists():
-                tmp_path.unlink()
-            shutil.copy2(source_path, tmp_path)
-            tmp_path.replace(cache_path)
-            self._write_cache_meta(source_path, cache_path)
-            self._touch_cache_entry(cache_path)
-            self._prune_cache()
-            return True
-        except Exception:
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except Exception:
-                pass
-            return False
+        return self.clip_cache.copy_to_cache(source_path, cache_path)
 
-    @Slot(str, str, bool)
-    def _on_prefetch_done(self, source_path: str, key: str, ok: bool):
-        self._prefetch_pending.discard(key)
-        self._prefetch_futures.pop(key, None)
+    def get_valid_cached_path(self, original_path: Path) -> Path | None:
+        return self.clip_cache.get_valid_cached_path(original_path)
+
+    def prefetch_clips_to_cache(self, paths: list[Path]):
+        self.clip_cache.prefetch(paths)
+
+    def cancel_queued_prefetches(self) -> None:
+        protected_key = None
+        if self._pending_video_load is not None:
+            # Never cancel the copy a click-triggered load is waiting on.
+            protected_key = str(self._pending_video_load[2])
+        self.clip_cache.cancel_queued_prefetches(protected_key=protected_key)
+
+    def prune_cache_if_needed(self) -> None:
+        self.clip_cache.prune()
+        self.update_cache_status()
+
+    def _on_cache_transfer_finished(self, source_path: str, ok: bool):
         if ok:
             self.update_cache_status()
-            self.cache_clip_ready.emit(Path(source_path))
         self._finish_pending_video_load(source_path, ok)
-
-    def _calculate_cache_stats(self) -> tuple[int, int]:
-        if not self.cache_root.exists():
-            return 0, 0
-        total = 0
-        count = 0
-        for entry in self.cache_root.rglob("*"):
-            if entry.is_file():
-                try:
-                    total += entry.stat().st_size
-                    count += 1
-                except OSError:
-                    continue
-        return count, total
 
     @Slot()
     def update_cache_status(self):
@@ -4099,7 +3802,7 @@ class VideoLogViewer(QWidget):
             self._cache_status_pending = True
             return
         self._cache_status_pending = False
-        self._cache_status_future = self._cache_executor.submit(self._calculate_cache_stats)
+        self._cache_status_future = self.clip_cache.executor.submit(self.clip_cache.calculate_stats)
         self._cache_status_future.add_done_callback(self._on_cache_status_ready)
 
     def _on_cache_status_ready(self, future: Future):
@@ -5106,15 +4809,13 @@ class VideoLogViewer(QWidget):
         except Exception:
             pass
         self._cancel_log_future()
-        self.cancel_queued_prefetches()
-        for attr in ("_log_executor", "_cache_executor", "_prefetch_executor"):
-            executor = getattr(self, attr, None)
-            if executor is not None:
-                try:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                except Exception:
-                    pass
-                setattr(self, attr, None)
+        self.clip_cache.shutdown()
+        if self._log_executor is not None:
+            try:
+                self._log_executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            self._log_executor = None
 
     def closeEvent(self, event):
         self.shutdown_workers()

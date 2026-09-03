@@ -301,3 +301,74 @@ class TestFrameAnalysis:
             alpha=0.5, arrows=False, arrow_step=16, arrow_scale=1.0, compute_scale=1.0,
         )
         assert out.shape == base.shape and out.dtype == np.uint8
+
+
+class TestClipCache:
+    def _cache(self, tmp_path, protected=None):
+        from clip_cache import ClipCache
+        return ClipCache(
+            protected_paths_provider=(lambda: protected or []),
+            root=tmp_path / "cache",
+        )
+
+    def test_cache_path_is_stable_and_distinct(self, tmp_path):
+        cache = self._cache(tmp_path)
+        a = cache.cache_path_for(Path("Z:/public/PikPak007/2026/09/01/a.mp4"))
+        b = cache.cache_path_for(Path("Z:/public/PikPak008/2026/09/01/a.mp4"))
+        assert a == cache.cache_path_for(Path("Z:/public/PikPak007/2026/09/01/a.mp4"))
+        assert a != b
+        assert a.parent == cache.root
+
+    def test_copy_and_validity_round_trip(self, tmp_path):
+        cache = self._cache(tmp_path)
+        source = tmp_path / "clip.mp4"
+        source.write_bytes(b"fake video data")
+        target = cache.cache_path_for(source)
+        assert cache.copy_to_cache(source, target) is True
+        assert target.exists()
+        assert cache.is_cached_copy_current(source, target) is True
+        assert cache.get_valid_cached_path(source) == target
+        source.write_bytes(b"fake video data CHANGED!")
+        assert cache.is_cached_copy_current(source, target) is False
+
+    def test_invalidate_removes_meta_too(self, tmp_path):
+        cache = self._cache(tmp_path)
+        source = tmp_path / "clip.mp4"
+        source.write_bytes(b"data")
+        target = cache.cache_path_for(source)
+        cache.copy_to_cache(source, target)
+        assert cache.meta_path_for(target).exists()
+        cache.invalidate(target)
+        assert not target.exists()
+        assert not cache.meta_path_for(target).exists()
+
+    def test_prune_never_deletes_protected_clip(self, tmp_path):
+        import os, time
+        from clip_cache import ClipCache
+        import clip_cache as cc
+        cache = ClipCache(root=tmp_path / "cache")
+        source = tmp_path / "clip.mp4"
+        source.write_bytes(b"x" * 1024)
+        target = cache.cache_path_for(source)
+        cache.copy_to_cache(source, target)
+        cache._protected_paths_provider = lambda: [str(target)]
+        # Age the entry far past the cutoff, then prune.
+        old = time.time() - (cc.CACHE_MAX_AGE_DAYS + 5) * 86400
+        os.utime(target, (old, old))
+        os.utime(cache.meta_path_for(target), (old, old))
+        cache.prune()
+        assert target.exists()
+
+    def test_prune_deletes_expired_unprotected_clip(self, tmp_path):
+        import os, time
+        import clip_cache as cc
+        cache = self._cache(tmp_path)
+        source = tmp_path / "clip.mp4"
+        source.write_bytes(b"x" * 1024)
+        target = cache.cache_path_for(source)
+        cache.copy_to_cache(source, target)
+        old = time.time() - (cc.CACHE_MAX_AGE_DAYS + 5) * 86400
+        os.utime(target, (old, old))
+        os.utime(cache.meta_path_for(target), (old, old))
+        cache.prune()
+        assert not target.exists()
