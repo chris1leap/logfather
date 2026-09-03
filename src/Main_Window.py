@@ -1729,7 +1729,7 @@ class MainWindow(QWidget):
                 return
             if self.time_picker._current_date != target_day:
                 return
-            if self.time_picker._loader_thread is not None:
+            if self.time_picker.is_loading():
                 return
             items = list(self.time_picker._items or [])
             video_items = [itm for itm in items if itm.kind == "video" and isinstance(itm.payload, Path)]

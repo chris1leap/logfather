@@ -18,7 +18,7 @@ except Exception:
 
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
-from qt_worker import park_thread_until_finished
+from qt_worker import JobSlot
 from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics
 from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
@@ -311,8 +311,7 @@ class TimePicker(QWidget):
         self._busy = False
         self._loading_rect = None
         self._loading_text = None
-        self._loader_thread: QThread | None = None
-        self._retired_threads: list[QThread] = []
+        self._loader_slot = JobSlot(self)
         self._progress: QProgressDialog | None = None
         self._last_cursor_x: Optional[float] = None
         self._cache_root = cache_root
@@ -376,20 +375,15 @@ class TimePicker(QWidget):
             self._set_info_text("Pick a date to list times.")
             return
 
-        self._loader_thread = _LoadThread(
-            load_root,
-            day,
-            load_func,
-            self._extra_loaders,
-            self._cache_root,
-        )
-        self._loader_thread.loaded.connect(self._on_loaded)
-        self._loader_thread.partial_loaded.connect(self._on_partial_loaded)
-        self._loader_thread.failed.connect(self._on_load_failed)
-        self._loader_thread.finished.connect(self._on_loader_thread_done)
-        self._loader_thread.warning.connect(self._on_loader_warning)
         self._set_busy(True, f"Loading items for {format_uk_date(day)}...")
-        self._loader_thread.start()
+        extra_loaders = list(self._extra_loaders)
+        cache_root = self._cache_root
+        self._loader_slot.start(
+            lambda job: _load_timeline_items(job, load_root, day, load_func, extra_loaders, cache_root),
+            on_result=self._on_load_result,
+            on_error=self._on_load_failed,
+            on_progress=self._on_load_progress,
+        )
 
     def _redraw_timeline(self):
         print("[timeline] _redraw_timeline", flush=True)
@@ -874,42 +868,32 @@ class TimePicker(QWidget):
         """Stop background work. Called by MainWindow.closeEvent — Qt only
         delivers close events to the top-level window, so panel closeEvents
         never fire inside the app."""
-        self._stop_loader_thread()
+        self._loader_slot.shutdown()
 
     def closeEvent(self, event):
         self.shutdown_workers()
         super().closeEvent(event)
 
     def _stop_loader_thread(self):
-        thread = self._loader_thread
-        if not thread:
-            return
-        self._loader_thread = None
-        try:
-            thread.loaded.disconnect(self._on_loaded)
-        except Exception:
-            pass
-        try:
-            thread.failed.disconnect(self._on_load_failed)
-        except Exception:
-            pass
-        try:
-            thread.warning.disconnect(self._on_loader_warning)
-        except Exception:
-            pass
-        try:
-            thread.finished.disconnect(self._on_loader_thread_done)
-        except Exception:
-            pass
-        if thread.isRunning():
-            thread.requestInterruption()
-            if not thread.wait(8000):
-                park_thread_until_finished(self._retired_threads, thread)
-                return
-        thread.deleteLater()
+        self._loader_slot.retire()
 
-    def _on_loader_thread_done(self):
-        self._loader_thread = None
+    def is_loading(self) -> bool:
+        return self._loader_slot.is_running()
+
+    def _on_load_result(self, payload):
+        if payload is None:
+            self._set_busy(False)
+            return
+        items, day_loaded, root_loaded = payload
+        self._on_loaded(items, day_loaded, root_loaded)
+
+    def _on_load_progress(self, payload):
+        kind = payload[0]
+        if kind == "partial":
+            _, items, day_loaded, append, root_loaded = payload
+            self._on_partial_loaded(items, day_loaded, append, root_loaded)
+        elif kind == "warning":
+            self._on_loader_warning(payload[1])
 
     def _fit_to_items(self):
         t0 = perf_counter()
@@ -1307,133 +1291,120 @@ class TimePicker(QWidget):
 
 
 
-class _LoadThread(QThread):
-    loaded = Signal(list, object, object)
-    partial_loaded = Signal(list, object, bool, object)
-    failed = Signal(str)
-    warning = Signal(str)
+def _load_timeline_items(job, root: Path, day: date, load_func, extra_loaders, cache_root: Optional[Path]):
+    """Worker for the day timeline: video clips first (one partial), then
+    the Elastic extra loaders as they complete (more partials), returning
+    the merged sorted list. Progress payloads are tagged tuples:
+    ("partial", items, day, append, root) and ("warning", message)."""
+    t_total_start = perf_counter()
+    t_video_start = perf_counter()
+    paths = list(load_func(root, day))
+    cache_index = _build_cache_index(cache_root) if cache_root else set()
+    ann_index = _build_annotation_index(cache_root) if cache_root else set()
+    video_entries: list[tuple[Path, datetime]] = []
+    stat_fallback_count = 0
+    stat_fallback_ms = 0.0
+    for p in paths:
+        if job.interrupted():
+            return None
+        parsed_dt = parse_time_from_name(p)
+        if parsed_dt is not None:
+            start_dt = parsed_dt
+        else:
+            t_stat = perf_counter()
+            try:
+                stat = p.stat()
+            except FileNotFoundError:
+                continue
+            stat_fallback_ms += (perf_counter() - t_stat) * 1000.0
+            stat_fallback_count += 1
+            start_dt = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+        video_entries.append((p, ensure_utc(start_dt)))
 
-    def __init__(self, root: Path, day: date, load_func, extra_loaders, cache_root: Optional[Path]):
-        super().__init__()
-        self.root = root
-        self.day = day
-        self.load_func = load_func
-        self.extra_loaders = extra_loaders
-        self.cache_root = cache_root
+    video_entries.sort(key=lambda tpl: tpl[1])
+    items: list[TimelineItem] = []
+    for idx, (path_obj, start_dt) in enumerate(video_entries):
+        if idx + 1 < len(video_entries):
+            next_start = video_entries[idx + 1][1]
+            end_dt = next_start
+            if (end_dt - start_dt) < MIN_BLOCK_DURATION:
+                end_dt = start_dt + MIN_BLOCK_DURATION
+        else:
+            end_dt = inferred_live_clip_end(path_obj, start_dt)
+        cached = _is_path_cached(path_obj, cache_root, cache_index) if cache_root else False
+        annotated = _has_annotations(path_obj, cache_root, ann_index) if cache_root else False
+        items.append(
+            TimelineItem(
+                start=start_dt,
+                end=end_dt,
+                label=path_obj.name,
+                kind="video",
+                color=VIDEO_COLOR_CACHED if cached else VIDEO_COLOR_UNCACHED,
+                payload=path_obj,
+                track_label="Video",
+                cached=bool(cached),
+                annotated=bool(annotated),
+                path_key=_path_key(path_obj),
+            )
+        )
+    if items:
+        job.emit_progress(("partial", items, day, False, root))
+    _timeline_perf_log(
+        f"video loader: files={len(paths)} items={len(items)} "
+        f"time={(perf_counter() - t_video_start) * 1000:.0f}ms"
+    )
+    _timeline_perf_log(
+        f"video loader stat fallback: count={stat_fallback_count} "
+        f"time={stat_fallback_ms:.0f}ms"
+    )
 
-    def run(self):
-        t_total_start = perf_counter()
-        try:
-            t_video_start = perf_counter()
-            paths = list(self.load_func(self.root, self.day))
-            cache_index = _build_cache_index(self.cache_root) if self.cache_root else set()
-            ann_index = _build_annotation_index(self.cache_root) if self.cache_root else set()
-            video_entries: list[tuple[Path, datetime]] = []
-            stat_fallback_count = 0
-            stat_fallback_ms = 0.0
-            for p in paths:
-                if self.isInterruptionRequested():
-                    return
-                parsed_dt = parse_time_from_name(p)
-                if parsed_dt is not None:
-                    start_dt = parsed_dt
-                else:
-                    t_stat = perf_counter()
-                    try:
-                        stat = p.stat()
-                    except FileNotFoundError:
-                        continue
-                    stat_fallback_ms += (perf_counter() - t_stat) * 1000.0
-                    stat_fallback_count += 1
-                    start_dt = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
-                video_entries.append((p, ensure_utc(start_dt)))
-
-            video_entries.sort(key=lambda tpl: tpl[1])
-            items: list[TimelineItem] = []
-            for idx, (path_obj, start_dt) in enumerate(video_entries):
-                if idx + 1 < len(video_entries):
-                    next_start = video_entries[idx + 1][1]
-                    end_dt = next_start
-                    if (end_dt - start_dt) < MIN_BLOCK_DURATION:
-                        end_dt = start_dt + MIN_BLOCK_DURATION
-                else:
-                    end_dt = inferred_live_clip_end(path_obj, start_dt)
-                cached = _is_path_cached(path_obj, self.cache_root, cache_index) if self.cache_root else False
-                annotated = _has_annotations(path_obj, self.cache_root, ann_index) if self.cache_root else False
-                items.append(
-                    TimelineItem(
-                        start=start_dt,
-                        end=end_dt,
-                        label=path_obj.name,
-                        kind="video",
-                        color=VIDEO_COLOR_CACHED if cached else VIDEO_COLOR_UNCACHED,
-                        payload=path_obj,
-                        track_label="Video",
-                        cached=bool(cached),
-                        annotated=bool(annotated),
-                        path_key=_path_key(path_obj),
-                    )
+    # Run extra loaders (e.g., Elastic). Each loader already enforces its own HTTP/request
+    # timeout so we don't apply another hard timeout here; that was causing results to be
+    # dropped for larger queries that legitimately take longer than a few seconds.
+    warnings: list[str] = []
+    if extra_loaders:
+        with ThreadPoolExecutor(max_workers=max(1, len(extra_loaders))) as executor:
+            future_to_name = {}
+            future_to_start = {}
+            for loader in extra_loaders:
+                future = executor.submit(loader, root, day)
+                future_to_name[future] = getattr(loader, "__name__", repr(loader))
+                future_to_start[future] = perf_counter()
+            extra_started = perf_counter()
+            for fut in as_completed(future_to_name):
+                if job.interrupted():
+                    executor.shutdown(cancel_futures=True)
+                    return None
+                loader_name = future_to_name.get(fut, "extra_loader")
+                t_loader = future_to_start.get(fut, perf_counter())
+                try:
+                    res = fut.result()
+                except ElasticFetchError as exc:
+                    warnings.append(str(exc))
+                    res = exc.items
+                except Exception as exc:
+                    warnings.append(str(exc))
+                    continue
+                _timeline_perf_log(
+                    f"extra loader {loader_name}: items={len(res) if res else 0} "
+                    f"time={(perf_counter() - t_loader) * 1000:.0f}ms"
                 )
-            if items:
-                self.partial_loaded.emit(items, self.day, False, self.root)
-            _timeline_perf_log(
-                f"video loader: files={len(paths)} items={len(items)} "
-                f"time={(perf_counter() - t_video_start) * 1000:.0f}ms"
-            )
-            _timeline_perf_log(
-                f"video loader stat fallback: count={stat_fallback_count} "
-                f"time={stat_fallback_ms:.0f}ms"
-            )
+                if res:
+                    for itm in res:
+                        items.append(itm)
+                    job.emit_progress(("partial", list(res), day, True, root))
+            _timeline_perf_log(f"extra loaders total: {(perf_counter() - extra_started) * 1000:.0f}ms")
 
-            # Run extra loaders (e.g., Elastic). Each loader already enforces its own HTTP/request
-            # timeout so we don't apply another hard timeout here; that was causing results to be
-            # dropped for larger queries that legitimately take longer than a few seconds.
-            warnings: list[str] = []
-            if self.extra_loaders:
-                with ThreadPoolExecutor(max_workers=max(1, len(self.extra_loaders))) as executor:
-                    future_to_name = {}
-                    future_to_start = {}
-                    for loader in self.extra_loaders:
-                        future = executor.submit(loader, self.root, self.day)
-                        future_to_name[future] = getattr(loader, "__name__", repr(loader))
-                        future_to_start[future] = perf_counter()
-                    extra_started = perf_counter()
-                    for fut in as_completed(future_to_name):
-                        if self.isInterruptionRequested():
-                            executor.shutdown(cancel_futures=True)
-                            return
-                        loader_name = future_to_name.get(fut, "extra_loader")
-                        t_loader = future_to_start.get(fut, perf_counter())
-                        try:
-                            res = fut.result()
-                        except ElasticFetchError as exc:
-                            warnings.append(str(exc))
-                            res = exc.items
-                        except Exception as exc:
-                            warnings.append(str(exc))
-                            continue
-                        _timeline_perf_log(
-                            f"extra loader {loader_name}: items={len(res) if res else 0} "
-                            f"time={(perf_counter() - t_loader) * 1000:.0f}ms"
-                        )
-                        if res:
-                            for itm in res:
-                                items.append(itm)
-                            self.partial_loaded.emit(list(res), self.day, True, self.root)
-                    _timeline_perf_log(f"extra loaders total: {(perf_counter() - extra_started) * 1000:.0f}ms")
-
-            t_finalize = perf_counter()
-            for itm in items:
-                itm.start = ensure_utc(itm.start)
-                itm.end = ensure_utc(itm.end)
-            items.sort(key=lambda s: s.start)
-            _timeline_perf_log(f"finalize+sort: {(perf_counter() - t_finalize) * 1000:.0f}ms")
-            if self.isInterruptionRequested():
-                return
-            if warnings:
-                for msg in warnings:
-                    self.warning.emit(msg)
-            self.loaded.emit(items, self.day, self.root)
-            _timeline_perf_log(f"load thread total: {(perf_counter() - t_total_start) * 1000:.0f}ms")
-        except Exception as exc:
-            self.failed.emit(str(exc))
+    t_finalize = perf_counter()
+    for itm in items:
+        itm.start = ensure_utc(itm.start)
+        itm.end = ensure_utc(itm.end)
+    items.sort(key=lambda s: s.start)
+    _timeline_perf_log(f"finalize+sort: {(perf_counter() - t_finalize) * 1000:.0f}ms")
+    if job.interrupted():
+        return None
+    if warnings:
+        for msg in warnings:
+            job.emit_progress(("warning", msg))
+    _timeline_perf_log(f"load thread total: {(perf_counter() - t_total_start) * 1000:.0f}ms")
+    return items, day, root
