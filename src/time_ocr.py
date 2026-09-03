@@ -1466,7 +1466,7 @@ def _collect_ocr_samples_for_cap(
         samples.append((frame_idx, video_t, ocr_dt, text))
         if progress:
             progress.setValue(frame_idx + 1)
-        QApplication.processEvents()
+            QApplication.processEvents()
     if progress:
         progress.setValue(max_frames)
         progress.close()
@@ -1534,7 +1534,7 @@ def _find_second_boundary_samples_for_cap(
         sample = _ocr_sample_for_frame(cap, frame_idx, fps, base_dt, roi)
         if progress:
             progress.setValue(idx + 1)
-        QApplication.processEvents()
+            QApplication.processEvents()
         if sample is None:
             continue
         if prev is not None:

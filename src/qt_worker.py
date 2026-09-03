@@ -25,6 +25,7 @@ Pattern:
 """
 from __future__ import annotations
 
+import warnings
 from typing import Callable
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -133,7 +134,11 @@ class JobSlot(QObject):
         try:
             for signal in (job.result, job.error, job.progress, job.finished):
                 try:
-                    signal.disconnect()
+                    # PySide6 also emits a RuntimeWarning when the signal has
+                    # no connections; that's the expected no-op case here.
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", RuntimeWarning)
+                        signal.disconnect()
                 except (RuntimeError, TypeError):
                     pass
             job.requestInterruption()

@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
 )
 
 from time_ocr import analyze_video_offset, OcrVideoPlayer, parse_filename_datetime
+from qt_worker import JobSlot
 
 SKIP_INITIAL_FRAME_RENDER = False
 from settings_dialog import SettingsPanel, SystemLayoutPanel, ReadmePanel
@@ -282,6 +283,10 @@ class VideoLogViewer(QWidget):
         self._ppm_event_seconds: list[float] = []
         self._ppm_interval_prefix_sum: list[float] = []
         self._ocr_tool_dialog = None
+        # OCR auto-sync runs off the UI thread (SMB copy + Tesseract);
+        # one slot per video so main/secondary syncs can overlap.
+        self._ocr_sync_slot = JobSlot(self)
+        self._ocr_secondary_sync_slot = JobSlot(self)
 
         # ----- LEFT FILTER PANEL: SOURCE + MESSAGE -----
 
@@ -4364,20 +4369,36 @@ class VideoLogViewer(QWidget):
         offsets.pop(key, None)
         self._save_offset_cache(data, cache_path)
 
-    def _get_cached_video_for_ocr(self, path: Path) -> Path:
+    def _plan_ocr_video_source(self, path: Path) -> tuple[Path, Path | None]:
+        """Decide on the UI thread where OCR should read the clip from.
+
+        Returns (source, copy_to): copy_to is the cache destination when the
+        clip still needs copying off the share, else None. The copy itself
+        happens on a worker via _ocr_video_source().
+        """
         if self._is_path_in_cache(path):
-            return path
+            return path, None
         if self._pending_video_load is not None and path == self._pending_video_load[1]:
-            # This clip is downloading right now; don't start a second,
-            # blocking copy of the same file — let OCR read the share.
-            return path
+            # This clip is downloading right now; don't start a second copy
+            # of the same file — let OCR read the share.
+            return path, None
         try:
-            cache_path = self._cache_path_for(path)
-            if not cache_path.exists():
-                shutil.copy2(path, cache_path)
-            return cache_path
+            return path, self._cache_path_for(path)
         except Exception:
-            return path
+            return path, None
+
+    @staticmethod
+    def _ocr_video_source(src: Path, copy_to: Path | None) -> Path:
+        """Worker-side: materialize the OCR source decided by
+        _plan_ocr_video_source, falling back to the share on copy failure."""
+        if copy_to is None:
+            return src
+        try:
+            if not copy_to.exists():
+                shutil.copy2(src, copy_to)
+            return copy_to
+        except Exception:
+            return src
 
     def open_ocr_roi_tool(self, auto_start: bool = True, auto_close_on_success: bool = False):
         if not self.current_video_path:
@@ -4431,14 +4452,17 @@ class VideoLogViewer(QWidget):
         dlg.resize(900, 600)
         dlg.show()
         self._ocr_tool_dialog = dlg
-        def _open_after_show():
-            if self._ocr_tool_dialog is not dlg:
-                return
-            ready_path = self._get_cached_video_for_ocr(Path(self.current_video_path))
+        src, copy_to = self._plan_ocr_video_source(Path(self.current_video_path))
+
+        def _open_when_ready(ready_path):
             if self._ocr_tool_dialog is not dlg:
                 return
             dlg.open_video(str(ready_path))
-        QTimer.singleShot(0, _open_after_show)
+
+        self._ocr_sync_slot.start(
+            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(src, copy_to),
+            on_result=_open_when_ready,
+        )
 
     def open_secondary_ocr_tool(self, auto_start: bool = True, auto_close_on_success: bool = False):
         if not self.secondary_video_path:
@@ -4495,14 +4519,17 @@ class VideoLogViewer(QWidget):
         dlg.resize(900, 600)
         dlg.show()
         self._ocr_tool_dialog = dlg
-        def _open_after_show():
-            if self._ocr_tool_dialog is not dlg:
-                return
-            ready_path = self._get_cached_video_for_ocr(Path(self.secondary_video_path))
+        src, copy_to = self._plan_ocr_video_source(Path(self.secondary_video_path))
+
+        def _open_when_ready(ready_path):
             if self._ocr_tool_dialog is not dlg:
                 return
             dlg.open_video(str(ready_path))
-        QTimer.singleShot(0, _open_after_show)
+
+        self._ocr_secondary_sync_slot.start(
+            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(src, copy_to),
+            on_result=_open_when_ready,
+        )
 
     def _auto_sync_with_ocr(self, force: bool = False):
         if not self.current_video_path:
@@ -4539,31 +4566,47 @@ class VideoLogViewer(QWidget):
             return
         if not pikpak_id:
             return
-        video_path = self._get_cached_video_for_ocr(Path(self.current_video_path))
-        result = analyze_video_offset(
-            str(video_path),
-            settings_path=self.ocr_settings_path,
-            settings_key=pikpak_id,
-            parent=self,
-        )
-        if result is None:
-            QMessageBox.information(
-                self,
-                "OCR failed",
-                "OCR sync failed. Please adjust the ROI and try again.",
+        # SMB copy + Tesseract run off the UI thread; the offset is applied
+        # when the job lands, if this clip is still the one showing.
+        src, copy_to = self._plan_ocr_video_source(path)
+        settings_path = self.ocr_settings_path
+
+        def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
+            video_path = self._ocr_video_source(src, copy_to)
+            return analyze_video_offset(
+                str(video_path),
+                settings_path=settings_path,
+                settings_key=pikpak_id,
+                parent=None,
             )
-            self.open_ocr_roi_tool(auto_start=False)
-            return
-        self.ocr_offset_seconds = result.offset_seconds
-        self.ocr_frame_offset = result.frame_offset
-        self.video_start_dt = result.video_start_dt
-        self._set_cached_offset(
-            key,
-            result.offset_seconds,
-            result.frame_offset,
-            cache_path=self.offset_cache_path,
+
+        def _apply(result, src=src, key=key):
+            if not self.current_video_path or Path(self.current_video_path) != src:
+                return  # user moved on to another clip
+            if result is None:
+                QMessageBox.information(
+                    self,
+                    "OCR failed",
+                    "OCR sync failed. Please adjust the ROI and try again.",
+                )
+                self.open_ocr_roi_tool(auto_start=False)
+                return
+            self.ocr_offset_seconds = result.offset_seconds
+            self.ocr_frame_offset = result.frame_offset
+            self.video_start_dt = result.video_start_dt
+            self._set_cached_offset(
+                key,
+                result.offset_seconds,
+                result.frame_offset,
+                cache_path=self.offset_cache_path,
+            )
+            self._apply_auto_sync_if_possible()
+
+        self._ocr_sync_slot.start(
+            _analyze,
+            on_result=_apply,
+            on_error=lambda msg: print(f"[ocr] auto-sync failed: {msg}"),
         )
-        self._apply_auto_sync_if_possible()
 
     def _auto_sync_secondary_with_ocr(self, force: bool = False):
         if not self.secondary_video_path:
@@ -4612,31 +4655,45 @@ class VideoLogViewer(QWidget):
             return
         if not pikpak_id:
             return
-        video_path = self._get_cached_video_for_ocr(cache_path)
-        result = analyze_video_offset(
-            str(video_path),
-            settings_path=self.ocr_settings_path,
-            settings_key=pikpak_id,
-            parent=self,
-        )
-        if result is None:
-            QMessageBox.information(
-                self,
-                "Additional CCTV OCR failed",
-                "OCR sync failed for the additional CCTV clip.",
+        src, copy_to = self._plan_ocr_video_source(cache_path)
+        settings_path = self.ocr_settings_path
+
+        def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
+            video_path = self._ocr_video_source(src, copy_to)
+            return analyze_video_offset(
+                str(video_path),
+                settings_path=settings_path,
+                settings_key=pikpak_id,
+                parent=None,
             )
-            return
-        self.secondary_ocr_offset_seconds = result.offset_seconds
-        self.secondary_ocr_frame_offset = result.frame_offset
-        self.secondary_video_start_dt = result.video_start_dt
-        self._set_cached_offset(
-            key,
-            result.offset_seconds,
-            result.frame_offset,
-            source="additional",
-            cache_path=self.secondary_offset_cache_path,
+
+        def _apply(result, src=src, key=key):
+            if not self.secondary_video_path or Path(self.secondary_video_path) != src:
+                return  # secondary clip changed while OCR ran
+            if result is None:
+                QMessageBox.information(
+                    self,
+                    "Additional CCTV OCR failed",
+                    "OCR sync failed for the additional CCTV clip.",
+                )
+                return
+            self.secondary_ocr_offset_seconds = result.offset_seconds
+            self.secondary_ocr_frame_offset = result.frame_offset
+            self.secondary_video_start_dt = result.video_start_dt
+            self._set_cached_offset(
+                key,
+                result.offset_seconds,
+                result.frame_offset,
+                source="additional",
+                cache_path=self.secondary_offset_cache_path,
+            )
+            self._refresh_secondary_after_sync()
+
+        self._ocr_secondary_sync_slot.start(
+            _analyze,
+            on_result=_apply,
+            on_error=lambda msg: print(f"[ocr] secondary auto-sync failed: {msg}"),
         )
-        self._refresh_secondary_after_sync()
 
     def _refresh_secondary_after_sync(self):
         if self.secondary_cap is None or self.secondary_fps <= 0:
@@ -4823,6 +4880,8 @@ class VideoLogViewer(QWidget):
                 except Exception:
                     pass
         self.clip_cache.shutdown()
+        self._ocr_sync_slot.shutdown()
+        self._ocr_secondary_sync_slot.shutdown()
         if self._log_executor is not None:
             try:
                 self._log_executor.shutdown(wait=False, cancel_futures=True)
