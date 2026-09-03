@@ -20,9 +20,10 @@ when adding items; move items to the changelog section when shipped.
   clip finishes loading.
 
 - Session resume (2026-09-03, Chris): the app remembers the open system,
-  day, and playhead time at shutdown and offers to restore them at
-  startup ("Remember my choice" makes it always/never resume; stored as
-  resume_on_startup / last_session in the settings file). Restoring
+  day, and playhead time at shutdown (last_session in the settings file)
+  and always asks at startup whether to restore. (The original
+  "Remember my choice" always/never option was removed the same day at
+  Chris's request — a remembered "never" was undiscoverable.) Restoring
   reuses the signal-driven jump: select system+day, open the containing
   clip, OCR-sync, seek.
 
