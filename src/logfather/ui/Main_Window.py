@@ -624,6 +624,20 @@ class MainWindow(QWidget):
         self._open_system_from_overview(root, day, target_dt)
 
     def closeEvent(self, event):
+        # Capture geometry first, while the window state is still live.
+        # normalGeometry() when maximized, so un-maximizing after a restart
+        # returns to a sensible size instead of the full-screen rect.
+        try:
+            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
+            self.settings.window_geometry = {
+                "x": geo.x(),
+                "y": geo.y(),
+                "w": geo.width(),
+                "h": geo.height(),
+                "maximized": bool(self.isMaximized()),
+            }
+        except Exception:
+            pass
         # Qt delivers close events only to the top-level window: the panels'
         # own closeEvents never fire inside the app, so every worker thread
         # must be stopped from here or it races Qt teardown and crashes.
@@ -644,6 +658,12 @@ class MainWindow(QWidget):
         # flush writes the viewer's own Settings object, which would
         # otherwise overwrite the session we just recorded.
         self._save_last_session()
+        # _save_last_session early-returns without saving when nothing was
+        # open; the window geometry must persist regardless.
+        try:
+            self.settings.save()
+        except Exception:
+            pass
         super().closeEvent(event)
 
     def on_time_chosen(self, item: TimelineItem):

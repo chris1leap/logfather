@@ -147,6 +147,10 @@ class Settings:
     # Session resume: what was open at last shutdown. Startup always asks
     # before restoring (no remembered always/never — removed 2026-09-03).
     last_session: Optional[dict] = None
+    # Main-window geometry at last close: {x, y, w, h, maximized}. Restored
+    # on startup, clamped to a live screen (a saved rect from a now-absent
+    # monitor must not strand the window off-screen).
+    window_geometry: Optional[dict] = None
     # Set by load() when the settings file was unreadable; never persisted.
     # The UI shows it once at startup so a recovery is not silent.
     load_warning: Optional[str] = None
@@ -328,6 +332,7 @@ class Settings:
                 system_layouts=system_layouts,
                 fleetwide_searches=fleetwide_searches,
                 last_session=data.get("last_session") if isinstance(data.get("last_session"), dict) else None,
+                window_geometry=data.get("window_geometry") if isinstance(data.get("window_geometry"), dict) else None,
             )
         except Exception:
             # Parse errors propagate: load() decides how to recover

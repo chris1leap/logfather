@@ -51,6 +51,62 @@ class FadeSplashScreen(QSplashScreen):
 
 
 
+DEFAULT_WINDOW_SIZE = (1400, 700)
+
+
+def _apply_startup_geometry(win: QWidget, settings) -> None:
+    """Restore the last-close geometry, else center at the default size.
+
+    Either way the rect is clamped fully onto a live screen: a position
+    remembered from a now-disconnected monitor (or the OS's cascade
+    placement) must never leave the window half off-screen."""
+    from PySide6.QtCore import QRect
+
+    saved = getattr(settings, "window_geometry", None)
+    rect = None
+    maximized = False
+    if isinstance(saved, dict):
+        try:
+            rect = QRect(
+                int(saved["x"]), int(saved["y"]), int(saved["w"]), int(saved["h"])
+            )
+            if rect.width() < 200 or rect.height() < 150:
+                rect = None
+            else:
+                maximized = bool(saved.get("maximized"))
+        except Exception:
+            rect = None
+
+    screen = None
+    if rect is not None:
+        screen = QApplication.screenAt(rect.center())
+    if screen is None:
+        screen = QApplication.primaryScreen()
+    avail = screen.availableGeometry()
+
+    if rect is None:
+        w = min(DEFAULT_WINDOW_SIZE[0], avail.width())
+        h = min(DEFAULT_WINDOW_SIZE[1], avail.height())
+        rect = QRect(
+            avail.center().x() - w // 2, avail.center().y() - h // 2, w, h
+        )
+
+    win.setGeometry(clamp_rect_to_screen(rect, avail))
+    if maximized:
+        win.setWindowState(win.windowState() | Qt.WindowMaximized)
+
+
+def clamp_rect_to_screen(rect, avail):
+    """Shrink and shift `rect` so it lies fully inside `avail` (QRects)."""
+    from PySide6.QtCore import QRect
+
+    w = min(rect.width(), avail.width())
+    h = min(rect.height(), avail.height())
+    x = max(avail.left(), min(rect.x(), avail.right() - w + 1))
+    y = max(avail.top(), min(rect.y(), avail.bottom() - h + 1))
+    return QRect(x, y, w, h)
+
+
 def main():
     app = QApplication(sys.argv)
     icon_path = _resolve_asset_path("logfather.ico")
@@ -63,7 +119,7 @@ def main():
     from logfather.ui.Main_Window import MainWindow
 
     win = MainWindow()
-    win.resize(1400, 700)
+    _apply_startup_geometry(win, win.settings)
     if splash is not None:
         win.show()
         splash.fade_and_finish(win)

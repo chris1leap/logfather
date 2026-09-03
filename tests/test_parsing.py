@@ -644,3 +644,34 @@ class TestSessionResumeSettings:
         data["last_session"] = "not a dict"
         path.write_text(json.dumps(data))
         assert Settings.load(path).last_session is None
+
+
+class TestWindowGeometryClamp:
+    def _clamp(self, rect, avail):
+        from PySide6.QtCore import QRect
+        from logfather.ui.app_main import clamp_rect_to_screen
+        return clamp_rect_to_screen(QRect(*rect), QRect(*avail))
+
+    def test_fully_on_screen_untouched(self):
+        out = self._clamp((100, 50, 800, 600), (0, 0, 1920, 1080))
+        assert (out.x(), out.y(), out.width(), out.height()) == (100, 50, 800, 600)
+
+    def test_half_off_right_edge_pulled_back(self):
+        out = self._clamp((1600, 50, 800, 600), (0, 0, 1920, 1080))
+        assert out.x() == 1920 - 800
+        assert out.y() == 50
+
+    def test_off_top_left_pulled_in(self):
+        out = self._clamp((-500, -300, 800, 600), (0, 0, 1920, 1080))
+        assert (out.x(), out.y()) == (0, 0)
+
+    def test_larger_than_screen_shrinks_to_fit(self):
+        out = self._clamp((0, 0, 3000, 2000), (0, 0, 1920, 1080))
+        assert (out.width(), out.height()) == (1920, 1080)
+        assert (out.x(), out.y()) == (0, 0)
+
+    def test_secondary_monitor_offsets_respected(self):
+        # Screen to the left of primary: negative coordinates are valid.
+        out = self._clamp((-1900, 10, 800, 600), (-1920, 0, 1920, 1080))
+        assert out.x() == -1900
+        assert out.y() == 10
