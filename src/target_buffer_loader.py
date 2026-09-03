@@ -5,16 +5,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from elastic_client import (
+    get_thread_session as _get_thread_session,
+    search_url as _search_url,
+)
 from elastic_loader import (
     ELASTIC_TIMESTAMP_FIELDS,
     KIBANA_BASE_DEFAULT,
     _build_robot_filters,
     _ensure_utc,
     _get_robot_id,
-    _get_thread_session,
     _normalize_index_id,
     _parse_ts,
-    _search_url,
 )
 from settings_store import Settings
 

@@ -11,7 +11,6 @@ from time import perf_counter
 from typing import Iterable, List
 
 import requests
-from requests.adapters import HTTPAdapter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from Time_Picker import (
@@ -25,6 +24,11 @@ from Time_Picker import (
 )
 from settings_store import Settings, Condition
 from elastic_errors import ElasticFetchError
+from elastic_client import (
+    api_headers,
+    get_thread_session as _get_thread_session,
+    search_url as _search_url,
+)
 from elastic_schema import (
     TRANSITION_STATES,
     extract_hit_robot_id as _extract_hit_robot_id,
@@ -56,7 +60,6 @@ ELASTIC_EVENT_TIMEOUT_SEC = 12
 ELASTIC_TIMING_LOGS = True
 FLEETWIDE_OCCURRENCE_COOLDOWN_SECONDS = 30
 
-_thread_local = threading.local()
 
 
 def set_system_id_override(system_id: str | None) -> None:
@@ -75,16 +78,6 @@ def _default_cache_root() -> Path:
     return Path.home() / ".videolog_cache"
 
 
-def _get_thread_session() -> requests.Session:
-    session = getattr(_thread_local, "session", None)
-    if session is not None:
-        return session
-    session = requests.Session()
-    adapter = HTTPAdapter(pool_connections=8, pool_maxsize=8, max_retries=0)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    _thread_local.session = session
-    return session
 
 
 def _events_cache_path_for_robot(
@@ -403,7 +396,7 @@ def fetch_overview_event_chunks(
         return []
     ts_fields = list(ELASTIC_TIMESTAMP_FIELDS)
     sort_field = ts_fields[0] if ts_fields else "@timestamp"
-    headers = {"Content-Type": "application/json", "kbn-xsrf": "true", "Authorization": f"ApiKey {api_key}"}
+    headers = api_headers(api_key)
     search_endpoint = _search_url(url, index_id)
     session = _get_thread_session()
     chunk_delta = timedelta(minutes=max(1, int(chunk_minutes)))
@@ -472,16 +465,6 @@ def fetch_overview_event_chunks(
         chunk_start = chunk_end
 
 
-def _search_url(base: str, index_id: str) -> str:
-    base = base.rstrip("/")
-    # If given a Kibana URL, convert to the ES endpoint instead of proxy (proxy often disabled).
-    if "kb." in base:
-        base = base.replace(".kb.", ".es.")
-    # Standard ES _search endpoint
-    return (
-        f"{base}/{index_id}/_search"
-        "?ignore_unavailable=true&allow_no_indices=true&request_cache=true"
-    )
 
 
 def _serialize_timeline_item(item: TimelineItem) -> dict:
@@ -771,7 +754,7 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
 
     start_iso, end_iso = _iso_range_for_day(day)
     ts_fields = list(ELASTIC_TIMESTAMP_FIELDS)
-    headers = {"Content-Type": "application/json", "kbn-xsrf": "true", "Authorization": f"ApiKey {api_key}"}
+    headers = api_headers(api_key)
 
     items: List[TimelineItem] = []
     any_condition = False
@@ -992,7 +975,7 @@ def fetch_sku_items(settings: Settings, pikpak_root: Path | None, day) -> Iterab
         return []
 
     start_iso, end_iso = _iso_range_for_day(day)
-    headers = {"Content-Type": "application/json", "kbn-xsrf": "true", "Authorization": f"ApiKey {api_key}"}
+    headers = api_headers(api_key)
     search_endpoint = _search_url(url, index_id)
     ts_fields = list(ELASTIC_TIMESTAMP_FIELDS)
     sort_field = ts_fields[0] if ts_fields else "@timestamp"
@@ -1347,7 +1330,7 @@ def _fetch_logs_range_raw(
 
     start_iso = _ensure_utc(start_dt).isoformat().replace("+00:00", "Z")
     end_iso = _ensure_utc(end_dt).isoformat().replace("+00:00", "Z")
-    headers = {"Content-Type": "application/json", "kbn-xsrf": "true", "Authorization": f"ApiKey {api_key}"}
+    headers = api_headers(api_key)
     search_endpoint = _search_url(url, index_id)
     ts_field = ELASTIC_TIMESTAMP_FIELDS[0]
     session = _get_thread_session()
@@ -1513,11 +1496,7 @@ def fetch_fleetwide_search_histogram(
     end_iso = end_dt.isoformat().replace("+00:00", "Z")
     ts_field = settings.elastic_timestamp_field or ELASTIC_TIMESTAMP_FIELDS[0]
     bucket_seconds = max(1, int(bucket_seconds))
-    headers = {
-        "Content-Type": "application/json",
-        "kbn-xsrf": "true",
-        "Authorization": f"ApiKey {api_key}",
-    }
+    headers = api_headers(api_key)
     session = _get_thread_session()
     search_endpoint = _search_url(url, index_id)
 
