@@ -26,7 +26,7 @@ from elastic_errors import ElasticFetchError
 
 import cv2
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QMetaObject, Slot, QRect, QPoint, QPointF, Q_ARG, QVariantAnimation, QEasingCurve, QAbstractListModel, QModelIndex
-from PySide6.QtGui import QImage, QColor, QPainter, QPen, QBrush, QPalette, QFont, QTransform, QPolygonF, QPixmap, QFontDatabase
+from PySide6.QtGui import QImage, QColor, QPainter, QPen, QBrush, QPalette, QFont, QTransform, QPolygonF, QPixmap
 import numpy as np
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout,
@@ -54,7 +54,6 @@ STATE_COLUMN = "state_name"
 MESSAGE_COLUMN = "message"
 
 # Example: "16 Nov, 2025 @ 13:17:37.529"
-TIMESTAMP_FORMAT = "%d %b, %Y @ %H:%M:%S.%f"
 
 # How long each log entry is considered "active" (seconds)
 CSV_EVENT_DURATION_SECONDS = 1.0
@@ -161,25 +160,6 @@ def _load_placeholder_image() -> QImage | None:
     return img
 
 
-def get_log_text_at_time(events, t: float, offset_seconds: float) -> str:
-    """
-    Look up the log text that should be shown at video time t (seconds),
-    taking into account a time offset between log and video.
-    """
-    t_td = timedelta(seconds=t) - timedelta(seconds=offset_seconds)
-    for ev in events:
-        if ev.start <= t_td <= ev.end:
-            return ev.text
-    return ""
-
-
-# -------- CSV → EVENTS --------
-
-def parse_csv_timestamp(ts_str: str) -> datetime:
-    ts_str = ts_str.strip()
-    return datetime.strptime(ts_str, TIMESTAMP_FORMAT)
-
-
 def build_log_text_from_row(row: dict) -> str:
     parts = []
     for col in TEXT_COLUMNS:
@@ -190,43 +170,6 @@ def build_log_text_from_row(row: dict) -> str:
         if value and value != "-":
             parts.append(value)
     return " | ".join(parts)
-
-
-def load_csv_as_events_and_filters(path: Path):
-    """
-    Returns:
-      - events: list[LogEvent] with relative times
-      - display_rows: list[str] for the log panel
-      - source_keys: list[str] for each event
-      - state_keys: list[str] for each event
-      - message_keys: list[str] for each event
-    """
-    rows = []
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            ts_str = row.get(TIME_COLUMN, "").strip()
-            if not ts_str:
-                continue
-            try:
-                dt = parse_csv_timestamp(ts_str)
-            except Exception:
-                continue
-
-            text = build_log_text_from_row(row)
-            if not text:
-                continue
-
-            source_key = str(row.get(SOURCE_COLUMN, "")).strip()
-            state_key = str(row.get(STATE_COLUMN, "")).strip()
-            message_key = str(row.get(MESSAGE_COLUMN, "")).strip()
-
-            rows.append((dt, text, source_key, state_key, message_key))
-
-    if not rows:
-        raise ValueError("No valid rows with timestamps and text found in CSV")
-
-    return build_events_from_rows(rows)
 
 
 def build_events_from_rows(rows: list[tuple]):
@@ -1797,8 +1740,6 @@ class VideoLogViewer(QWidget):
         self._popout_label: AnnotatedVideoWidget | None = None
         self._popout_color_btn: QToolButton | None = None
         self._popout_tool_group: QButtonGroup | None = None
-        self._tray_view_window: QWidget | None = None
-        self._tray_view_label: QLabel | None = None
         self._clip_annotations: list[dict] = []
         self._pinned_annotations: list[dict] = []
         self._annotation_history: list[dict] = []
@@ -1987,7 +1928,6 @@ class VideoLogViewer(QWidget):
         # ----- CUSTOM FILTER TAB -----
 
         self.custom_filter_blocks: list[tuple[QPushButton, QLineEdit, QLineEdit, QLabel]] = []
-        self.custom_filter_mode = None
         self.custom_filter_hint = QLabel("Empty entries are ignored. Use commas to separate terms.")
         self.custom_filter_hint.setStyleSheet("color: #888888;")
 
@@ -2075,7 +2015,6 @@ class VideoLogViewer(QWidget):
         self.video_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.video_label.customContextMenuRequested.connect(self._copy_main_frame_to_clipboard)
         self.video_label.installEventFilter(self)
-        self.scroll_events_mode = False
         self.video_sync_btn = QPushButton("Sync Time")
         self.video_sync_btn.setFixedWidth(110)
         self.video_sync_btn.setEnabled(False)
@@ -2138,7 +2077,6 @@ class VideoLogViewer(QWidget):
         self._offset_slider_scale = 1000
 
         self.play_pause_btn = QPushButton("Play")
-        self.load_secondary_btn = None
 
         self.play_pause_btn.clicked.connect(self.toggle_play_pause)
         self.annotate_btn = QPushButton("Annotate")
@@ -2537,7 +2475,6 @@ class VideoLogViewer(QWidget):
         self.setMouseTracking(True)
         self.installEventFilter(self)
         self.right_tabs.installEventFilter(self)
-        self._update_load_filters_button()
         self._log_busy_dialog: QProgressDialog | None = None
         self._set_filter_tabs_enabled(False)
 
@@ -2638,32 +2575,6 @@ class VideoLogViewer(QWidget):
         pos = self.right_tabs.mapFromGlobal(self.cursor().pos())
         if not self.right_tabs.rect().contains(pos):
             self._set_right_tabs_visible(False)
-
-    def _update_tray_view_popout(self, tray_view: QImage):
-        if tray_view is None or tray_view.isNull():
-            return
-        if self._tray_view_window is None:
-            win = QWidget(self, Qt.Window)
-            win.setWindowTitle("Bird's Eye")
-            win.resize(320, 320)
-            layout = QVBoxLayout(win)
-            layout.setContentsMargins(6, 6, 6, 6)
-            label = QLabel()
-            label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(label, 1)
-            win.setLayout(layout)
-            self._tray_view_window = win
-            self._tray_view_label = label
-            win.destroyed.connect(lambda _=None: self._clear_tray_view_popout())
-            win.show()
-        if self._tray_view_label is None:
-            return
-        max_w = 420
-        max_h = 420
-        scaled = tray_view.scaled(max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self._tray_view_label.setPixmap(QPixmap.fromImage(scaled))
-
-    # ---- Analysis (diff + optical flow) ----
 
     def _on_analysis_mode_changed(self, _index: int | None = None):
         enabled = self.analysis_mode_combo.currentText() != "Off"
@@ -3208,23 +3119,6 @@ class VideoLogViewer(QWidget):
 
     # ---- Video handling ----
 
-    def open_video(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Video", "", "Video Files (*.mp4 *.mov *.avi *.mkv);;All Files (*)"
-        )
-        if not file_path:
-            return
-
-        self.load_video_from_path(file_path)
-
-    def open_additional_cctv(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Additional CCTV", "", "Video Files (*.mp4 *.mov *.avi *.mkv);;All Files (*)"
-        )
-        if not file_path:
-            return
-        self.load_additional_cctv_from_path(Path(file_path))
-
     def load_video_from_path(self, file_path: str) -> bool:
         t0 = time.perf_counter()
         print(f"[viewer] load_video_from_path start: {file_path}", flush=True)
@@ -3508,26 +3402,6 @@ class VideoLogViewer(QWidget):
             self.filter_panel.setVisible(False)
         self._set_filter_tabs_enabled(False)
 
-    def open_csv(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open CSV Log", "", "CSV Files (*.csv);;All Files (*)"
-        )
-        if not file_path:
-            return
-        path = Path(file_path)
-        try:
-            data = load_csv_as_events_and_filters(path)
-            self._apply_loaded_events(*data)
-
-            QMessageBox.information(
-                self,
-                "Logs loaded",
-                f"Loaded {len(self.all_events)} log entries from CSV."
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load CSV log: {e}")
-            self._clear_events()
-
     def _apply_loaded_events(self, events, display_rows, source_keys, state_keys, message_keys, first_dt):
         print("[viewer] _apply_loaded_events start", flush=True)
         self._set_log_busy(True, "Processing Elastic events...")
@@ -3680,14 +3554,12 @@ class VideoLogViewer(QWidget):
         self.source_checkboxes.clear()
         self.state_checkboxes.clear()
         self.message_checkboxes.clear()
-        self._update_load_filters_button()
         if show_busy:
             self._set_log_busy(False)
 
     def _reset_filter_state(self, show_busy: bool = False):
         self.filters_loaded = False
         self.clear_filter_checkboxes(show_busy=show_busy)
-        self._update_load_filters_button()
         if hasattr(self, "filter_panel"):
             self.filter_panel.setVisible(False)
 
@@ -3723,9 +3595,6 @@ class VideoLogViewer(QWidget):
         self.state_container_widget = new_widget
         self.state_layout_inner = new_layout
         self.state_scroll.setWidget(new_widget)
-
-    def _update_load_filters_button(self):
-        return
 
     def build_filter_checkboxes(self):
         if not self.filters_loaded:
@@ -3804,7 +3673,6 @@ class VideoLogViewer(QWidget):
             f"states={len(self.state_checkboxes)}, messages={len(self.message_checkboxes)})",
             flush=True,
         )
-        self._update_load_filters_button()
 
     def update_message_visibility_from_filters(self):
         if (
@@ -4127,16 +3995,6 @@ class VideoLogViewer(QWidget):
                     edit.setStyleSheet("")
                     edit.setToolTip("")
 
-    def _rename_custom_preset(self, button: QPushButton):
-        menu = QMenu(self)
-        action = menu.addAction("Rename")
-        chosen = menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
-        if chosen != action:
-            return
-        text, ok = QInputDialog.getText(self, "Rename preset", "Preset name:", text=button.text())
-        if ok and text.strip():
-            button.setText(text.strip())
-
     def _on_custom_filter_menu(self, index: int):
         if index < 0 or index >= len(self.custom_filter_blocks):
             return
@@ -4317,15 +4175,6 @@ class VideoLogViewer(QWidget):
                 self.right_tabs.setTabText(custom_idx, "Custom")
                 tab_bar.setTabTextColor(custom_idx, highlight if custom_active else default_color)
 
-    def _maybe_save_active_filter_preset(self):
-        if self.active_filter_preset_index is None:
-            return
-        if not self.filters_loaded:
-            return
-        self._save_current_filter_selection(self.active_filter_preset_index)
-
-    # ---- Log list ----
-
     def populate_log_list(self):
         print(f"[viewer] populate_log_list start (rows={len(self.log_display_rows)})", flush=True)
         self._log_model.reset_data(self.log_display_rows)
@@ -4361,30 +4210,6 @@ class VideoLogViewer(QWidget):
         if not hasattr(self, "playback_layout") or self.playback_layout is None:
             return
         self.playback_layout.addWidget(widget)
-
-    @staticmethod
-    def _apply_segment_font(label: QLabel, point_size: int = 12):
-        # Prefer common seven-segment style fonts when available.
-        preferred = (
-            "DSEG7 Classic",
-            "Digital-7 Mono",
-            "Digital-7",
-            "DS-Digital",
-            "Seven Segment",
-        )
-        available = {name.lower(): name for name in QFontDatabase().families()}
-        family = None
-        for name in preferred:
-            key = name.lower()
-            if key in available:
-                family = available[key]
-                break
-        if family is None:
-            family = "Consolas"
-        font = QFont(family)
-        font.setStyleHint(QFont.Monospace)
-        font.setPointSize(point_size)
-        label.setFont(font)
 
     # ---- Playback control ----
 
@@ -4906,7 +4731,6 @@ class VideoLogViewer(QWidget):
             self._popout_label = label
             self._popout_color_btn = color_btn
             self._popout_tool_group = tool_group
-            win.destroyed.connect(lambda _=None: self._clear_tray_view_popout())
         if self.last_qimage is not None and self._popout_label is not None:
             self._popout_label.set_frame(self.last_qimage)
         self._refresh_annotation_view()
@@ -4961,15 +4785,6 @@ class VideoLogViewer(QWidget):
         self._popout_color_btn = None
         self._popout_tool_group = None
         self._clear_tray_view_popout()
-
-    def _clear_tray_view_popout(self):
-        if self._tray_view_window is not None:
-            try:
-                self._tray_view_window.close()
-            except Exception:
-                pass
-        self._tray_view_window = None
-        self._tray_view_label = None
 
     def _current_annotations(self) -> list[dict]:
         return list(self._pinned_annotations) + list(self._clip_annotations)
@@ -5440,9 +5255,6 @@ class VideoLogViewer(QWidget):
         self._update_offset_display()
         self._apply_offset()
 
-    def adjust_offset(self, delta: float):
-        self.set_offset_value(self.time_offset + delta)
-
     def _update_offset_display(self):
         if hasattr(self, "offset_display"):
             self.offset_display.setText(f"{self.time_offset:+.2f}s")
@@ -5815,10 +5627,7 @@ class VideoLogViewer(QWidget):
         self._prefetch_futures.pop(key, None)
         if ok:
             self.update_cache_status()
-            try:
-                self.cache_clip_ready.emit(Path(source_path))
-            except Exception:
-                self.cache_clip_ready.emit(Path(source_path))
+            self.cache_clip_ready.emit(Path(source_path))
         self._finish_pending_video_load(source_path, ok)
 
     def _calculate_cache_stats(self) -> tuple[int, int]:
@@ -5959,16 +5768,8 @@ class VideoLogViewer(QWidget):
     def _is_path_in_cache(self, path: Path) -> bool:
         try:
             return Path(path).resolve().is_relative_to(self.cache_root.resolve())
-        except AttributeError:
-            # For Python < 3.9
-            try:
-                path_resolved = Path(path).resolve()
-                cache_resolved = self.cache_root.resolve()
-                return str(path_resolved).startswith(str(cache_resolved))
-            except Exception:
-                return False
-            except Exception:
-                return False
+        except Exception:
+            return False
 
     def open_cache_folder(self):
         try:
@@ -6547,14 +6348,6 @@ class VideoLogViewer(QWidget):
                 return
             dlg.open_video(str(ready_path))
         QTimer.singleShot(0, _open_after_show)
-
-    def recheck_ocr_offset(self):
-        if not self.current_video_path:
-            QMessageBox.information(self, "No video", "Load a video first.")
-            return
-        key = self._offset_cache_key(Path(self.current_video_path))
-        self._clear_cached_offset(key, cache_path=self.offset_cache_path)
-        self._auto_sync_with_ocr(force=True)
 
     def _auto_sync_with_ocr(self, force: bool = False):
         if not self.current_video_path:
