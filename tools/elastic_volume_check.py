@@ -18,8 +18,8 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import elastic_loader
-from settings_store import Settings
+import logfather.data.elastic_loader as elastic_loader
+from logfather.data.settings_store import Settings
 
 DAYS = 30
 

@@ -14,8 +14,8 @@ from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
-from app_assets import resolve_asset_path as _resolve_asset_path
-from app_version import format_version_label
+from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
+from logfather.core.app_version import format_version_label
 
 SPLASH_IMAGE_FILENAME = "Logfather Argus II.jpg"
 
@@ -60,7 +60,7 @@ def main():
     if splash is not None:
         splash.show()
         app.processEvents()
-    from Main_Window import MainWindow
+    from logfather.ui.Main_Window import MainWindow
 
     win = MainWindow()
     win.resize(1400, 700)

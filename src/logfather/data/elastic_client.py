@@ -13,7 +13,7 @@ from typing import Callable
 import requests
 from requests.adapters import HTTPAdapter
 
-from elastic_errors import ElasticFetchError
+from logfather.data.elastic_errors import ElasticFetchError
 
 _thread_local = threading.local()
 

@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app_version import load_version_info
+from logfather.core.app_version import load_version_info
+from logfather.paths import REPO_ROOT
 
 GITHUB_REPO_URL = "https://github.com/chris1leap/logfather"
 
@@ -106,7 +107,7 @@ FILE_SUMMARIES: list[tuple[str, str, str]] = [
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    return REPO_ROOT
 
 
 def _resolve_diagram_path() -> str | None:

@@ -10,8 +10,8 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from elastic_client import paginate
-from elastic_errors import ElasticFetchError
+from logfather.data.elastic_client import paginate
+from logfather.data.elastic_errors import ElasticFetchError
 
 
 def _hit(n, with_sort=True):

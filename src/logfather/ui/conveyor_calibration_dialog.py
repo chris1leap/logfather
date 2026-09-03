@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from conveyor_calibration import ConveyorCalibration, save_calibration
-from target_buffer_loader import PickTarget
+from logfather.data.conveyor_calibration import ConveyorCalibration, save_calibration
+from logfather.data.target_buffer_loader import PickTarget
 
 
 def resolve_tracking_line(

@@ -27,8 +27,9 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 
-from settings_store import Settings, Condition, DEFAULT_COLORS, SystemLayoutEntry
-from app_version import format_version_label
+from logfather.data.settings_store import Settings, Condition, DEFAULT_COLORS, SystemLayoutEntry
+from logfather.core.app_version import format_version_label
+from logfather.paths import REPO_ROOT, SRC_ROOT
 
 
 class SettingsPanel(QWidget):
@@ -491,9 +492,8 @@ class ReadmePanel(QWidget):
 
     def _load_readme(self):
         candidates = []
-        base = Path(__file__).resolve().parent
-        candidates.append(base / "README.md")
-        candidates.append(base.parent / "README.md")
+        candidates.append(SRC_ROOT / "README.md")
+        candidates.append(REPO_ROOT / "README.md")
         try:
             import sys
             if hasattr(sys, "_MEIPASS"):

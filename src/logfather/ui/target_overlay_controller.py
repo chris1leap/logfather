@@ -19,12 +19,12 @@ from typing import Callable
 
 from PySide6.QtCore import QObject
 
-from timeline_model import ensure_utc
-from conveyor_calibration import ConveyorCalibration, load_calibration
-from conveyor_calibration_dialog import ConveyorCalibrationDialog
-from qt_worker import JobSlot
-from target_buffer_loader import buffer_state_at, fetch_buffer_events
-from target_buffer_widget import _detail_rows, _display_target_id, _summary_rows
+from logfather.core.timeline_model import ensure_utc
+from logfather.data.conveyor_calibration import ConveyorCalibration, load_calibration
+from logfather.ui.conveyor_calibration_dialog import ConveyorCalibrationDialog
+from logfather.ui.qt_worker import JobSlot
+from logfather.data.target_buffer_loader import buffer_state_at, fetch_buffer_events
+from logfather.ui.target_buffer_widget import _detail_rows, _display_target_id, _summary_rows
 
 
 def choose_clip_target_rate_bucket_seconds(clip_start: datetime, clip_end: datetime) -> int:

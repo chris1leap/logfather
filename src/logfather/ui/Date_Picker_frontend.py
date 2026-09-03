@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
     QLabel, QCalendarWidget, QMessageBox, QHBoxLayout, QScrollArea, QGridLayout, QButtonGroup,
     QSizePolicy
 )
-from qt_worker import JobSlot
-from settings_store import (
+from logfather.ui.qt_worker import JobSlot
+from logfather.data.settings_store import (
     Settings,
     customer_logo_bytes,
     customer_starts_collapsed,

@@ -33,8 +33,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app_assets import load_placeholder_image as _load_placeholder_image
-from viewer_widgets import _dist, _distance_to_segment
+from logfather.ui.app_assets import load_placeholder_image as _load_placeholder_image
+from logfather.ui.viewer_widgets import _dist, _distance_to_segment
 
 
 class AnnotatedVideoWidget(QWidget):

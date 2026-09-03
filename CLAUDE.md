@@ -14,10 +14,16 @@ Chris directs the work and reviews visually; Claude implements, tests, and commi
 
 ## Repo layout
 
-`src/` all app modules (flat imports — they must stay in one directory) · `assets/`
-icons/splash media/diagram · `docs/` architecture notes · `tools/` smoke test, Elastic
-check, standalone scripts · `tests/` pytest · `legacy/` old variants, don't touch.
-Deep architecture map: `docs/ARCHITECTURE.md`.
+`src/logfather/` the app package: `core/` pure logic+models (no Qt, no network),
+`data/` Elastic/caches/stores (QtCore signals OK, no GUI imports), `ui/` everything
+Qt. `src/Main_Window.py` is only an entry shim (keeps the run command, PyInstaller
+specs and the desktop shortcut working) — the real module is
+`logfather/ui/Main_Window.py`. Imports are absolute (`from logfather.data.x import y`).
+The layering rule: `ui` may import `data`/`core`; `data` may import `core`; never the
+reverse. `assets/` icons/splash media/diagram · `docs/` architecture notes · `tools/`
+smoke test, Elastic check, standalone scripts · `tests/` pytest · `legacy/` old
+variants, don't touch. Deep architecture map: `docs/ARCHITECTURE.md` (predates the
+package split; module names unchanged).
 
 ## Per-change loop
 

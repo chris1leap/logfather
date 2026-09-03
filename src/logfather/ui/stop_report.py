@@ -30,14 +30,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from timeline_model import (
+from logfather.core.timeline_model import (
     TimelineItem,
     format_local_time,
     local_day_end_utc,
     local_day_start_utc,
 )
-from elastic_loader import fetch_logs_for_range
-from settings_store import Settings
+from logfather.data.elastic_loader import fetch_logs_for_range
+from logfather.data.settings_store import Settings
 
 STOP_THUMB_SIZE = (352, 198)
 

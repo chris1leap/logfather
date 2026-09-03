@@ -11,8 +11,8 @@ from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QPolygonF, QFont
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
-from target_buffer_loader import PickTarget, get_cam_pos
-from target_buffer_widget import _display_target_id
+from logfather.data.target_buffer_loader import PickTarget, get_cam_pos
+from logfather.ui.target_buffer_widget import _display_target_id
 
 _BG = QColor("#0d1117")
 _GRID = QColor("#1a2530")

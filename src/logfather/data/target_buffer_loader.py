@@ -5,13 +5,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from elastic_client import (
+from logfather.data.elastic_client import (
     api_headers,
     get_thread_session as _get_thread_session,
     paginate,
     search_url as _search_url,
 )
-from elastic_loader import (
+from logfather.data.elastic_loader import (
     ELASTIC_TIMESTAMP_FIELDS,
     KIBANA_BASE_DEFAULT,
     _build_robot_filters,
@@ -20,7 +20,7 @@ from elastic_loader import (
     _normalize_index_id,
     _parse_ts,
 )
-from settings_store import Settings
+from logfather.data.settings_store import Settings
 
 
 @dataclass(slots=True)

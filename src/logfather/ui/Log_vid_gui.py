@@ -20,20 +20,20 @@ try:
 except Exception:
     ZoneInfo = None
 
-from settings_store import Settings, DEFAULT_SETTINGS_PATH, CustomFilterPreset, FilterPreset
-from elastic_loader import fetch_logs_for_range
-from elastic_errors import ElasticFetchError
-from app_assets import (
+from logfather.data.settings_store import Settings, DEFAULT_SETTINGS_PATH, CustomFilterPreset, FilterPreset
+from logfather.data.elastic_loader import fetch_logs_for_range
+from logfather.data.elastic_errors import ElasticFetchError
+from logfather.ui.app_assets import (
     load_placeholder_image as _load_placeholder_image,
     resolve_asset_path as _resolve_asset_path,
 )
-from frame_analysis import (
+from logfather.core.frame_analysis import (
     compute_optical_flow_view,
     compute_pixel_diff_view,
 )
-from annotated_video_widget import AnnotatedVideoWidget
-from clip_cache import ClipCache
-from log_events import (
+from logfather.ui.annotated_video_widget import AnnotatedVideoWidget
+from logfather.data.clip_cache import ClipCache
+from logfather.core.log_events import (
     LOCAL_TIMEZONE,
     MESSAGE_COLUMN,
     SOURCE_COLUMN,
@@ -43,7 +43,7 @@ from log_events import (
     format_timecode,
     _to_local_naive,
 )
-from viewer_widgets import (
+from logfather.ui.viewer_widgets import (
     ClipRangeSlider,
     DriftSlider,
     EventMarkerBar,
@@ -68,12 +68,12 @@ from PySide6.QtWidgets import (
     QToolButton, QButtonGroup, QStyleOptionSlider, QStyle, QLCDNumber
 )
 
-from time_ocr import analyze_video_offset, OcrVideoPlayer, parse_filename_datetime
-from qt_worker import JobSlot
+from logfather.ui.time_ocr import analyze_video_offset, OcrVideoPlayer, parse_filename_datetime
+from logfather.ui.qt_worker import JobSlot
 
 SKIP_INITIAL_FRAME_RENDER = False
-from settings_dialog import SettingsPanel, SystemLayoutPanel, ReadmePanel
-from app_version import format_version_label, format_version_suffix
+from logfather.ui.settings_dialog import SettingsPanel, SystemLayoutPanel, ReadmePanel
+from logfather.core.app_version import format_version_label, format_version_suffix
 
 
 TARGET_QUEUE_MESSAGE = "adding new target to queue"

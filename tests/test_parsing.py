@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import elastic_loader
-from Time_Picker import parse_time_from_name
+import logfather.data.elastic_loader as elastic_loader
+from logfather.ui.Time_Picker import parse_time_from_name
 
 
 class TestExtractRobotId:
@@ -112,7 +112,7 @@ class _FakeCap:
 
 class TestPositionCaptureSequential:
     def _fn(self):
-        from Log_vid_gui import _position_capture_sequential
+        from logfather.ui.Log_vid_gui import _position_capture_sequential
         return _position_capture_sequential
 
     def test_next_frame_needs_no_work(self):
@@ -136,13 +136,13 @@ class TestPositionCaptureSequential:
         assert cap.grab_calls == 3
 
     def test_large_forward_jump_requires_seek(self):
-        from Log_vid_gui import MAX_GRAB_SKIP_FRAMES
+        from logfather.ui.Log_vid_gui import MAX_GRAB_SKIP_FRAMES
         cap = _FakeCap()
         assert self._fn()(cap, True, 100, 100 + MAX_GRAB_SKIP_FRAMES + 1) is False
         assert cap.grab_calls == 0
 
     def test_boundary_forward_jump_grabs(self):
-        from Log_vid_gui import MAX_GRAB_SKIP_FRAMES
+        from logfather.ui.Log_vid_gui import MAX_GRAB_SKIP_FRAMES
         cap = _FakeCap()
         assert self._fn()(cap, True, 0, MAX_GRAB_SKIP_FRAMES) is True
         assert cap.grab_calls == MAX_GRAB_SKIP_FRAMES
@@ -199,7 +199,7 @@ class TestEventsCacheSkuComplete:
 
 class TestSettingsResilience:
     def test_save_and_load_round_trip(self, tmp_path):
-        from settings_store import Settings
+        from logfather.data.settings_store import Settings
         path = tmp_path / "settings.json"
         s = Settings.load(path)
         s.elastic_api_key = "secret-key"
@@ -209,7 +209,7 @@ class TestSettingsResilience:
         assert loaded.load_warning is None
 
     def test_second_save_keeps_backup(self, tmp_path):
-        from settings_store import Settings
+        from logfather.data.settings_store import Settings
         path = tmp_path / "settings.json"
         s = Settings.load(path)
         s.elastic_api_key = "v1"
@@ -221,7 +221,7 @@ class TestSettingsResilience:
         assert '"v1"' in bak.read_text()
 
     def test_corrupt_file_restores_from_backup(self, tmp_path):
-        from settings_store import Settings
+        from logfather.data.settings_store import Settings
         path = tmp_path / "settings.json"
         s = Settings.load(path)
         s.elastic_api_key = "good-key"
@@ -234,7 +234,7 @@ class TestSettingsResilience:
         assert list(tmp_path.glob("settings.json.corrupt-*"))
 
     def test_corrupt_file_without_backup_warns_and_defaults(self, tmp_path):
-        from settings_store import Settings, _default_conditions
+        from logfather.data.settings_store import Settings, _default_conditions
         path = tmp_path / "settings.json"
         path.write_text("garbage", encoding="utf-8")
         loaded = Settings.load(path)
@@ -244,7 +244,7 @@ class TestSettingsResilience:
         assert list(tmp_path.glob("settings.json.corrupt-*"))
 
     def test_load_warning_not_persisted(self, tmp_path):
-        from settings_store import Settings
+        from logfather.data.settings_store import Settings
         path = tmp_path / "settings.json"
         s = Settings.load(path)
         s.load_warning = "boom"
@@ -253,7 +253,7 @@ class TestSettingsResilience:
 
     def test_malformed_import_raises_and_preserves(self, tmp_path):
         import pytest
-        from settings_store import Settings, SHAREABLE_EXPORT_FORMAT
+        from logfather.data.settings_store import Settings, SHAREABLE_EXPORT_FORMAT
         export = tmp_path / "export.json"
         export.write_text(
             '{"_format": "%s", "conditions": 42}' % SHAREABLE_EXPORT_FORMAT,
@@ -276,7 +276,7 @@ class TestFrameAnalysis:
 
     def test_pixel_diff_shape_and_signal(self):
         import numpy as np
-        from frame_analysis import compute_pixel_diff_view
+        from logfather.core.frame_analysis import compute_pixel_diff_view
         base, moved = self._frames()
         out = compute_pixel_diff_view(
             moved, base, gain=1.0, threshold=10, heatmap=False, overlay=False, alpha=0.5
@@ -285,7 +285,7 @@ class TestFrameAnalysis:
         assert out.sum() > 0  # the changed region must register
 
     def test_pixel_diff_identical_frames_dark(self):
-        from frame_analysis import compute_pixel_diff_view
+        from logfather.core.frame_analysis import compute_pixel_diff_view
         base, _ = self._frames()
         out = compute_pixel_diff_view(
             base, base.copy(), gain=1.0, threshold=10, heatmap=False, overlay=False, alpha=0.5
@@ -294,7 +294,7 @@ class TestFrameAnalysis:
 
     def test_optical_flow_shape(self):
         import numpy as np
-        from frame_analysis import compute_optical_flow_view
+        from logfather.core.frame_analysis import compute_optical_flow_view
         base, moved = self._frames()
         out = compute_optical_flow_view(
             moved, base, gain=1.0, min_motion=0, heatmap=False, overlay=False,
@@ -305,7 +305,7 @@ class TestFrameAnalysis:
 
 class TestClipCache:
     def _cache(self, tmp_path, protected=None):
-        from clip_cache import ClipCache
+        from logfather.data.clip_cache import ClipCache
         return ClipCache(
             protected_paths_provider=(lambda: protected or []),
             root=tmp_path / "cache",
@@ -344,8 +344,8 @@ class TestClipCache:
 
     def test_prune_never_deletes_protected_clip(self, tmp_path):
         import os, time
-        from clip_cache import ClipCache
-        import clip_cache as cc
+        from logfather.data.clip_cache import ClipCache
+        import logfather.data.clip_cache as cc
         cache = ClipCache(root=tmp_path / "cache")
         source = tmp_path / "clip.mp4"
         source.write_bytes(b"x" * 1024)
@@ -361,7 +361,7 @@ class TestClipCache:
 
     def test_prune_deletes_expired_unprotected_clip(self, tmp_path):
         import os, time
-        import clip_cache as cc
+        import logfather.data.clip_cache as cc
         cache = self._cache(tmp_path)
         source = tmp_path / "clip.mp4"
         source.write_bytes(b"x" * 1024)
@@ -376,14 +376,14 @@ class TestClipCache:
 
 class TestElasticSchema:
     def test_robot_id_from_folder(self):
-        from elastic_schema import robot_id_from_folder
+        from logfather.data.elastic_schema import robot_id_from_folder
         assert robot_id_from_folder("PikPak012") == "35-2300-012"
         assert robot_id_from_folder("Spare003") == "35-2300-003"
         assert robot_id_from_folder("PikPak") is None
         assert robot_id_from_folder("") is None
 
     def test_identity_filter_single_shape(self):
-        from elastic_schema import identity_filter, IDENTITY_FIELDS
+        from logfather.data.elastic_schema import identity_filter, IDENTITY_FIELDS
         f = identity_filter(["35-2300-007"])
         clauses = f["bool"]["should"]
         assert len(clauses) == 3 * len(IDENTITY_FIELDS)
@@ -392,36 +392,36 @@ class TestElasticSchema:
         assert {"match_phrase": {"system_id": "35-2300-007"}} in clauses
 
     def test_identity_filter_multi_nests_per_robot(self):
-        from elastic_schema import identity_filter
+        from logfather.data.elastic_schema import identity_filter
         f = identity_filter(["35-2300-007", "35-2300-010"])
         outer = f["bool"]["should"]
         assert len(outer) == 2
         assert all("bool" in clause for clause in outer)
 
     def test_sku_argus1_nested_data_collection(self):
-        from elastic_schema import extract_ui_selection
+        from logfather.data.elastic_schema import extract_ui_selection
         doc = {"data_collection": {"user_selection": "SKU-A", "tray_selection": "T1", "tool_selection": "tool_9"}}
         sel = extract_ui_selection(doc)
         assert sel == {"sku": "SKU-A", "tray": "T1", "tool": "tool_9"}
 
     def test_sku_argus2_sku_name_fields(self):
-        from elastic_schema import extract_ui_selection
+        from logfather.data.elastic_schema import extract_ui_selection
         doc = {"data_collection": {"sku_name": "SKU-B", "sku_tray": "ALDI_Full_Tray", "sku_tool": "tool_4834"}}
         sel = extract_ui_selection(doc)
         assert sel == {"sku": "SKU-B", "tray": "ALDI_Full_Tray", "tool": "tool_4834"}
 
     def test_sku_argus2_flat_dotted_field(self):
-        from elastic_schema import extract_ui_selection
+        from logfather.data.elastic_schema import extract_ui_selection
         sel = extract_ui_selection({"data_collection.sku_name": "SKU-C"})
         assert sel is not None and sel["sku"] == "SKU-C"
 
     def test_sku_block(self):
-        from elastic_schema import extract_ui_selection
+        from logfather.data.elastic_schema import extract_ui_selection
         sel = extract_ui_selection({"sku": {"name": "SKU-D", "tray": "T", "tool": "X"}})
         assert sel == {"sku": "SKU-D", "tray": "T", "tool": "X"}
 
     def test_sku_from_ui_node_json_request(self):
-        from elastic_schema import extract_ui_selection
+        from logfather.data.elastic_schema import extract_ui_selection
         doc = {
             "source": "/leap/manip1/ui_node",
             "json_request": {"params": '{"data": {"user_selection": "SKU-E", "tray_selection": "T2", "tool_selection": "tool_1"}}'},
@@ -430,15 +430,15 @@ class TestElasticSchema:
         assert sel == {"sku": "SKU-E", "tray": "T2", "tool": "tool_1"}
 
     def test_disallowed_source_without_sku_fields_rejected(self):
-        from elastic_schema import extract_ui_selection
+        from logfather.data.elastic_schema import extract_ui_selection
         assert extract_ui_selection({"source": "/leap/manip1/motion_control_node"}) is None
 
     def test_no_sku_returns_none(self):
-        from elastic_schema import extract_ui_selection
+        from logfather.data.elastic_schema import extract_ui_selection
         assert extract_ui_selection({}) is None
 
     def test_stop_like_states(self):
-        from elastic_schema import is_stop_like_event
+        from logfather.data.elastic_schema import is_stop_like_event
         assert is_stop_like_event("system_stop", "") is True
         assert is_stop_like_event("emergency_stop", "") is True
         assert is_stop_like_event("start_pnp", "") is False
@@ -452,7 +452,7 @@ class TestBuildSkuBands:
         return datetime(2026, 9, 1, 8, minute, second, tzinfo=timezone.utc)
 
     def _bands(self, events, cap_minute=59):
-        from sku_timeline import build_sku_bands
+        from logfather.core.sku_timeline import build_sku_bands
         return build_sku_bands(events, self._dt(cap_minute))
 
     def test_empty_events(self):
@@ -549,27 +549,27 @@ class TestGapAndBuckets:
         return datetime(2026, 9, 1, 9, 0, 0, tzinfo=timezone.utc) + timedelta(seconds=seconds)
 
     def test_steady_rate_flags_nothing(self):
-        from target_overlay_controller import compute_gap_target_ids
+        from logfather.ui.target_overlay_controller import compute_gap_target_ids
         events = [_FakeBufferEvent(self._ts(i * 5), f"t{i}") for i in range(10)]
         close, wide = compute_gap_target_ids(events, threshold=0.5)
         assert close == set() and wide == set()
 
     def test_tight_gap_flagged(self):
-        from target_overlay_controller import compute_gap_target_ids
+        from logfather.ui.target_overlay_controller import compute_gap_target_ids
         times = [0, 5, 10, 15, 20, 21]  # last add comes far quicker than avg
         events = [_FakeBufferEvent(self._ts(s), f"t{i}") for i, s in enumerate(times)]
         close, _wide = compute_gap_target_ids(events, threshold=0.5)
         assert "t5" in close
 
     def test_wide_gap_flagged(self):
-        from target_overlay_controller import compute_gap_target_ids
+        from logfather.ui.target_overlay_controller import compute_gap_target_ids
         times = [0, 5, 10, 15, 20, 45]  # last add much slower than avg
         events = [_FakeBufferEvent(self._ts(s), f"t{i}") for i, s in enumerate(times)]
         _close, wide = compute_gap_target_ids(events, threshold=0.5)
         assert "t5" in wide
 
     def test_buckets_count_and_span(self):
-        from target_overlay_controller import clip_target_rate_buckets_from_buffer_events
+        from logfather.ui.target_overlay_controller import clip_target_rate_buckets_from_buffer_events
         start, end = self._ts(0), self._ts(120)
         events = [_FakeBufferEvent(self._ts(s), f"t{s}") for s in (1, 2, 3, 61, 119, 500)]
         buckets = clip_target_rate_buckets_from_buffer_events(events, start, end)
@@ -578,7 +578,7 @@ class TestGapAndBuckets:
         assert sum(b["count"] for b in buckets) == 5  # the 500s event is outside
 
     def test_bucket_seconds_scale_with_span(self):
-        from target_overlay_controller import choose_clip_target_rate_bucket_seconds
+        from logfather.ui.target_overlay_controller import choose_clip_target_rate_bucket_seconds
         assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(240)) == 1
         assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(2400)) == 10
         assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(100000)) == 60
@@ -590,25 +590,25 @@ class TestResolveTrackingLine:
         return datetime(2026, 9, 1, 10, 0, 0, tzinfo=timezone.utc) + timedelta(seconds=seconds)
 
     def test_forward_capture_unchanged(self):
-        from conveyor_calibration_dialog import resolve_tracking_line
+        from logfather.ui.conveyor_calibration_dialog import resolve_tracking_line
         out = resolve_tracking_line(self._dt(0), (0.2, 0.5), self._dt(4), (0.8, 0.5))
         assert out == ((0.2, 0.5), (0.8, 0.5), 4.0)
 
     def test_reverse_capture_swaps_points(self):
         # End point captured at an EARLIER frame: the item was at 0.8 later
         # and 0.2 earlier, so the belt still runs 0.2 -> 0.8.
-        from conveyor_calibration_dialog import resolve_tracking_line
+        from logfather.ui.conveyor_calibration_dialog import resolve_tracking_line
         out = resolve_tracking_line(self._dt(4), (0.8, 0.5), self._dt(0), (0.2, 0.5))
         assert out == ((0.2, 0.5), (0.8, 0.5), 4.0)
 
     def test_too_close_in_time_rejected(self):
-        from conveyor_calibration_dialog import resolve_tracking_line
+        from logfather.ui.conveyor_calibration_dialog import resolve_tracking_line
         assert resolve_tracking_line(self._dt(0), (0.2, 0.5), self._dt(0.05), (0.8, 0.5)) is None
 
 
 class TestSessionResumeSettings:
     def test_last_session_round_trip(self, tmp_path):
-        from settings_store import Settings
+        from logfather.data.settings_store import Settings
         path = tmp_path / "settings.json"
         s = Settings.load(path)
         s.last_session = {"root": "Z:/public/PikPak007", "day": "2026-09-01", "playhead": "2026-09-01T08:15:00+00:00"}
@@ -619,14 +619,14 @@ class TestSessionResumeSettings:
         assert loaded.resume_on_startup == "always"
 
     def test_defaults(self, tmp_path):
-        from settings_store import Settings
+        from logfather.data.settings_store import Settings
         s = Settings.load(tmp_path / "none.json")
         assert s.last_session is None
         assert s.resume_on_startup == "ask"
 
     def test_garbage_last_session_dropped(self, tmp_path):
         import json
-        from settings_store import Settings
+        from logfather.data.settings_store import Settings
         path = tmp_path / "settings.json"
         Settings.load(path).save(path)
         data = json.loads(path.read_text())

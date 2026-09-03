@@ -9,7 +9,7 @@ from typing import Callable, Iterable, Optional, Dict, Tuple, List
 
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
-from qt_worker import JobSlot
+from logfather.ui.qt_worker import JobSlot
 from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics
 from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
@@ -18,9 +18,9 @@ from PySide6.QtWidgets import (
     QGraphicsPolygonItem, QGraphicsLineItem
 )
 
-from elastic_errors import ElasticFetchError
+from logfather.data.elastic_errors import ElasticFetchError
 # Re-exported for the many UI modules that import these from Time_Picker.
-from timeline_model import (  # noqa: F401
+from logfather.core.timeline_model import (  # noqa: F401
     LAST_BLOCK_DURATION,
     LOCAL_TIMEZONE,
     MIN_BLOCK_DURATION,

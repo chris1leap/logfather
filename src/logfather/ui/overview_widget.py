@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
-from Time_Picker import (
+from logfather.ui.Time_Picker import (
     TimelineItem,
     load_day_files,
     parse_time_from_name,
@@ -36,11 +36,11 @@ from Time_Picker import (
     inferred_live_clip_end,
     _cache_key_for,
 )
-from elastic_loader import fetch_overview_event_chunks
-from elastic_schema import robot_id_from_folder
-from app_assets import resolve_asset_path as _resolve_asset_path
-from qt_worker import JobSlot
-from settings_store import (
+from logfather.data.elastic_loader import fetch_overview_event_chunks
+from logfather.data.elastic_schema import robot_id_from_folder
+from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
+from logfather.ui.qt_worker import JobSlot
+from logfather.data.settings_store import (
     Settings,
     customer_logo_bytes,
     display_customer_name,

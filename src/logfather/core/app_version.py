@@ -4,15 +4,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from logfather.paths import REPO_ROOT, SRC_ROOT, bundle_root
+
 DEFAULT_VERSION = "dev"
 
 
 def _candidate_paths() -> list[Path]:
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     return [
-        base / "version.json",
-        Path(__file__).resolve().parent / "version.json",
-        Path(__file__).resolve().parent.parent / "version.json",
+        bundle_root() / "version.json",
+        SRC_ROOT / "version.json",
+        REPO_ROOT / "version.json",
     ]
 
 

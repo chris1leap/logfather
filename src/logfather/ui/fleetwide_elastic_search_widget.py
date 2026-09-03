@@ -13,10 +13,10 @@ from PySide6.QtWidgets import (
     QSizePolicy, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from elastic_loader import fetch_fleetwide_search_histogram
-from elastic_schema import robot_id_from_folder
-from qt_worker import JobSlot
-from settings_store import (
+from logfather.data.elastic_loader import fetch_fleetwide_search_histogram
+from logfather.data.elastic_schema import robot_id_from_folder
+from logfather.ui.qt_worker import JobSlot
+from logfather.data.settings_store import (
     FleetwideSearchDefinition, Settings, display_customer_name, display_line_name,
     system_group_sort_key,
 )

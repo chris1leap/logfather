@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
 )
 
-from target_buffer_loader import BufferEvent, PickTarget, get_cam_pos
+from logfather.data.target_buffer_loader import BufferEvent, PickTarget, get_cam_pos
 
 _COLOR_ADD = "#2ecc71"       # green — item in queue
 _CARD_BG = "#1e2630"
@@ -293,7 +293,7 @@ class TargetBufferWidget(QWidget):
         self._rebuild_cards(reference_time=None)
 
     def update_for_time(self, dt: datetime) -> None:
-        from target_buffer_loader import buffer_state_at
+        from logfather.data.target_buffer_loader import buffer_state_at
 
         # Normalise to UTC. For naive datetimes, astimezone() assumes the
         # system local timezone (BST) before converting — replace() would

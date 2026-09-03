@@ -10,14 +10,16 @@ from pathlib import Path
 
 from PySide6.QtGui import QImage
 
+from logfather.paths import REPO_ROOT, SRC_ROOT
+
 
 def resolve_asset_path(filename: str) -> str | None:
     try:
         candidates = []
         if getattr(sys, "_MEIPASS", None):
             candidates.append(Path(sys._MEIPASS) / filename)
-        candidates.append(Path(__file__).resolve().parent.parent / "assets" / filename)
-        candidates.append(Path(__file__).resolve().parent / filename)
+        candidates.append(REPO_ROOT / "assets" / filename)
+        candidates.append(SRC_ROOT / filename)
         candidates.append(Path(sys.executable).resolve().parent / filename)
         for path in candidates:
             if path.exists():

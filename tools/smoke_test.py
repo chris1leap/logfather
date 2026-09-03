@@ -22,24 +22,32 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 MODULES = [
-    "app_version",
-    "about_page",
-    "settings_store",
-    "elastic_errors",
-    "elastic_loader",
-    "conveyor_calibration",
-    "time_ocr",
-    "Time_Picker",
-    "Date_Picker_frontend",
-    "settings_dialog",
-    "conveyor_calibration_dialog",
-    "target_buffer_loader",
-    "target_buffer_widget",
-    "target_scope_widget",
-    "overview_widget",
-    "fleetwide_elastic_search_widget",
-    "Log_vid_gui",
-    "Main_Window",
+    "logfather.core.app_version",
+    "logfather.core.timeline_model",
+    "logfather.core.log_events",
+    "logfather.core.sku_timeline",
+    "logfather.core.frame_analysis",
+    "logfather.data.settings_store",
+    "logfather.data.elastic_errors",
+    "logfather.data.elastic_client",
+    "logfather.data.elastic_schema",
+    "logfather.data.elastic_loader",
+    "logfather.data.conveyor_calibration",
+    "logfather.data.clip_cache",
+    "logfather.data.target_buffer_loader",
+    "logfather.ui.about_page",
+    "logfather.ui.time_ocr",
+    "logfather.ui.Time_Picker",
+    "logfather.ui.Date_Picker_frontend",
+    "logfather.ui.settings_dialog",
+    "logfather.ui.conveyor_calibration_dialog",
+    "logfather.ui.target_buffer_widget",
+    "logfather.ui.target_scope_widget",
+    "logfather.ui.overview_widget",
+    "logfather.ui.fleetwide_elastic_search_widget",
+    "logfather.ui.Log_vid_gui",
+    "logfather.ui.Main_Window",
+    "Main_Window",  # the entry shim itself
 ]
 
 
@@ -57,7 +65,7 @@ def main() -> int:
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QApplication
 
-        import Main_Window
+        import logfather.ui.Main_Window as Main_Window
 
         app = QApplication.instance() or QApplication(sys.argv)
         window = Main_Window.MainWindow()

@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 import sys
 
+from logfather.paths import bundle_root
+
 import cv2
 import numpy as np
 import shutil
@@ -248,7 +250,7 @@ def _ensure_tesseract() -> None:
             # Avoid leaving a stale override from another Tesseract install.
             os.environ.pop("TESSDATA_PREFIX", None)
 
-    bundled_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    bundled_root = bundle_root()
     bundled_exe = bundled_root / "tesseract" / "tesseract.exe"
     if bundled_exe.exists():
         module.tesseract_cmd = str(bundled_exe)
