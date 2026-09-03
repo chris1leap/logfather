@@ -51,6 +51,9 @@ ELASTIC_INDEX_PATTERN = "logstash-*,pikpak,pikpak-*"
 ELASTIC_TIMESTAMP_FIELDS = ["@timestamp_ros", "@timestamp"]
 SYSTEM_ID_OVERRIDE: str | None = None
 ELASTIC_EVENT_MAX_WORKERS = 4
+# Sentinel: distinguishes "caller didn't supply last_video_end" (fall back
+# to scanning the share) from an explicit None ("no videos that day").
+_LAST_VIDEO_END_UNSET: object = object()
 ELASTIC_EVENT_MAX_PAGES = 20
 # Part of the events-cache digest; bump on any change to TimelineItem
 # (de)serialization or the SKU/event extraction logic.
@@ -690,7 +693,15 @@ def _build_sku_query(
     return body
 
 
-def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[TimelineItem]:
+def fetch_events(
+    settings: Settings,
+    pikpak_root: Path | None,
+    day,
+    last_video_end: object = _LAST_VIDEO_END_UNSET,
+) -> Iterable[TimelineItem]:
+    """last_video_end: the inferred end of the day's last clip, when the
+    caller (the timeline loader) has already scanned the share for it —
+    re-listing a day folder on the WAN share costs ~5s."""
     t_fetch_start = perf_counter()
     if not day or (pikpak_root is None and SYSTEM_ID_OVERRIDE is None):
         print("[elastic] No PikPak or day selected; skipping event fetch.")
@@ -728,7 +739,9 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
         t_sku_refresh = perf_counter()
         sku_ok = True
         try:
-            sku_items = list(fetch_sku_items(settings, pikpak_root, day))
+            sku_items = list(
+                fetch_sku_items(settings, pikpak_root, day, last_video_end=last_video_end)
+            )
         except ElasticFetchError as exc:
             sku_ok = False
             sku_items = list(exc.items) if exc.items else []
@@ -834,10 +847,12 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
         print("[elastic] No condition queries configured; nothing to fetch.")
     if not items:
         print("[elastic] No events returned for selected day/robot.")
-    t_cache_write_start = perf_counter()
+    t_sku_start = perf_counter()
     sku_ok = True
     try:
-        sku_items = list(fetch_sku_items(settings, pikpak_root, day))
+        sku_items = list(
+            fetch_sku_items(settings, pikpak_root, day, last_video_end=last_video_end)
+        )
     except ElasticFetchError as exc:
         warnings.append(str(exc))
         sku_ok = False
@@ -846,7 +861,9 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
         warnings.append(str(exc))
         sku_ok = False
         sku_items = []
+    _perf_log(f"sku fetch took {(perf_counter() - t_sku_start) * 1000:.0f}ms")
     items = _merge_sku_items(items, sku_items)
+    t_cache_write_start = perf_counter()
     if warnings:
         # A partly-failed day must not be cached: past-day caches never
         # expire, so persisting here would serve the truncated timeline
@@ -888,12 +905,18 @@ def _last_video_end(pikpak_root: Path, day) -> datetime | None:
     return _ensure_utc(inferred_live_clip_end(last_path, last_start))
 
 
-def fetch_sku_items(settings: Settings, pikpak_root: Path | None, day) -> Iterable[TimelineItem]:
+def fetch_sku_items(
+    settings: Settings,
+    pikpak_root: Path | None,
+    day,
+    last_video_end: object = _LAST_VIDEO_END_UNSET,
+) -> Iterable[TimelineItem]:
     print("[sku-debug] fetch_sku_items start", flush=True)
     if not day or (pikpak_root is None and SYSTEM_ID_OVERRIDE is None):
         print("[elastic] No PikPak or day selected; skipping SKU fetch.")
         return []
-    last_video_end = _last_video_end(pikpak_root, day)
+    if last_video_end is _LAST_VIDEO_END_UNSET:
+        last_video_end = _last_video_end(pikpak_root, day)
     day_start = local_day_start_utc(day)
     day_end = local_day_end_utc(day) + timedelta(milliseconds=1)
     url = settings.elastic_url or KIBANA_BASE_DEFAULT

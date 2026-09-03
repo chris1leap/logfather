@@ -736,3 +736,38 @@ class TestLayoutSettingsSnapshot:
     def test_last_parent_change_is_detected(self):
         from logfather.data.settings_store import Settings
         assert self._snapshot(Settings()) != self._snapshot(Settings(last_parent="Z:/public"))
+
+
+class TestFetchSkuItemsLastVideoEnd:
+    """fetch_sku_items must not re-list the share when the timeline loader
+    already supplies last_video_end (the duplicate ~5s WAN scan)."""
+
+    def _settings_without_credentials(self):
+        from logfather.data.settings_store import Settings
+        return Settings(elastic_api_key=None, elastic_url="https://example.invalid")
+
+    def test_provided_value_skips_the_share_scan(self, monkeypatch):
+        from datetime import date
+        def _boom(*_args, **_kwargs):
+            raise AssertionError("share scan ran despite provided last_video_end")
+        monkeypatch.setattr(elastic_loader, "_last_video_end", _boom)
+        result = elastic_loader.fetch_sku_items(
+            self._settings_without_credentials(),
+            Path("Z:/public/PikPak012"),
+            date(2026, 9, 1),
+            last_video_end=None,
+        )
+        assert list(result) == []
+
+    def test_default_still_scans(self, monkeypatch):
+        from datetime import date
+        import pytest as _pytest
+        def _boom(*_args, **_kwargs):
+            raise AssertionError("scan expected")
+        monkeypatch.setattr(elastic_loader, "_last_video_end", _boom)
+        with _pytest.raises(AssertionError, match="scan expected"):
+            elastic_loader.fetch_sku_items(
+                self._settings_without_credentials(),
+                Path("Z:/public/PikPak012"),
+                date(2026, 9, 1),
+            )

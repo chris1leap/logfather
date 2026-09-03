@@ -96,7 +96,7 @@ class TimePicker(QWidget):
     items_changed = Signal()
 
     def __init__(self, load_func: Optional[Callable[[Path, date], Iterable[Path]]] = None,
-                 extra_loaders: Optional[list[Callable[[Path, date], Iterable[TimelineItem]]]] = None,
+                 extra_loaders: Optional[list[Callable[[Path, date, Optional[datetime]], Iterable[TimelineItem]]]] = None,
                  static_tracks: Optional[List[Tuple[str, str, str]]] = None,
                  cache_root: Optional[Path] = None):
         super().__init__()
@@ -1194,6 +1194,10 @@ def _load_timeline_items(job, root: Path, day: date, load_func, extra_loaders, c
                 path_key=_path_key(path_obj),
             )
         )
+    # The end of the last clip (inferred_live_clip_end) — handed to the
+    # extra loaders so fetch_sku_items need not re-list this same day
+    # folder on the share (~5s per scan on the WAN share).
+    last_video_end = items[-1].end if items else None
     if items:
         job.emit_progress(("partial", items, day, False, root))
     _timeline_perf_log(
@@ -1214,7 +1218,7 @@ def _load_timeline_items(job, root: Path, day: date, load_func, extra_loaders, c
             future_to_name = {}
             future_to_start = {}
             for loader in extra_loaders:
-                future = executor.submit(loader, root, day)
+                future = executor.submit(loader, root, day, last_video_end)
                 future_to_name[future] = getattr(loader, "__name__", repr(loader))
                 future_to_start[future] = perf_counter()
             extra_started = perf_counter()

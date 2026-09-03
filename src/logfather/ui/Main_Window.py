@@ -126,10 +126,14 @@ class MainWindow(QWidget):
         # Build static tracks: video + additional + condition rows
         static_tracks = self._build_static_tracks()
 
-        # Extra loaders: Elastic events + additional CCTV clips
+        # Extra loaders: Elastic events + additional CCTV clips. The third
+        # argument is the day's last-video-end from the timeline scan, so
+        # the SKU fetch doesn't re-list the share.
         extra_loaders = [
-            lambda root, day: fetch_events(self.settings, root, day),
-            lambda root, day: self._load_additional_cctv_items(root, day, cache_root),
+            lambda root, day, last_video_end: fetch_events(
+                self.settings, root, day, last_video_end=last_video_end
+            ),
+            lambda root, day, last_video_end: self._load_additional_cctv_items(root, day, cache_root),
         ]
 
         self.time_picker = TimePicker(
