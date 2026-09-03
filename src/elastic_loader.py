@@ -1309,16 +1309,10 @@ def fetch_fleetwide_search_histogram(
         query_label: str = "search",
     ) -> list[dict]:
         range_start_iso = _ensure_utc(range_start).isoformat().replace("+00:00", "Z")
-        search_after = None
-        collected: list[dict] = []
-        page_size = 1500
-        min_page_size = 300
-        max_pages = 100
-        timeout_seconds = 15
-        timeout_retries = 0
-        for _page in range(max_pages):
+
+        def build_body(size: int, search_after: list | None) -> dict:
             body = {
-                "size": page_size,
+                "size": size,
                 "track_total_hits": False,
                 "_source": source_fields,
                 "sort": [{ts_field: {"order": "asc", "format": "strict_date_optional_time"}}],
@@ -1342,43 +1336,28 @@ def fetch_fleetwide_search_histogram(
             }
             if search_after:
                 body["search_after"] = search_after
-            try:
-                response = session.post(endpoint, json=body, headers=headers, timeout=timeout_seconds)
-                response.raise_for_status()
-                hits = response.json().get("hits", {}).get("hits", [])
-                timeout_retries = 0
-            except requests.exceptions.Timeout as exc:
-                if page_size > min_page_size:
-                    page_size = max(min_page_size, page_size // 2)
-                    timeout_seconds = min(30, timeout_seconds + 5)
-                    continue
-                if timeout_retries < 2:
-                    timeout_retries += 1
-                    timeout_seconds = min(30, timeout_seconds + 5)
-                    continue
-                raise ElasticFetchError(
-                    f"[elastic] Fleetwide {query_label} timed out for {robot_id} after retries.",
-                    [],
-                ) from exc
-            except Exception as exc:
-                err_text = ""
-                if isinstance(exc, requests.RequestException) and exc.response is not None:
-                    try:
-                        err_text = exc.response.text
-                    except Exception:
-                        pass
-                message = f"[elastic] fleetwide {query_label} failed for {robot_id}: {exc} {err_text}".strip()
-                raise ElasticFetchError(message, []) from exc
-            collected.extend(hit for hit in hits if isinstance(hit, dict))
-            if len(hits) < page_size:
-                return collected
-            search_after = hits[-1].get("sort")
-            if not search_after:
-                return collected
-        raise ElasticFetchError(
-            f"[elastic] Fleetwide {query_label} exceeded the pagination limit for {robot_id}.",
-            [],
-        )
+            return body
+
+        try:
+            outcome = paginate(
+                build_body,
+                session=session,
+                endpoint=endpoint,
+                headers=headers,
+                page_size=1500,
+                min_page_size=300,
+                max_pages=100,
+                timeout_sec=15,
+                label=f"fleetwide {query_label} for {robot_id}",
+            )
+        except ElasticFetchError as exc:
+            raise ElasticFetchError(str(exc), []) from exc
+        if outcome.truncated:
+            raise ElasticFetchError(
+                f"[elastic] Fleetwide {query_label} exceeded the pagination limit for {robot_id}.",
+                [],
+            )
+        return outcome.hits
 
     error_hits = fetch_matching_hits(
         query_clause,
