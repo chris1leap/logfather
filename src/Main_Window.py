@@ -611,7 +611,6 @@ class MainWindow(QWidget):
         self._open_system_from_overview(root, day, target_dt)
 
     def closeEvent(self, event):
-        self._save_last_session()
         # Qt delivers close events only to the top-level window: the panels'
         # own closeEvents never fire inside the app, so every worker thread
         # must be stopped from here or it races Qt teardown and crashes.
@@ -627,6 +626,10 @@ class MainWindow(QWidget):
                 shutdown()
             except Exception as exc:
                 print(f"[main] shutdown step failed: {exc}", flush=True)
+        # Must come AFTER viewer.shutdown_workers: its settings-autosave
+        # flush writes the viewer's own Settings object, which would
+        # otherwise overwrite the session we just recorded.
+        self._save_last_session()
         super().closeEvent(event)
 
     def on_time_chosen(self, item: TimelineItem):

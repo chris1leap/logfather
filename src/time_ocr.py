@@ -919,6 +919,8 @@ class OcrVideoPlayer(QWidget):
                     inferred_start = ocr_dt - timedelta(seconds=video_t)
                     inferred.append((inferred_start, ocr_text))
                 inferred.sort(key=lambda item: item[0])
+                if not inferred:
+                    return None  # no usable OCR samples (e.g. clock unreadable)
                 median_start = inferred[len(inferred) // 2][0]
                 inliers = [
                     item for item in inferred

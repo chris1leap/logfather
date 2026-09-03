@@ -4812,6 +4812,16 @@ class VideoLogViewer(QWidget):
         except Exception:
             pass
         self._cancel_log_future()
+        # Close any floating tool windows: a lingering dialog (e.g. the OCR
+        # ROI tool) keeps the Qt event loop alive after the main window
+        # closes, leaving a zombie process with its console window open.
+        for attr in ("_ocr_tool_dialog", "_popout_window", "_analysis_window"):
+            window = getattr(self, attr, None)
+            if window is not None:
+                try:
+                    window.close()
+                except Exception:
+                    pass
         self.clip_cache.shutdown()
         if self._log_executor is not None:
             try:
