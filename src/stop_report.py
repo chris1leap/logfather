@@ -1,9 +1,13 @@
 """The Stop Report: one row per stop event on the loaded day, with a
 clip thumbnail that jumps the viewer to that moment.
 
-Extracted from Main_Window (it was ~500 lines of the hub). The build
-pipeline needs only the loaded timeline items, the settings/day/root for
-the operator-stop fallback query, and the viewer's ClipCache.
+Extracted from Main_Window (it was ~500 lines of the hub). The build is
+split in two so the expensive half runs on a worker thread:
+
+- collect_stop_report_data(): Elastic fallback fetch, SMB clip copies,
+  cv2 thumbnail decodes. No QPixmap/QWidget use — safe off the UI thread.
+- build_stop_report_entries(): converts the collected RGB frames to
+  QPixmaps. QPixmap is GUI-thread-only, so this half must stay there.
 """
 from __future__ import annotations
 
@@ -17,11 +21,9 @@ import cv2
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
-    QApplication,
     QDialog,
     QHBoxLayout,
     QLabel,
-    QProgressDialog,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -227,20 +229,39 @@ class StopReportDialog(QDialog):
 
 
 
-def build_stop_report_entries(
+@dataclass
+class StopEventData:
+    """Worker-side product: a StopReportEntry minus the QPixmap.
+    thumb_rgb is a cover-scaled HxWx3 uint8 RGB array, or None for the
+    text placeholder."""
+
+    event_time: datetime
+    category: str
+    label: str
+    video_item: TimelineItem | None
+    video_path: Path | None
+    seek_seconds: float
+    thumb_rgb: object | None
+    source: str = ""
+    state_name: str = ""
+    sku_info: str = ""
+
+
+def collect_stop_report_data(
     items: list[TimelineItem],
     *,
     settings: Settings,
     day,
     root: Path | None,
     clip_cache,
-    parent,
-) -> list[StopReportEntry]:
-    """Build the day's stop report from the loaded timeline items.
+    job=None,
+) -> list[StopEventData]:
+    """Gather the day's stop report data: Elastic fallback fetch, clip
+    copies, thumbnail decodes. Worker-safe (no QPixmap/QWidget).
 
-    `clip_cache` is the viewer's ClipCache (used to stage clips and read
-    thumbnails from already-cached copies); `parent` hosts the progress
-    dialog while clips download."""
+    `clip_cache` is the viewer's ClipCache; `job` (a qt_worker.Job) gets
+    ("copies"|"thumbs", done, total) progress and is polled for
+    interruption between steps."""
     if not items:
         return []
     has_operator_stop_in_timeline = any(_is_operator_stop_item(itm) for itm in items)
@@ -266,12 +287,17 @@ def build_stop_report_entries(
         if video_item and isinstance(video_item.payload, Path):
             required_paths.add(video_item.payload)
     if required_paths:
-        _cache_paths_for_report(parent, clip_cache, sorted(required_paths, key=lambda p: str(p)))
+        _cache_paths_for_report(clip_cache, sorted(required_paths, key=lambda p: str(p)), job)
+    if job is not None and job.interrupted():
+        return []
 
-    entries: list[StopReportEntry] = []
-    thumb_cache: dict[tuple[str, int], QPixmap] = {}
+    data: list[StopEventData] = []
+    thumb_cache: dict[tuple[str, int], object] = {}
     seen_keys: set[tuple[int, str]] = set()
-    for itm, category, src in stop_items:
+    thumb_total = len(stop_items)
+    for thumb_done, (itm, category, src) in enumerate(stop_items, start=1):
+        if job is not None and job.interrupted():
+            return []
         state_name = str(src.get("state_name") or "").strip()
         source = str(src.get("source") or "").strip()
         video_item = _find_video_item_for_time(video_items, itm.start)
@@ -279,19 +305,21 @@ def build_stop_report_entries(
         seek_seconds = 0.0
         if video_item is not None:
             seek_seconds = max(0.0, (itm.start - video_item.start).total_seconds())
-        thumb = _thumbnail_for_event(clip_cache, video_path, seek_seconds, itm.start, category, thumb_cache)
+        thumb_rgb = _thumbnail_rgb_for_event(clip_cache, video_path, seek_seconds, thumb_cache)
+        if job is not None:
+            job.emit_progress(("thumbs", thumb_done, thumb_total))
         key = (int(itm.start.timestamp()), state_name.lower() or category.lower())
         seen_keys.add(key)
         sku_info = _sku_for_time(sku_items, itm.start)
-        entries.append(
-            StopReportEntry(
+        data.append(
+            StopEventData(
                 event_time=itm.start,
                 category=category,
                 label=itm.label,
                 video_item=video_item,
                 video_path=video_path,
                 seek_seconds=seek_seconds,
-                thumbnail=thumb,
+                thumb_rgb=thumb_rgb,
                 source=source,
                 state_name=state_name,
                 sku_info=sku_info,
@@ -302,6 +330,8 @@ def build_stop_report_entries(
     # represented by configured timeline conditions.
     if not has_operator_stop_in_timeline:
         for ts, source, state_name, message in _fetch_operator_stop_events(settings, day, root):
+            if job is not None and job.interrupted():
+                return []
             key = (int(ts.timestamp()), state_name.lower() or "operator_stop")
             if key in seen_keys:
                 continue
@@ -310,17 +340,17 @@ def build_stop_report_entries(
             seek_seconds = 0.0
             if video_item is not None:
                 seek_seconds = max(0.0, (ts - video_item.start).total_seconds())
-            thumb = _thumbnail_for_event(clip_cache, video_path, seek_seconds, ts, "Operator Stop", thumb_cache)
+            thumb_rgb = _thumbnail_rgb_for_event(clip_cache, video_path, seek_seconds, thumb_cache)
             sku_info = _sku_for_time(sku_items, ts)
-            entries.append(
-                StopReportEntry(
+            data.append(
+                StopEventData(
                     event_time=ts,
                     category="Operator Stop",
                     label=message or state_name or "operator_stop",
                     video_item=video_item,
                     video_path=video_path,
                     seek_seconds=seek_seconds,
-                    thumbnail=thumb,
+                    thumb_rgb=thumb_rgb,
                     source=source,
                     state_name=state_name,
                     sku_info=sku_info,
@@ -328,7 +358,49 @@ def build_stop_report_entries(
             )
             seen_keys.add(key)
 
-    entries.sort(key=lambda e: e.event_time)
+    data.sort(key=lambda d: d.event_time)
+    return data
+
+
+def build_stop_report_entries(data: list[StopEventData]) -> list[StopReportEntry]:
+    """UI-thread half: turn collected RGB frames into QPixmap entries."""
+    entries: list[StopReportEntry] = []
+    pixmap_by_frame: dict[int, QPixmap] = {}
+    for d in data:
+        if d.thumb_rgb is not None:
+            pix = pixmap_by_frame.get(id(d.thumb_rgb))
+            if pix is None:
+                rgb = d.thumb_rgb
+                h, w = rgb.shape[:2]
+                qimg = QImage(rgb.data, w, h, rgb.strides[0], QImage.Format_RGB888).copy()
+                pix = QPixmap.fromImage(qimg)
+                pixmap_by_frame[id(d.thumb_rgb)] = pix
+        else:
+            # Placeholder when clip/frame unavailable.
+            pix = QPixmap(STOP_THUMB_SIZE[0], STOP_THUMB_SIZE[1])
+            pix.fill(QColor("#2d2d2d"))
+            painter = QPainter(pix)
+            painter.setPen(QColor("#dddddd"))
+            painter.drawText(
+                pix.rect(),
+                Qt.AlignCenter,
+                f"{d.category}\n{format_local_time(d.event_time)}",
+            )
+            painter.end()
+        entries.append(
+            StopReportEntry(
+                event_time=d.event_time,
+                category=d.category,
+                label=d.label,
+                video_item=d.video_item,
+                video_path=d.video_path,
+                seek_seconds=d.seek_seconds,
+                thumbnail=pix,
+                source=d.source,
+                state_name=d.state_name,
+                sku_info=d.sku_info,
+            )
+        )
     return entries
 
 def _fetch_operator_stop_events(settings: Settings, day, root: Path | None) -> list[tuple[datetime, str, str, str]]:
@@ -364,20 +436,14 @@ def _is_operator_stop_item(item: TimelineItem) -> bool:
     source = str(src.get("source") or "").strip().lower()
     return state_name == "operator_stop" and "behaviour_node" in source
 
-def _cache_paths_for_report(parent, clip_cache, paths: list[Path]):
+def _cache_paths_for_report(clip_cache, paths: list[Path], job=None):
+    """Worker-side: stage the report's clips into the local cache via the
+    ClipCache executor, reporting ("copies", done, total) progress."""
     if not paths:
         return
-    progress = QProgressDialog("Preparing report clips...", "Cancel", 0, 1, parent)
-    progress.setWindowTitle("Stop Report")
-    progress.setWindowModality(Qt.WindowModal)
-    progress.setMinimumDuration(0)
-    progress.show()
-    QApplication.processEvents()
     futures = []
     executor = clip_cache.executor
     for src_path in paths:
-        if progress.wasCanceled():
-            break
         try:
             cache_path = clip_cache.cache_path_for(src_path)
         except Exception:
@@ -385,19 +451,22 @@ def _cache_paths_for_report(parent, clip_cache, paths: list[Path]):
         if cache_path.exists():
             continue
         futures.append(executor.submit(clip_cache.copy_to_cache, src_path, cache_path))
-    progress.setMaximum(max(1, len(futures)))
+    total = len(futures)
+    if job is not None and total:
+        job.emit_progress(("copies", 0, total))
     completed = 0
     for fut in as_completed(futures):
         completed += 1
-        progress.setValue(completed)
-        QApplication.processEvents()
-        if progress.wasCanceled():
-            break
+        if job is not None:
+            job.emit_progress(("copies", completed, total))
+            if job.interrupted():
+                for pending in futures:
+                    pending.cancel()
+                break
         try:
             _ = fut.result()
         except Exception:
             continue
-    progress.close()
 
 def _find_video_item_for_time(video_items: list[TimelineItem], ts: datetime) -> TimelineItem | None:
     for itm in video_items:
@@ -468,52 +537,45 @@ def _categorize_stop_event(item: TimelineItem) -> str | None:
         return "Normal Stop"
     return None
 
-def _thumbnail_for_event(
-        clip_cache,
-        video_path: Path | None,
-        seek_seconds: float,
-        event_time: datetime,
-        category: str,
-        thumb_cache: dict[tuple[str, int], QPixmap],
-    ) -> QPixmap:
-        if video_path is not None:
-            cache_key = (str(video_path), int(round(seek_seconds * 10)))
-            if cache_key in thumb_cache:
-                return thumb_cache[cache_key]
-        source_path = _thumbnail_source_path(clip_cache, video_path)
-        if source_path is not None and source_path.exists():
-            cap = cv2.VideoCapture(str(source_path))
-            try:
-                if cap.isOpened():
-                    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-                    frame_idx = max(0, int(round(seek_seconds * fps)))
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                    ok, frame = cap.read()
-                    if ok and frame is not None:
-                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        h, w = rgb.shape[:2]
-                        qimg = QImage(rgb.data, w, h, rgb.strides[0], QImage.Format_RGB888).copy()
-                        pix = QPixmap.fromImage(qimg).scaled(
-                            STOP_THUMB_SIZE[0],
-                            STOP_THUMB_SIZE[1],
-                            Qt.KeepAspectRatioByExpanding,
-                            Qt.SmoothTransformation,
-                        )
-                        if video_path is not None:
-                            thumb_cache[(str(video_path), int(round(seek_seconds * 10)))] = pix
-                        return pix
-            finally:
-                cap.release()
-        # Placeholder when clip/frame unavailable.
-        pm = QPixmap(STOP_THUMB_SIZE[0], STOP_THUMB_SIZE[1])
-        pm.fill(QColor("#2d2d2d"))
-        painter = QPainter(pm)
-        painter.setPen(QColor("#dddddd"))
-        painter.drawText(pm.rect(), Qt.AlignCenter, f"{category}\n{format_local_time(event_time)}")
-        painter.end()
-        if video_path is not None:
-            thumb_cache[(str(video_path), int(round(seek_seconds * 10)))] = pm
-        return pm
+def _thumbnail_rgb_for_event(
+    clip_cache,
+    video_path: Path | None,
+    seek_seconds: float,
+    thumb_cache: dict[tuple[str, int], object],
+):
+    """Worker-side: decode the stop moment's frame from the cached clip and
+    cover-scale it to the thumbnail size. Returns an RGB array or None
+    (placeholder drawn on the UI thread)."""
+    cache_key = None
+    if video_path is not None:
+        cache_key = (str(video_path), int(round(seek_seconds * 10)))
+        if cache_key in thumb_cache:
+            return thumb_cache[cache_key]
+    rgb_scaled = None
+    source_path = _thumbnail_source_path(clip_cache, video_path)
+    if source_path is not None and source_path.exists():
+        cap = cv2.VideoCapture(str(source_path))
+        try:
+            if cap.isOpened():
+                fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+                frame_idx = max(0, int(round(seek_seconds * fps)))
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ok, frame = cap.read()
+                if ok and frame is not None:
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w = rgb.shape[:2]
+                    # Cover-scale (like Qt's KeepAspectRatioByExpanding).
+                    scale = max(STOP_THUMB_SIZE[0] / w, STOP_THUMB_SIZE[1] / h)
+                    rgb_scaled = cv2.resize(
+                        rgb,
+                        (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
+                        interpolation=cv2.INTER_AREA,
+                    )
+        finally:
+            cap.release()
+    if cache_key is not None:
+        thumb_cache[cache_key] = rgb_scaled
+    return rgb_scaled
 
 def _thumbnail_source_path(clip_cache, video_path: Path | None) -> Path | None:
     if video_path is None:

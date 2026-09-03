@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QStackedWidget,
     QFileDialog,
+    QProgressDialog,
 )
 
 from Date_Picker_frontend import DatePicker
@@ -36,7 +37,13 @@ from Time_Picker import (
     _path_key,
 )
 from elastic_loader import fetch_events, set_system_id_override
-from stop_report import StopReportDialog, StopReportEntry, build_stop_report_entries
+from qt_worker import JobSlot
+from stop_report import (
+    StopReportDialog,
+    StopReportEntry,
+    build_stop_report_entries,
+    collect_stop_report_data,
+)
 from target_overlay_controller import TargetOverlayController
 from settings_store import Settings, display_customer_name, display_line_name
 from Log_vid_gui import VideoLogViewer
@@ -118,6 +125,8 @@ class MainWindow(QWidget):
         self.content_stack.addWidget(self.fleetwide_search_widget)
         self.stop_report_btn = QPushButton("Stop Report")
         self.stop_report_btn.clicked.connect(self.open_stop_report)
+        self._stop_report_slot = JobSlot(self)
+        self._stop_report_progress = None
         self.overview_btn = QToolButton()
         self.overview_btn.setText("Overview")
         self.overview_btn.setCheckable(True)
@@ -628,6 +637,7 @@ class MainWindow(QWidget):
         # must be stopped from here or it races Qt teardown and crashes.
         self._overlay_controller.shutdown()
         for shutdown in (
+            self._stop_report_slot.shutdown,
             self.date_picker.stop_scan_thread,
             self.time_picker.shutdown_workers,
             self.overview_widget.shutdown_workers,
@@ -809,20 +819,76 @@ class MainWindow(QWidget):
         return items
 
     def open_stop_report(self):
-        entries = build_stop_report_entries(
-            list(self.time_picker._items or []),
-            settings=self.settings,
-            day=self.time_picker._current_date,
-            root=self.time_picker.current_root,
-            clip_cache=self.viewer.clip_cache,
-            parent=self,
+        # The collect phase (Elastic fallback fetch, SMB clip copies, cv2
+        # thumbnail decodes) runs on a worker; only the QPixmap conversion
+        # and the dialog happen here. Starting a new build retires a
+        # running one (JobSlot semantics).
+        items = list(self.time_picker._items or [])
+        settings = self.settings
+        day = self.time_picker._current_date
+        root = self.time_picker.current_root
+        clip_cache = self.viewer.clip_cache
+
+        self.stop_report_btn.setEnabled(False)
+        progress = QProgressDialog("Building stop report...", "Cancel", 0, 0, self)
+        progress.setWindowTitle("Stop Report")
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        self._stop_report_progress = progress
+
+        def _cleanup():
+            self.stop_report_btn.setEnabled(True)
+            if self._stop_report_progress is progress:
+                self._stop_report_progress = None
+            try:
+                progress.canceled.disconnect(_on_canceled)
+            except (RuntimeError, TypeError):
+                pass
+            progress.close()
+
+        def _on_canceled():
+            self._stop_report_slot.retire()
+            _cleanup()
+
+        progress.canceled.connect(_on_canceled)
+
+        def _on_progress(payload):
+            try:
+                phase, done, total = payload
+            except Exception:
+                return
+            label = "Copying report clips..." if phase == "copies" else "Reading stop thumbnails..."
+            progress.setLabelText(label)
+            progress.setMaximum(max(1, int(total)))
+            progress.setValue(int(done))
+
+        def _on_result(data):
+            _cleanup()
+            if not data:
+                QMessageBox.information(self, "Stop Report", "No stop events found for this day.")
+                return
+            entries = build_stop_report_entries(data)
+            dlg = StopReportDialog(entries, self)
+            dlg.open_requested.connect(self._open_report_entry)
+            dlg.exec()
+
+        def _on_error(message):
+            _cleanup()
+            QMessageBox.warning(self, "Stop Report", f"Stop report build failed:\n{message}")
+
+        self._stop_report_slot.start(
+            lambda job: collect_stop_report_data(
+                items,
+                settings=settings,
+                day=day,
+                root=root,
+                clip_cache=clip_cache,
+                job=job,
+            ),
+            on_result=_on_result,
+            on_error=_on_error,
+            on_progress=_on_progress,
         )
-        if not entries:
-            QMessageBox.information(self, "Stop Report", "No stop events found for this day.")
-            return
-        dlg = StopReportDialog(entries, self)
-        dlg.open_requested.connect(self._open_report_entry)
-        dlg.exec()
 
     def _open_report_entry(self, entry: StopReportEntry):
         if entry.video_item is None or entry.video_path is None:
