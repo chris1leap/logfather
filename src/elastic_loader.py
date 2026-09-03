@@ -36,7 +36,25 @@ ELASTIC_EVENT_MAX_WORKERS = 4
 ELASTIC_EVENT_MAX_PAGES = 20
 # Part of the events-cache digest; bump on any change to TimelineItem
 # (de)serialization or the SKU/event extraction logic.
-EVENTS_CACHE_SCHEMA_VERSION = 1
+EVENTS_CACHE_SCHEMA_VERSION = 2
+
+# The single list of operation-state transitions every query filters on.
+# This used to exist as three divergent copies (the SKU query was missing
+# system_stop/emergency_stop, so timeline SKU bands didn't terminate on
+# those states while the overview board did — same day, two answers).
+# Consumers that only care about a subset ignore unknown states.
+TRANSITION_STATES = [
+    "start_pnp",
+    "stop_pnp",
+    "operator_stop",
+    "caution_led_on",
+    "hardware_emergency_stop",
+    "protective_stop",
+    "controller_node_manual_mode",
+    "controller_node_automatic_mode",
+    "system_stop",
+    "emergency_stop",
+]
 ELASTIC_EVENT_PAGE_SIZE = 1500
 ELASTIC_EVENT_MIN_PAGE_SIZE = 300
 ELASTIC_EVENT_TIMEOUT_SEC = 12
@@ -522,18 +540,7 @@ def _build_overview_query(
     size: int = 3000,
     search_after: list[str] | None = None,
 ) -> dict:
-    transition_states = [
-        "start_pnp",
-        "stop_pnp",
-        "operator_stop",
-        "caution_led_on",
-        "hardware_emergency_stop",
-        "protective_stop",
-        "controller_node_manual_mode",
-        "controller_node_automatic_mode",
-        "system_stop",
-        "emergency_stop",
-    ]
+    transition_states = TRANSITION_STATES
     ts_should = []
     for field in ts_fields:
         ts_should.append(
@@ -885,16 +892,7 @@ def _build_sku_query(
     size: int = 2000,
     search_after: list[str] | None = None,
 ) -> dict:
-    transition_states = [
-        "start_pnp",
-        "stop_pnp",
-        "operator_stop",
-        "caution_led_on",
-        "hardware_emergency_stop",
-        "protective_stop",
-        "controller_node_manual_mode",
-        "controller_node_automatic_mode",
-    ]
+    transition_states = TRANSITION_STATES
     ts_should = []
     for field in ts_fields:
         ts_should.append(
@@ -2241,17 +2239,7 @@ def fetch_fleetwide_search_histogram(
         }
     else:
         transition_robot_filter = _build_robot_filters(robot_id)
-    transition_states = [
-        "start_pnp",
-        "stop_pnp",
-        "operator_stop",
-        "caution_led_on",
-        "hardware_emergency_stop",
-        "protective_stop",
-        "system_stop",
-        "emergency_stop",
-        "controller_node_manual_mode",
-    ]
+    transition_states = TRANSITION_STATES
     transition_clause = {
         "bool": {
             "should": [
