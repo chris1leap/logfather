@@ -247,7 +247,6 @@ VIDEO_COLOR_SELECTED = "#b2e5b2"
 class TimePicker(QWidget):
     time_selected = Signal(object)  # TimelineItem
     items_changed = Signal()
-    clip_range_export_requested = Signal(object, object)  # start_dt, end_dt
 
     def __init__(self, load_func: Optional[Callable[[Path, date], Iterable[Path]]] = None,
                  extra_loaders: Optional[list[Callable[[Path, date], Iterable[TimelineItem]]]] = None,
@@ -277,7 +276,6 @@ class TimePicker(QWidget):
 
         self.scene = QGraphicsScene(self)
         self.view = QGraphicsView(self.scene)
-        self.view.setRenderHint(self.view.renderHints())
         self.view.setMinimumHeight(260)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -320,16 +318,6 @@ class TimePicker(QWidget):
         self._cache_root = cache_root
         self._selected_video_item: Optional[TimelineItem] = None
         self._video_rects: dict[int, QGraphicsRectItem] = {}
-        self._clip_range_start: Optional[datetime] = None
-        self._clip_range_end: Optional[datetime] = None
-        self._clip_range_fill = None
-        self._clip_range_start_line = None
-        self._clip_range_end_line = None
-        self._clip_range_start_handle = None
-        self._clip_range_end_handle = None
-        self._clip_range_start_label = None
-        self._clip_range_end_label = None
-        self._dragging_range_handle: Optional[str] = None
         self._target_rate_day_buckets: list[dict] = []
         self._target_rate_clip_buckets: list[dict] = []
         self._target_rate_clip_start: Optional[datetime] = None
@@ -370,7 +358,6 @@ class TimePicker(QWidget):
         self._target_rate_clip_buckets = []
         self._target_rate_clip_start = None
         self._target_rate_clip_end = None
-        self.clear_clip_range()
 
         if not day:
             self._set_info_text("Pick a date to list times.")
@@ -414,7 +401,6 @@ class TimePicker(QWidget):
         day_start = local_day_start_utc(self._current_date)
         self._day_start = day_start
         ppm = self._ppm
-        self._ppm = ppm
         total_minutes = 24 * 60
         height = 80
         baseline_y = self._baseline_y
@@ -552,7 +538,6 @@ class TimePicker(QWidget):
         count_map: Dict[str, int] = {}
         for item in self._items:
             count_map[item.kind] = count_map.get(item.kind, 0) + 1
-        scene_width = total_minutes * ppm
 
         for kind, y in track_map.items():
             text = "" if kind == "video" else label_map.get(kind, kind.capitalize())
@@ -586,7 +571,6 @@ class TimePicker(QWidget):
         self._playhead_time = None
         self._last_cursor_x = None
         self._update_playhead_indicator()
-        self._draw_clip_range_overlay()
 
     def _refresh_clicked(self):
         self.show_times(self._current_root, self._current_date)
@@ -1015,215 +999,6 @@ class TimePicker(QWidget):
                 self._update_cursor_indicator(event)
         return super().eventFilter(obj, event)
 
-    def clear_clip_range(self):
-        self._clip_range_start = None
-        self._clip_range_end = None
-        self._dragging_range_handle = None
-        self._clear_clip_range_overlay()
-        if hasattr(self, "view") and self.view is not None:
-            self.view.viewport().unsetCursor()
-
-    def has_clip_range(self) -> bool:
-        return self._clip_range_start is not None and self._clip_range_end is not None
-
-    def clip_range(self) -> tuple[datetime, datetime] | None:
-        if not self.has_clip_range():
-            return None
-        return self._ordered_clip_range()
-
-    def _ordered_clip_range(self) -> tuple[datetime, datetime] | None:
-        if self._clip_range_start is None or self._clip_range_end is None:
-            return None
-        if self._clip_range_start <= self._clip_range_end:
-            return self._clip_range_start, self._clip_range_end
-        return self._clip_range_end, self._clip_range_start
-
-    def _show_timeline_context_menu(self, event):
-        if not self._day_start or self._busy:
-            return
-        viewport_pos = self._event_viewport_pos(event)
-        if viewport_pos is None:
-            return
-        scene_pos = self.view.mapToScene(viewport_pos)
-        click_time = self._scene_x_to_time(scene_pos.x())
-        if click_time is None:
-            return
-        menu = QMenu(self)
-        set_start_action = menu.addAction("Set Clip Start")
-        set_end_action = menu.addAction("Set Clip End")
-        clear_action = None
-        export_action = None
-        if self.has_clip_range() and self._time_within_clip_range(click_time):
-            menu.addSeparator()
-            export_action = menu.addAction("Export Clip")
-            clear_action = menu.addAction("Clear Clip Range")
-        elif self._clip_range_start is not None or self._clip_range_end is not None:
-            menu.addSeparator()
-            clear_action = menu.addAction("Clear Clip Range")
-        chosen = menu.exec(self.view.viewport().mapToGlobal(viewport_pos))
-        if chosen == set_start_action:
-            self._set_clip_range_boundary("start", click_time)
-        elif chosen == set_end_action:
-            self._set_clip_range_boundary("end", click_time)
-        elif chosen == clear_action:
-            self.clear_clip_range()
-        elif chosen == export_action:
-            ordered = self._ordered_clip_range()
-            if ordered is not None:
-                self.clip_range_export_requested.emit(ordered[0], ordered[1])
-
-    def _set_clip_range_boundary(self, boundary: str, dt: datetime):
-        if boundary == "start":
-            self._clip_range_start = dt
-            if self._clip_range_end is not None and self._clip_range_end < dt:
-                self._clip_range_end = dt
-        else:
-            self._clip_range_end = dt
-            if self._clip_range_start is not None and self._clip_range_start > dt:
-                self._clip_range_start = dt
-        self._draw_clip_range_overlay()
-
-    def _scene_x_to_time(self, scene_x: float) -> Optional[datetime]:
-        if not self._day_start or not self._ppm:
-            return None
-        minute = max(0.0, min(24 * 60, scene_x / self._ppm))
-        return self._day_start + timedelta(minutes=minute)
-
-    def _time_to_scene_x(self, dt: Optional[datetime]) -> Optional[float]:
-        if dt is None or not self._day_start or not self._ppm:
-            return None
-        return max(0.0, min(24 * 60 * self._ppm, (dt - self._day_start).total_seconds() / 60.0 * self._ppm))
-
-    def _clear_clip_range_overlay(self):
-        for attr in (
-            "_clip_range_fill",
-            "_clip_range_start_line",
-            "_clip_range_end_line",
-            "_clip_range_start_handle",
-            "_clip_range_end_handle",
-            "_clip_range_start_label",
-            "_clip_range_end_label",
-        ):
-            item = getattr(self, attr, None)
-            if item is not None:
-                try:
-                    self.scene.removeItem(item)
-                except Exception:
-                    pass
-                setattr(self, attr, None)
-
-    def _draw_clip_range_overlay(self):
-        self._clear_clip_range_overlay()
-        if not self._items or not self._day_start:
-            return
-        scene_rect = self.scene.sceneRect()
-        top_y = self._scale_y
-        bottom_y = scene_rect.bottom() - 6
-        start_x = self._time_to_scene_x(self._clip_range_start)
-        end_x = self._time_to_scene_x(self._clip_range_end)
-        if start_x is not None:
-            self._clip_range_start_line = self.scene.addLine(
-                start_x, top_y, start_x, bottom_y, QPen(QColor("#7dd3fc"), 2)
-            )
-            self._clip_range_start_line.setZValue(7)
-            self._clip_range_start_line.setAcceptedMouseButtons(Qt.NoButton)
-            self._clip_range_start_handle = self._add_clip_range_handle(start_x, top_y, QColor("#7dd3fc"))
-            self._clip_range_start_label = self._add_clip_range_label("In", start_x, top_y, QColor("#7dd3fc"))
-        if end_x is not None:
-            self._clip_range_end_line = self.scene.addLine(
-                end_x, top_y, end_x, bottom_y, QPen(QColor("#fbbf24"), 2)
-            )
-            self._clip_range_end_line.setZValue(7)
-            self._clip_range_end_line.setAcceptedMouseButtons(Qt.NoButton)
-            self._clip_range_end_handle = self._add_clip_range_handle(end_x, top_y, QColor("#fbbf24"))
-            self._clip_range_end_label = self._add_clip_range_label("Out", end_x, top_y, QColor("#fbbf24"))
-        ordered = self._ordered_clip_range()
-        if ordered is None:
-            return
-        ordered_start_x = self._time_to_scene_x(ordered[0])
-        ordered_end_x = self._time_to_scene_x(ordered[1])
-        if ordered_start_x is None or ordered_end_x is None:
-            return
-        width = max(2.0, ordered_end_x - ordered_start_x)
-        self._clip_range_fill = self.scene.addRect(
-            QRectF(ordered_start_x, top_y, width, max(10.0, bottom_y - top_y)),
-            QPen(Qt.NoPen),
-            QBrush(QColor(90, 145, 220, 45)),
-        )
-        self._clip_range_fill.setZValue(6)
-        self._clip_range_fill.setAcceptedMouseButtons(Qt.NoButton)
-
-    def _add_clip_range_handle(self, x: float, top_y: float, color: QColor):
-        handle = self.scene.addEllipse(
-            QRectF(x - 5, top_y - 5, 10, 10),
-            QPen(QColor("#101010")),
-            QBrush(color),
-        )
-        handle.setZValue(8)
-        handle.setAcceptedMouseButtons(Qt.NoButton)
-        return handle
-
-    def _add_clip_range_label(self, text: str, x: float, top_y: float, color: QColor):
-        label = self.scene.addText(text)
-        label.setDefaultTextColor(color)
-        font = QFont()
-        font.setPointSize(8)
-        font.setBold(True)
-        label.setFont(font)
-        label.setPos(x + 4, top_y - 18)
-        label.setZValue(9)
-        label.setAcceptedMouseButtons(Qt.NoButton)
-        return label
-
-    def _time_within_clip_range(self, dt: datetime) -> bool:
-        ordered = self._ordered_clip_range()
-        if ordered is None:
-            return False
-        return ordered[0] <= dt <= ordered[1]
-
-    def _range_handle_at_event(self, event) -> Optional[str]:
-        viewport_pos = self._event_viewport_pos(event)
-        if viewport_pos is None:
-            return None
-        scene_pos = self.view.mapToScene(viewport_pos)
-        scene_x = scene_pos.x()
-        hit_margin = 8.0
-        start_x = self._time_to_scene_x(self._clip_range_start)
-        end_x = self._time_to_scene_x(self._clip_range_end)
-        if start_x is not None and abs(scene_x - start_x) <= hit_margin:
-            return "start"
-        if end_x is not None and abs(scene_x - end_x) <= hit_margin:
-            return "end"
-        return None
-
-    def _drag_clip_range_handle(self, event):
-        if self._dragging_range_handle is None:
-            return
-        viewport_pos = self._event_viewport_pos(event)
-        if viewport_pos is None:
-            return
-        scene_pos = self.view.mapToScene(viewport_pos)
-        dragged_time = self._scene_x_to_time(scene_pos.x())
-        if dragged_time is None:
-            return
-        if self._dragging_range_handle == "start":
-            if self._clip_range_end is not None and dragged_time > self._clip_range_end:
-                dragged_time = self._clip_range_end
-            self._clip_range_start = dragged_time
-        else:
-            if self._clip_range_start is not None and dragged_time < self._clip_range_start:
-                dragged_time = self._clip_range_start
-            self._clip_range_end = dragged_time
-        self._draw_clip_range_overlay()
-        self._update_cursor_indicator(event)
-
-    def _update_range_hover_cursor(self, event):
-        handle = self._range_handle_at_event(event)
-        if handle is not None:
-            self.view.viewport().setCursor(Qt.SizeHorCursor)
-        elif self._dragging_range_handle is None:
-            self.view.viewport().unsetCursor()
-
     def _update_cursor_indicator(self, event):
         if not self._day_start or self._busy:
             return
@@ -1455,21 +1230,6 @@ class TimePicker(QWidget):
         prev_item = video_items[idx - 1] if idx > 0 else None
         next_item = video_items[idx + 1] if idx + 1 < len(video_items) else None
         return prev_item, next_item
-
-    def refresh_cache_status(self):
-        if not self._cache_root or not self._items:
-            return
-        changed = False
-        for item in self._items:
-            if item.kind != "video" or not isinstance(item.payload, Path):
-                continue
-            cached = _is_path_cached(item.payload, self._cache_root)
-            if cached != item.cached:
-                item.cached = cached
-                item.color = VIDEO_COLOR_CACHED if cached else VIDEO_COLOR_UNCACHED
-                changed = True
-        if changed:
-            self._fit_to_items()
 
     def mark_video_cached(self, video_path: Path):
         if not self._cache_root or not self._items:
