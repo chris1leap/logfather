@@ -4856,31 +4856,40 @@ class VideoLogViewer(QWidget):
     def shutdown_workers(self):
         """Flush settings and stop all executors. Called by
         MainWindow.closeEvent — a child widget's closeEvent never fires when
-        the app window closes."""
-        try:
-            self._flush_settings_autosave()
-        except Exception:
-            pass
-        self._cancel_log_future()
-        # Close any floating tool windows: a lingering dialog (e.g. the OCR
-        # ROI tool) keeps the Qt event loop alive after the main window
-        # closes, leaving a zombie process with its console window open.
-        for attr in ("_ocr_tool_dialog", "_popout_window", "_analysis_window"):
-            window = getattr(self, attr, None)
-            if window is not None:
-                try:
+        the app window closes. Sub-steps over 100ms print [shutdown]
+        timings, same as the MainWindow-level steps."""
+
+        def _close_tool_windows():
+            # A lingering dialog (e.g. the OCR ROI tool) keeps the Qt event
+            # loop alive after the main window closes, leaving a zombie
+            # process with its console window open.
+            for attr in ("_ocr_tool_dialog", "_popout_window", "_analysis_window"):
+                window = getattr(self, attr, None)
+                if window is not None:
                     window.close()
-                except Exception:
-                    pass
-        self.clip_cache.shutdown()
-        self._ocr_sync_slot.shutdown()
-        self._ocr_secondary_sync_slot.shutdown()
-        if self._log_executor is not None:
-            try:
+
+        def _stop_log_executor():
+            if self._log_executor is not None:
                 self._log_executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
-            self._log_executor = None
+                self._log_executor = None
+
+        for label, step in (
+            ("viewer: flush settings", self._flush_settings_autosave),
+            ("viewer: cancel log fetch", self._cancel_log_future),
+            ("viewer: close tool windows", _close_tool_windows),
+            ("viewer: clip cache", self.clip_cache.shutdown),
+            ("viewer: OCR sync slot", self._ocr_sync_slot.shutdown),
+            ("viewer: secondary OCR slot", self._ocr_secondary_sync_slot.shutdown),
+            ("viewer: log executor", _stop_log_executor),
+        ):
+            t0 = time.perf_counter()
+            try:
+                step()
+            except Exception as exc:
+                print(f"[shutdown] '{label}' failed: {exc}", flush=True)
+            dt_ms = (time.perf_counter() - t0) * 1000
+            if dt_ms > 100:
+                print(f"[shutdown] '{label}' took {dt_ms:.0f}ms", flush=True)
 
     def closeEvent(self, event):
         self.shutdown_workers()
