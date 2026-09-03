@@ -79,6 +79,17 @@ class MainWindow(QWidget):
                     self, "Settings recovered", self.settings.load_warning
                 ),
             )
+        # Construction is split into ordered sections (Stage 3); later
+        # sections consume attributes from earlier ones.
+        self._build_panels()
+        self._build_splitters()
+        self._build_top_bar_and_layout()
+        self._wire_signals()
+
+    def _build_panels(self):
+        """The five content panels, their workers, and the overlay
+        controller: viewer, overview, date/time pickers, fleetwide,
+        target-buffer."""
         self.viewer = VideoLogViewer()
         cache_root = self.viewer.cache_root
         self.overview_widget = OverviewWidget(
@@ -168,6 +179,9 @@ class MainWindow(QWidget):
             parent_widget=self,
         )
 
+    def _build_splitters(self):
+        """Panel toggles, the horizontal/vertical splitters, and their
+        show/hide animations."""
         self.left_toggle = QToolButton()
         self.left_toggle.setText("Hide Date Picker")
         self.left_toggle.setCheckable(True)
@@ -222,6 +236,9 @@ class MainWindow(QWidget):
         self._timeline_expand_timer.setInterval(TIMELINE_EXPAND_DELAY_MS)
         self._timeline_expand_timer.timeout.connect(lambda: self._set_timeline_expanded(True))
 
+    def _build_top_bar_and_layout(self):
+        """Top control strip (view toggles left, tool buttons right) and the
+        root layout; installs the hover-reveal event filters."""
         top_controls = QHBoxLayout()
         top_controls.addWidget(self.left_toggle, 0, Qt.AlignLeft)
         top_controls.addWidget(self.overview_btn, 0, Qt.AlignLeft)
@@ -252,7 +269,7 @@ class MainWindow(QWidget):
 
         layout = QVBoxLayout()
         layout.addLayout(top_controls)
-        layout.addWidget(main_splitter, 1)
+        layout.addWidget(self._main_splitter, 1)
         self.setLayout(layout)
         self.setMouseTracking(True)
         self.installEventFilter(self)
@@ -260,6 +277,8 @@ class MainWindow(QWidget):
         self.time_picker.installEventFilter(self)
         self.time_picker.view.viewport().installEventFilter(self)
 
+    def _wire_signals(self):
+        """Cross-panel signal wiring and the deferred startup steps."""
         self.date_picker.date_selected.connect(self.on_date_selected)
         self.date_picker.system_id_selected.connect(self._set_system_id_override)
         # Settings button removed from DatePicker UI
@@ -280,7 +299,9 @@ class MainWindow(QWidget):
         self.viewer.set_export_target_overlay_provider(
             self._overlay_controller.export_overlays_for
         )
-        self.left_toggle.toggled.connect(lambda checked: self._set_date_picker_visible(checked, horizontal_splitter))
+        self.left_toggle.toggled.connect(
+            lambda checked: self._set_date_picker_visible(checked, self._horizontal_splitter)
+        )
 
         # Apply last parent if available
         if self.settings.last_parent:
