@@ -1345,11 +1345,22 @@ class VideoLogViewer(QWidget):
             return
         if hasattr(self, "_settings_autosave_timer") and self._settings_autosave_timer.isActive():
             self._settings_autosave_timer.stop()
+        t0 = time.perf_counter()
         self.settings_panel.apply_to(self.settings)
         if hasattr(self, "system_layout_panel"):
             self.system_layout_panel.apply_to(self.settings)
+        t_apply = time.perf_counter()
         self.settings.save()
+        t_save = time.perf_counter()
         self.settings_saved.emit()
+        t_emit = time.perf_counter()
+        if (t_emit - t0) > 0.1:
+            print(
+                f"[settings-save] apply={((t_apply - t0) * 1000):.0f}ms "
+                f"save={((t_save - t_apply) * 1000):.0f}ms "
+                f"reload-reaction={((t_emit - t_save) * 1000):.0f}ms",
+                flush=True,
+            )
 
     def _flush_settings_autosave(self):
         if hasattr(self, "_settings_autosave_timer") and self._settings_autosave_timer.isActive():
@@ -4874,10 +4885,12 @@ class VideoLogViewer(QWidget):
                 self._log_executor = None
 
         for label, step in (
+            # Clip cache first: aborting an in-flight SMB copy frees the
+            # link before anything below touches the share or settings.
+            ("viewer: clip cache", self.clip_cache.shutdown),
             ("viewer: flush settings", self._flush_settings_autosave),
             ("viewer: cancel log fetch", self._cancel_log_future),
             ("viewer: close tool windows", _close_tool_windows),
-            ("viewer: clip cache", self.clip_cache.shutdown),
             ("viewer: OCR sync slot", self._ocr_sync_slot.shutdown),
             ("viewer: secondary OCR slot", self._ocr_secondary_sync_slot.shutdown),
             ("viewer: log executor", _stop_log_executor),

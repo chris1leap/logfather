@@ -1062,19 +1062,20 @@ class MainWindow(QWidget):
         self.time_picker._static_tracks = self._build_static_tracks()
         current_parent = self.date_picker.parent_dir
         target_parent = Path(self.settings.last_parent) if self.settings.last_parent else None
-        if target_parent and target_parent.exists():
-            same_parent = False
-            if current_parent is not None:
-                try:
-                    same_parent = current_parent.resolve() == target_parent.resolve()
-                except Exception:
-                    same_parent = current_parent == target_parent
+        if target_parent:
+            # String comparison first: .resolve()/.exists() on the Z: share
+            # run on the UI thread and stall for seconds while a clip copy
+            # saturates the link — this fires on EVERY settings autosave.
+            same_parent = current_parent is not None and _path_key(
+                current_parent
+            ) == _path_key(target_parent)
             if same_parent:
                 self.overview_widget.set_parent_dir(target_parent)
-            else:
+                self.fleetwide_search_widget.set_parent_dir(target_parent)
+            elif target_parent.exists():  # network stat only on a real change
                 self.date_picker.set_parent_dir(target_parent)
                 self.overview_widget.set_parent_dir(target_parent)
-            self.fleetwide_search_widget.set_parent_dir(target_parent)
+                self.fleetwide_search_widget.set_parent_dir(target_parent)
         self.overview_widget.refresh_layout()
 
     def _sync_settings_from_fleetwide_search(self):
