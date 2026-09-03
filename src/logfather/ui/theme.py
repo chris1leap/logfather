@@ -211,6 +211,15 @@ def target_card_style(bg: str, border: str) -> str:
     )
 
 
+# ---------------------------------------------------------- activity bar
+
+ACTIVITY_BAR = "background: #10151a; border-top: 1px solid #31414d;"
+ACTIVITY_BAR_TEXT = f"color: {TEXT_MUTED}; font-size: 11px; border: none; background: transparent;"
+ACTIVITY_PROGRESS = (
+    "QProgressBar { border: 1px solid #31414d; background: #0f1419; }"
+    f"QProgressBar::chunk {{ background-color: {SUCCESS_BRIGHT}; }}"
+)
+
 # ------------------------------------------------------- dialogs / pages
 
 ABOUT_PAGE = (

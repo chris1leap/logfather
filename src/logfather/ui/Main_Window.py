@@ -282,9 +282,37 @@ class MainWindow(QWidget):
         top_controls.addWidget(self.buffer_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.about_btn, 0, Qt.AlignRight)
 
+        # Activity bar: a persistent strip at the very bottom showing what
+        # the app is waiting on — clip downloads with size and a green
+        # progress bar, OCR sync stages (Chris, 2026-09-04).
+        self._activity_items: dict[str, tuple[str, int | None, int | None, float]] = {}
+        self._activity_bar = QWidget()
+        self._activity_bar.setFixedHeight(24)
+        self._activity_bar.setStyleSheet(theme.ACTIVITY_BAR)
+        activity_layout = QHBoxLayout(self._activity_bar)
+        activity_layout.setContentsMargins(8, 2, 8, 2)
+        activity_layout.setSpacing(8)
+        self._activity_label = QLabel("")
+        self._activity_label.setStyleSheet(theme.ACTIVITY_BAR_TEXT)
+        self._activity_progress = QProgressBar()
+        self._activity_progress.setFixedWidth(240)
+        self._activity_progress.setFixedHeight(14)
+        self._activity_progress.setTextVisible(False)
+        self._activity_progress.setStyleSheet(theme.ACTIVITY_PROGRESS)
+        self._activity_progress.hide()
+        activity_layout.addWidget(self._activity_label, 1)
+        activity_layout.addWidget(self._activity_progress, 0)
+        # Sweep entries whose source stopped reporting (a worker that died
+        # without a finished signal) so the bar can never stick.
+        self._activity_sweep_timer = QTimer(self)
+        self._activity_sweep_timer.setInterval(5000)
+        self._activity_sweep_timer.timeout.connect(self._sweep_stale_activity)
+        self._activity_sweep_timer.start()
+
         layout = QVBoxLayout()
         layout.addLayout(top_controls)
         layout.addWidget(self._main_splitter, 1)
+        layout.addWidget(self._activity_bar, 0)
         self.setLayout(layout)
         self.setMouseTracking(True)
         self.installEventFilter(self)
@@ -292,8 +320,68 @@ class MainWindow(QWidget):
         self.time_picker.installEventFilter(self)
         self.time_picker.view.viewport().installEventFilter(self)
 
+    # ---- activity bar -----------------------------------------------------
+
+    @staticmethod
+    def _mb(n: int) -> str:
+        return f"{n / (1024 * 1024):.0f}"
+
+    def _set_activity(self, key: str, label: str, done: int | None, total: int | None):
+        self._activity_items[key] = (label, done, total, time.monotonic())
+        self._update_activity_bar()
+
+    def _clear_activity(self, key: str):
+        if self._activity_items.pop(key, None) is not None:
+            self._update_activity_bar()
+
+    def _on_clip_transfer_progress(self, source_path: str, done, total):
+        label = f"Downloading {Path(source_path).name}"
+        self._set_activity(f"clip:{source_path}", label, int(done or 0), int(total or 0))
+
+    def _on_clip_transfer_finished(self, source_path: str, _ok: bool):
+        self._clear_activity(f"clip:{source_path}")
+
+    def _sweep_stale_activity(self):
+        cutoff = time.monotonic() - 15.0
+        stale = [k for k, v in self._activity_items.items() if v[3] < cutoff]
+        for key in stale:
+            self._activity_items.pop(key, None)
+        if stale:
+            self._update_activity_bar()
+
+    def _update_activity_bar(self):
+        downloads = {k: v for k, v in self._activity_items.items() if v[2]}
+        busy = {k: v for k, v in self._activity_items.items() if not v[2]}
+        if downloads:
+            done = sum(v[1] or 0 for v in downloads.values())
+            total = sum(v[2] or 0 for v in downloads.values())
+            if len(downloads) == 1:
+                (label, d, t, _ts) = next(iter(downloads.values()))
+                text = f"{label} — {self._mb(d or 0)} / {self._mb(t)} MB"
+            else:
+                text = (
+                    f"Downloading {len(downloads)} files — "
+                    f"{self._mb(done)} / {self._mb(total)} MB"
+                )
+            self._activity_label.setText(text)
+            self._activity_progress.setRange(0, 1000)
+            self._activity_progress.setValue(int(done * 1000 / total) if total else 0)
+            self._activity_progress.show()
+        elif busy:
+            label = list(busy.values())[-1][0]
+            self._activity_label.setText(label)
+            self._activity_progress.setRange(0, 0)  # busy indicator
+            self._activity_progress.show()
+        else:
+            self._activity_label.setText("")
+            self._activity_progress.hide()
+
     def _wire_signals(self):
         """Cross-panel signal wiring and the deferred startup steps."""
+        self.viewer.clip_cache.transfer_progress.connect(self._on_clip_transfer_progress)
+        self.viewer.clip_cache.transfer_finished.connect(self._on_clip_transfer_finished)
+        self.viewer.activity_progress.connect(self._set_activity)
+        self.viewer.activity_cleared.connect(self._clear_activity)
         self.date_picker.date_selected.connect(self.on_date_selected)
         self.date_picker.system_id_selected.connect(self._set_system_id_override)
         # Settings button removed from DatePicker UI

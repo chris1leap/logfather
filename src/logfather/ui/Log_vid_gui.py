@@ -68,8 +68,7 @@ from PySide6.QtWidgets import (
     QSlider, QSizePolicy, QListView, QAbstractItemView,
     QCheckBox, QScrollArea, QProgressDialog, QTabWidget,
     QLineEdit, QComboBox, QInputDialog, QMenu, QColorDialog,
-    QToolButton, QButtonGroup, QStyleOptionSlider, QStyle, QLCDNumber,
-    QProgressBar
+    QToolButton, QButtonGroup, QStyleOptionSlider, QStyle, QLCDNumber
 )
 
 from logfather.ui.time_ocr import analyze_video_offset, OcrVideoPlayer, parse_filename_datetime
@@ -131,6 +130,10 @@ class VideoLogViewer(QWidget):
     clip_range_export_requested = Signal(float, float)
     settings_saved = Signal()
     close_gap_threshold_changed = Signal(float)
+    # Activity-bar feed (rendered by MainWindow's bottom strip):
+    # (key, label, done_bytes, total_bytes) — done/total None for busy stages.
+    activity_progress = Signal(str, str, object, object)
+    activity_cleared = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -846,17 +849,6 @@ class VideoLogViewer(QWidget):
         self.playback_layout.addWidget(self.close_gap_slider)
         self.playback_layout.addWidget(self.close_gap_display)
         self._update_close_gap_threshold_display()
-        # OCR sync progress: hidden unless a sync is downloading/analyzing.
-        self._ocr_progress_caption = QLabel("")
-        self._ocr_progress_caption.setStyleSheet(theme.SLIDER_CAPTION)
-        self._ocr_progress_caption.hide()
-        self._ocr_progress_bar = QProgressBar()
-        self._ocr_progress_bar.setFixedWidth(110)
-        self._ocr_progress_bar.setFixedHeight(14)
-        self._ocr_progress_bar.hide()
-        self.playback_layout.addSpacing(6)
-        self.playback_layout.addWidget(self._ocr_progress_caption)
-        self.playback_layout.addWidget(self._ocr_progress_bar)
 
     def _build_right_tabs(self):
         """The collapsible right panel: Logs / Filters / Custom / Settings /
@@ -4579,34 +4571,24 @@ class VideoLogViewer(QWidget):
         )
 
     def _on_ocr_sync_progress(self, payload, cam_label: str = ""):
-        """UI-thread handler for OCR sync worker progress: copy byte counts
-        and analysis stage names."""
+        """UI-thread handler for OCR sync worker progress: forwards copy
+        byte counts and analysis stage names to the activity bar."""
         try:
             kind = payload[0]
         except Exception:
             return
+        key = f"ocr{cam_label}"
         prefix = f"OCR sync{cam_label}"
         if kind == "ocr-copy":
             _, done, total = payload
-            if total > 0:
-                mb = total / (1024 * 1024)
-                self._ocr_progress_caption.setText(f"{prefix}: downloading {mb:.0f} MB")
-                self._ocr_progress_bar.setRange(0, 1000)
-                self._ocr_progress_bar.setValue(int(done * 1000 / total))
-            else:
-                self._ocr_progress_caption.setText(f"{prefix}: downloading")
-                self._ocr_progress_bar.setRange(0, 0)  # busy
+            self.activity_progress.emit(
+                key, f"{prefix}: downloading clip", int(done or 0), int(total or 0)
+            )
         elif kind == "ocr-stage":
-            self._ocr_progress_caption.setText(f"{prefix}: {payload[1]}")
-            self._ocr_progress_bar.setRange(0, 0)  # busy
-        else:
-            return
-        self._ocr_progress_caption.show()
-        self._ocr_progress_bar.show()
+            self.activity_progress.emit(key, f"{prefix}: {payload[1]}", None, None)
 
-    def _hide_ocr_sync_progress(self):
-        self._ocr_progress_caption.hide()
-        self._ocr_progress_bar.hide()
+    def _hide_ocr_sync_progress(self, cam_label: str = ""):
+        self.activity_cleared.emit(f"ocr{cam_label}")
 
     def _auto_sync_with_ocr(self, force: bool = False):
         if not self.current_video_path:
@@ -4778,7 +4760,7 @@ class VideoLogViewer(QWidget):
             on_result=_apply,
             on_error=lambda msg: print(f"[ocr] secondary auto-sync failed: {msg}"),
             on_progress=lambda payload: self._on_ocr_sync_progress(payload, cam_label=" (2nd cam)"),
-            on_finished=self._hide_ocr_sync_progress,
+            on_finished=lambda: self._hide_ocr_sync_progress(cam_label=" (2nd cam)"),
         )
 
     def _refresh_secondary_after_sync(self):

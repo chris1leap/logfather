@@ -46,6 +46,10 @@ class ClipCache(QObject):
     # (source path as str, ok) for every finished download/prefetch job,
     # including failures — the viewer resolves pending clip loads on this.
     transfer_finished = Signal(str, bool)
+    # (source path as str, bytes copied, total bytes) per copied chunk —
+    # emitted from worker threads; delivery to the UI thread is queued
+    # because this QObject lives there.
+    transfer_progress = Signal(str, object, object)
 
     def __init__(
         self,
@@ -192,6 +196,13 @@ class ClipCache(QObject):
             # mid-file; a whole-file SMB copy is uninterruptible and kept the
             # process alive for minutes after the window closed.
             with open(source_path, "rb") as src, open(tmp_path, "wb") as dst:
+                try:
+                    # fstat on the open handle: no extra WAN round trip.
+                    total_bytes = int(os.fstat(src.fileno()).st_size)
+                except Exception:
+                    total_bytes = 0
+                done_bytes = 0
+                self.transfer_progress.emit(str(source_path), 0, total_bytes)
                 while True:
                     if self._shutdown_event.is_set():
                         raise InterruptedError("clip cache shutting down")
@@ -199,6 +210,8 @@ class ClipCache(QObject):
                     if not chunk:
                         break
                     dst.write(chunk)
+                    done_bytes += len(chunk)
+                    self.transfer_progress.emit(str(source_path), done_bytes, total_bytes)
             shutil.copystat(source_path, tmp_path)
             tmp_path.replace(cache_path)
             self._write_meta(source_path, cache_path)
