@@ -191,8 +191,12 @@ unify `TRANSITION_STATES` (`a7d0e10`); fix `_is_past_day` to local date
    viewer_widgets (`263d822`), annotated_video_widget (`a2803ac`),
    log_events (`039539c`), clip_cache with the prune-race fix (`073ee4b`),
    app_main (`da6a070`). Log_vid_gui: 6,900 → ~4,900 lines; Main_Window:
-   2,085 → ~1,850. STILL OPEN from Stage 1: the qt_worker Job/JobSlot
-   abstraction + porting the five panel loader threads onto it.
+   2,085 → ~1,850. Job/JobSlot + all five loader ports DONE 2026-09-03
+   (`af91557` date scan, `1bd9308` buffer, `6ce4bd2` fleetwide,
+   `cabb5e2` overview, `cf789c1` timeline) — one worker pattern, no
+   terminate(), no keep-alive hacks, no request-id staleness protocols.
+   **STAGE 1 COMPLETE.** Next: Stage 2 (elastic_loader split with the
+   Argus schema seam, stop_report.py, target_overlay_controller.py).
 2. Delete the 49 `hasattr`/`getattr` capability probes in Main_Window —
    they hide typos; the ~20-method viewer interface they conceal becomes
    visible and documentable.
