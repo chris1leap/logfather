@@ -34,6 +34,9 @@ ELASTIC_TIMESTAMP_FIELDS = ["@timestamp_ros", "@timestamp"]
 SYSTEM_ID_OVERRIDE: str | None = None
 ELASTIC_EVENT_MAX_WORKERS = 4
 ELASTIC_EVENT_MAX_PAGES = 20
+# Part of the events-cache digest; bump on any change to TimelineItem
+# (de)serialization or the SKU/event extraction logic.
+EVENTS_CACHE_SCHEMA_VERSION = 1
 ELASTIC_EVENT_PAGE_SIZE = 1500
 ELASTIC_EVENT_MIN_PAGE_SIZE = 300
 ELASTIC_EVENT_TIMEOUT_SEC = 12
@@ -91,6 +94,10 @@ def _events_cache_path_for_robot(
         except Exception:
             pikpak_key = str(pikpak_root).lower()
     payload = {
+        # Bump EVENTS_CACHE_SCHEMA_VERSION whenever the serialized item shape
+        # or extraction logic changes: past-day caches never expire, so
+        # without this a code change is invisible to every existing install.
+        "schema_version": EVENTS_CACHE_SCHEMA_VERSION,
         "robot_id": robot_id,
         "day": day_key,
         "pikpak_root": pikpak_key,
@@ -1163,6 +1170,15 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
                 break
             search_after = last_sort
             page += 1
+        if page >= max_pages and warning_msg is None:
+            # Ran out of pages with a full last page: results are truncated.
+            # Surface it as a warning so the day is neither cached nor
+            # silently presented as complete.
+            warning_msg = (
+                f"[elastic] condition {idx+1} ({cond.name or cond.query}) truncated "
+                f"at {max_pages} pages ({len(hits_collected)} hits); day view incomplete"
+            )
+            print(warning_msg)
         print(f"[elastic] condition {idx+1} ({cond.name or cond.query}) collected {len(hits_collected)} hits")
         _perf_log(
             f"condition {idx+1} requests={requests_made} hits={len(hits_collected)} "
@@ -1200,7 +1216,16 @@ def fetch_events(settings: Settings, pikpak_root: Path | None, day) -> Iterable[
         sku_ok = False
         sku_items = []
     items = _merge_sku_items(items, sku_items)
-    _save_events_cache(cache_path, items, sku_complete=sku_ok and _is_past_day(day))
+    if warnings:
+        # A partly-failed day must not be cached: past-day caches never
+        # expire, so persisting here would serve the truncated timeline
+        # forever. Skipping the save means the next load retries in full.
+        print(
+            f"[elastic] day fetch had {len(warnings)} warning(s); not caching",
+            flush=True,
+        )
+    else:
+        _save_events_cache(cache_path, items, sku_complete=sku_ok and _is_past_day(day))
     _perf_log(f"cache write took {(perf_counter() - t_cache_write_start) * 1000:.0f}ms")
     _perf_log(f"fetch_events total: {(perf_counter() - t_fetch_start) * 1000:.0f}ms (items={len(items)})")
     if warnings:
