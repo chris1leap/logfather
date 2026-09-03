@@ -533,3 +533,52 @@ class TestBuildSkuBands:
         ], cap_minute=30)
         assert len(bands) == 1
         assert bands[0].end == self._dt(30)
+
+
+class _FakeBufferEvent:
+    def __init__(self, ts, target_id, event_type="target_added"):
+        from types import SimpleNamespace
+        self.timestamp = ts
+        self.event_type = event_type
+        self.buffer_snapshot = [SimpleNamespace(target_id=target_id)]
+
+
+class TestGapAndBuckets:
+    def _ts(self, seconds):
+        from datetime import datetime, timezone, timedelta
+        return datetime(2026, 9, 1, 9, 0, 0, tzinfo=timezone.utc) + timedelta(seconds=seconds)
+
+    def test_steady_rate_flags_nothing(self):
+        from target_overlay_controller import compute_gap_target_ids
+        events = [_FakeBufferEvent(self._ts(i * 5), f"t{i}") for i in range(10)]
+        close, wide = compute_gap_target_ids(events, threshold=0.5)
+        assert close == set() and wide == set()
+
+    def test_tight_gap_flagged(self):
+        from target_overlay_controller import compute_gap_target_ids
+        times = [0, 5, 10, 15, 20, 21]  # last add comes far quicker than avg
+        events = [_FakeBufferEvent(self._ts(s), f"t{i}") for i, s in enumerate(times)]
+        close, _wide = compute_gap_target_ids(events, threshold=0.5)
+        assert "t5" in close
+
+    def test_wide_gap_flagged(self):
+        from target_overlay_controller import compute_gap_target_ids
+        times = [0, 5, 10, 15, 20, 45]  # last add much slower than avg
+        events = [_FakeBufferEvent(self._ts(s), f"t{i}") for i, s in enumerate(times)]
+        _close, wide = compute_gap_target_ids(events, threshold=0.5)
+        assert "t5" in wide
+
+    def test_buckets_count_and_span(self):
+        from target_overlay_controller import clip_target_rate_buckets_from_buffer_events
+        start, end = self._ts(0), self._ts(120)
+        events = [_FakeBufferEvent(self._ts(s), f"t{s}") for s in (1, 2, 3, 61, 119, 500)]
+        buckets = clip_target_rate_buckets_from_buffer_events(events, start, end)
+        assert buckets[0]["start"] == start
+        assert buckets[-1]["end"] == end
+        assert sum(b["count"] for b in buckets) == 5  # the 500s event is outside
+
+    def test_bucket_seconds_scale_with_span(self):
+        from target_overlay_controller import choose_clip_target_rate_bucket_seconds
+        assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(240)) == 1
+        assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(2400)) == 10
+        assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(100000)) == 60

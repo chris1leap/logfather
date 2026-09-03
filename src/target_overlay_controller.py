@@ -1,0 +1,378 @@
+"""Pick-buffer + conveyor-overlay controller.
+
+Owns the buffer event loading, the gap (tight/wide) classification, the
+conveyor calibration and its dialog, and the per-frame overlay building —
+~400 lines that previously lived inside the Main_Window hub. This is the
+piece most likely to change with belt-model work, so it now changes in
+one file.
+
+Wiring: the viewer's current_time_changed feeds on_playhead(); the hub
+forwards panel visibility, the tracking toggle, threshold changes, and
+clip selection (load_buffer_events).
+"""
+from __future__ import annotations
+
+from bisect import bisect_left
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Callable
+
+from PySide6.QtCore import QObject
+
+from Time_Picker import ensure_utc
+from conveyor_calibration import ConveyorCalibration, load_calibration
+from conveyor_calibration_dialog import ConveyorCalibrationDialog
+from qt_worker import JobSlot
+from target_buffer_loader import buffer_state_at, fetch_buffer_events
+from target_buffer_widget import _detail_rows, _display_target_id, _summary_rows
+
+
+def choose_clip_target_rate_bucket_seconds(clip_start: datetime, clip_end: datetime) -> int:
+    span_seconds = max(1.0, (ensure_utc(clip_end) - ensure_utc(clip_start)).total_seconds())
+    raw = span_seconds / 240.0
+    candidates = [1, 2, 5, 10, 15, 30, 60]
+    for candidate in candidates:
+        if raw <= candidate:
+            return candidate
+    return 60
+
+
+def clip_target_rate_buckets_from_buffer_events(
+    events: list,
+    clip_start: datetime,
+    clip_end: datetime,
+) -> list[dict]:
+    clip_start_utc = ensure_utc(clip_start)
+    clip_end_utc = ensure_utc(clip_end)
+    if clip_end_utc <= clip_start_utc:
+        return []
+    bucket_seconds = choose_clip_target_rate_bucket_seconds(clip_start_utc, clip_end_utc)
+    span_seconds = (clip_end_utc - clip_start_utc).total_seconds()
+    bucket_count = max(1, int((span_seconds + bucket_seconds - 1) // bucket_seconds))
+    counts = [0] * bucket_count
+    for ev in events:
+        if ev.event_type != "target_added":
+            continue
+        ts = ev.timestamp
+        if not isinstance(ts, datetime):
+            continue
+        ts = ensure_utc(ts)
+        if ts < clip_start_utc or ts >= clip_end_utc:
+            continue
+        idx = int((ts - clip_start_utc).total_seconds() // bucket_seconds)
+        if 0 <= idx < bucket_count:
+            counts[idx] += 1
+    buckets: list[dict] = []
+    for idx, count in enumerate(counts):
+        start = clip_start_utc + timedelta(seconds=idx * bucket_seconds)
+        end = min(clip_end_utc, start + timedelta(seconds=bucket_seconds))
+        buckets.append({
+            "start": start,
+            "end": end,
+            "count": int(count),
+        })
+    return buckets
+
+
+def compute_gap_target_ids(events: list, threshold: float) -> tuple[set[str], set[str]]:
+    """Tight/wide gap detection over the rolling 60s average add rate."""
+    close_flagged: set[str] = set()
+    wide_flagged: set[str] = set()
+    add_times: list[float] = []
+    last_add_time: float | None = None
+    threshold = float(threshold)
+    for ev in events:
+        if ev.event_type != "target_added":
+            continue
+        if not ev.buffer_snapshot:
+            continue
+        target = ev.buffer_snapshot[-1]
+        current_dt = ev.timestamp
+        if current_dt.tzinfo is None:
+            current_dt = current_dt.astimezone(timezone.utc)
+        else:
+            current_dt = current_dt.astimezone(timezone.utc)
+        current_ts = current_dt.timestamp()
+        add_times.append(current_ts)
+        if last_add_time is None or len(add_times) < 2:
+            last_add_time = current_ts
+            continue
+        left = bisect_left(add_times, current_ts - 60.0)
+        window_count = len(add_times) - left
+        if window_count >= 2:
+            span = current_ts - add_times[left]
+            if span > 0:
+                avg_gap = span / float(window_count - 1)
+                actual_gap = current_ts - last_add_time
+                if avg_gap > 0.0:
+                    if actual_gap < (avg_gap * threshold):
+                        close_flagged.add(target.target_id)
+                    elif threshold > 0.0 and actual_gap > (avg_gap / threshold):
+                        wide_flagged.add(target.target_id)
+        last_add_time = current_ts
+    return close_flagged, wide_flagged
+
+
+class TargetOverlayController(QObject):
+    def __init__(
+        self,
+        viewer,
+        buffer_widget,
+        time_picker,
+        settings_provider: Callable,
+        calibration_system_id_provider: Callable[[], str],
+        parent_widget,
+    ):
+        super().__init__(parent_widget)
+        self._viewer = viewer
+        self._buffer_widget = buffer_widget
+        self._time_picker = time_picker
+        self._settings_provider = settings_provider
+        self._calibration_system_id_provider = calibration_system_id_provider
+        self._parent_widget = parent_widget
+
+        self.panel_visible = False
+        self._buffer_slot = JobSlot(self)
+        self._buffer_events: list = []
+        self._buffer_clip_start: datetime | None = None
+        self._buffer_clip_end: datetime | None = None
+        self._conveyor_cal: ConveyorCalibration = ConveyorCalibration(system_id="")
+        self._cal_dialog: ConveyorCalibrationDialog | None = None
+        self._last_targets: list = []
+        self._last_playhead_dt: datetime | None = None
+        self._tracking_enabled: bool = True
+        self._close_gap_target_ids: set[str] = set()
+        self._wide_gap_target_ids: set[str] = set()
+
+    # ---- buffer loading --------------------------------------------------
+
+    def clear(self) -> None:
+        self._buffer_events = []
+        self._buffer_clip_start = None
+        self._buffer_clip_end = None
+        self._buffer_widget.clear()
+
+    def load_buffer_events(self, pikpak_root: Path | None, clip_start, clip_end) -> None:
+        self._buffer_events = []
+        self._buffer_clip_start = clip_start
+        self._buffer_clip_end = clip_end
+        self._buffer_widget.clear()
+        if pikpak_root is None or clip_start is None or clip_end is None:
+            return
+
+        print(f"[buffer] starting load for {pikpak_root}  {clip_start} → {clip_end}")
+        settings = self._settings_provider()
+        self._buffer_slot.start(
+            lambda job: fetch_buffer_events(settings, pikpak_root, clip_start, clip_end),
+            on_result=self._on_buffer_events_loaded,
+            on_error=self._on_buffer_events_failed,
+        )
+
+    def _on_buffer_events_failed(self, message: str) -> None:
+        print(f"[buffer] load failed: {message}")
+        self._on_buffer_events_loaded([])
+
+    def _on_buffer_events_loaded(self, events: list) -> None:
+        self._buffer_events = events
+        self._recompute_gap_ids()
+        self._buffer_widget.set_buffer_events(events)
+        self._buffer_widget.set_alerted_target_ids(self._close_gap_target_ids)
+        self._buffer_widget.set_wide_gap_target_ids(self._wide_gap_target_ids)
+        if self._buffer_clip_start is not None and self._buffer_clip_end is not None:
+            buckets = clip_target_rate_buckets_from_buffer_events(
+                events,
+                self._buffer_clip_start,
+                self._buffer_clip_end,
+            )
+            self._time_picker.set_clip_target_rate_heat(
+                self._buffer_clip_start, self._buffer_clip_end, buckets
+            )
+        print(f"[buffer] {len(events)} buffer state transitions loaded")
+        if self._last_playhead_dt:
+            if self.panel_visible:
+                self._buffer_widget.update_for_time(self._last_playhead_dt)
+            self._push_conveyor_overlays(self._last_playhead_dt)
+
+    def _recompute_gap_ids(self) -> None:
+        self._close_gap_target_ids, self._wide_gap_target_ids = compute_gap_target_ids(
+            self._buffer_events, float(self._viewer.close_gap_threshold)
+        )
+
+    # ---- per-frame fan-in ------------------------------------------------
+
+    def on_playhead(self, dt: datetime) -> None:
+        self._last_playhead_dt = dt
+        if self.panel_visible and self._buffer_events:
+            self._buffer_widget.set_alerted_target_ids(self._close_gap_target_ids)
+            self._buffer_widget.set_wide_gap_target_ids(self._wide_gap_target_ids)
+            self._buffer_widget.update_for_time(dt)
+        self._push_conveyor_overlays(dt)
+        if self._cal_dialog is not None:
+            self._cal_dialog.on_time(dt)
+
+    def on_close_gap_threshold_changed(self, _value: float) -> None:
+        if not self._buffer_events:
+            return
+        self._recompute_gap_ids()
+        self._buffer_widget.set_alerted_target_ids(self._close_gap_target_ids)
+        self._buffer_widget.set_wide_gap_target_ids(self._wide_gap_target_ids)
+        if self.panel_visible and self._last_playhead_dt is not None:
+            self._buffer_widget.update_for_time(self._last_playhead_dt)
+        if self._last_playhead_dt is not None:
+            self._push_conveyor_overlays(self._last_playhead_dt)
+
+    def set_tracking_enabled(self, enabled: bool) -> None:
+        self._tracking_enabled = enabled
+        if enabled:
+            if self._last_playhead_dt:
+                self._push_conveyor_overlays(self._last_playhead_dt)
+        else:
+            self._viewer.video_label.set_target_overlays([])
+
+    # ---- conveyor calibration -------------------------------------------
+
+    def reload_calibration(self) -> None:
+        sid = self._calibration_system_id_provider()
+        self._conveyor_cal = load_calibration(sid)
+        print(f"[cal] loaded calibration for '{sid}', "
+              f"{'tracking line ready' if self._conveyor_cal.has_tracking_line() else 'no tracking line'}")
+
+    def open_calibration_dialog(self) -> None:
+        if self._cal_dialog is not None:
+            self._cal_dialog.raise_()
+            self._cal_dialog.activateWindow()
+            return
+        self.reload_calibration()
+        dialog = ConveyorCalibrationDialog(self._conveyor_cal, parent=self._parent_widget)
+        dialog.calibration_saved.connect(self._on_calibration_saved)
+        dialog.finished.connect(self._on_cal_dialog_closed)
+
+        # Feed dialog the current frame if available
+        frame = self._viewer.video_label._frame
+        if frame is not None:
+            dialog.on_frame(frame)
+            # Live frame updates
+            self._viewer.current_time_changed.connect(self._feed_cal_dialog_frame)
+
+        # Feed current targets
+        if self._buffer_events and self._last_playhead_dt:
+            targets, _ = buffer_state_at(self._buffer_events, self._last_playhead_dt)
+            dialog.on_targets(targets)
+        if self._last_playhead_dt:
+            dialog.on_time(self._last_playhead_dt)
+
+        self._cal_dialog = dialog
+        dialog.show()
+
+    def _feed_cal_dialog_frame(self, dt: datetime) -> None:
+        if self._cal_dialog is None:
+            return
+        frame = self._viewer.video_label._frame
+        if frame is not None:
+            self._cal_dialog.on_frame(frame)
+        if self._buffer_events:
+            if dt.tzinfo is None:
+                dt = dt.astimezone(timezone.utc)
+            targets, _ = buffer_state_at(self._buffer_events, dt)
+            self._cal_dialog.on_targets(targets)
+
+    def _on_calibration_saved(self, cal: ConveyorCalibration) -> None:
+        self._conveyor_cal = cal
+        if self._last_playhead_dt:
+            self._push_conveyor_overlays(self._last_playhead_dt)
+
+    def _on_cal_dialog_closed(self) -> None:
+        try:
+            self._viewer.current_time_changed.disconnect(self._feed_cal_dialog_frame)
+        except Exception:
+            pass
+        self._cal_dialog = None
+
+    # ---- overlays --------------------------------------------------------
+
+    def _push_conveyor_overlays(self, dt: datetime) -> None:
+        """Update the target panel and line-tracked overlays."""
+        if not self._tracking_enabled:
+            return
+        buffer_targets, _last_event = self._buffer_targets_for_time(dt)
+        tracked_targets = self._visible_tracked_targets(buffer_targets, dt)
+        self._viewer.video_label.set_target_overlays(
+            self._tracked_target_overlays(tracked_targets, dt)
+        )
+        self._last_targets = tracked_targets
+
+    def _buffer_targets_for_time(self, dt: datetime) -> tuple[list, object | None]:
+        if not self._buffer_events:
+            return [], None
+        dt = dt.astimezone(timezone.utc)
+        targets, last_event = buffer_state_at(self._buffer_events, dt)
+        return targets, last_event
+
+    def _visible_tracked_targets(self, targets: list, dt: datetime) -> list:
+        if not self._conveyor_cal.has_tracking_line():
+            return []
+        dt = dt.astimezone(timezone.utc)
+        visible = []
+        for target in targets:
+            age = (dt - target.added_at.astimezone(timezone.utc)).total_seconds()
+            if self._conveyor_cal.tracking_position_for_age(age) is not None:
+                visible.append(target)
+        return visible
+
+    def _tracked_target_overlays(self, targets: list, dt: datetime) -> list[dict]:
+        if not self._conveyor_cal.has_tracking_line():
+            return []
+        dt = dt.astimezone(timezone.utc)
+        overlays: list[dict] = []
+        total = max(1, len(targets))
+        for idx, target in enumerate(targets):
+            age = (dt - target.added_at.astimezone(timezone.utc)).total_seconds()
+            pos = self._conveyor_cal.tracking_position_for_age(age)
+            if pos is None:
+                continue
+            pid = _display_target_id(target)
+            opacity = min(1.0, 0.45 + ((idx + 1) / total) * 0.55)
+            is_valid = bool(target.source_doc.get("valid", True))
+            is_close_gap = target.target_id in self._close_gap_target_ids
+            is_wide_gap = target.target_id in self._wide_gap_target_ids
+            detail_lines = [f"#{pid}"]
+            for key, value in _summary_rows(target.source_doc) + _detail_rows(target.source_doc):
+                if key in {"Front corner", "Back corner"}:
+                    continue
+                detail_lines.append(f"{key}: {value}")
+            if is_close_gap:
+                detail_lines.append("Tight gap")
+            elif is_wide_gap:
+                detail_lines.append("Wide gap")
+            overlays.append({
+                "norm_x": pos[0],
+                "norm_y": pos[1],
+                "label": f"#{pid}",
+                "info_lines": detail_lines,
+                "color": "#e74c3c" if not is_valid else "#f39c12",
+                "text_bg_color": "#5c2020" if not is_valid else ("#7a4800" if is_close_gap else ("#163a5a" if is_wide_gap else "#1f4d2e")),
+                "opacity": opacity,
+                "alert": is_close_gap,
+            })
+        return overlays
+
+    def export_overlays_for(self, t_seconds: float) -> list[dict]:
+        """Overlay provider for clip export: maps clip time to playback time."""
+        viewer = self._viewer
+        playback_dt = None
+        drift_seconds = float(viewer.time_offset or 0.0)
+        if viewer.video_start_dt is not None and viewer.fps > 0:
+            adjusted_seconds = t_seconds + (viewer.ocr_frame_offset / viewer.fps)
+            playback_dt = viewer.video_start_dt + timedelta(seconds=adjusted_seconds - drift_seconds)
+        elif viewer.current_video_filename_dt is not None:
+            playback_dt = viewer.current_video_filename_dt + timedelta(seconds=t_seconds - drift_seconds)
+        if playback_dt is None:
+            return []
+        buffer_targets, _last_event = self._buffer_targets_for_time(playback_dt)
+        tracked_targets = self._visible_tracked_targets(buffer_targets, playback_dt)
+        return self._tracked_target_overlays(tracked_targets, playback_dt)
+
+    # ---- lifecycle -------------------------------------------------------
+
+    def shutdown(self) -> None:
+        self._buffer_slot.shutdown()
