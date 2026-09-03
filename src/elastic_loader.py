@@ -28,6 +28,7 @@ from sku_timeline import build_sku_bands
 from elastic_client import (
     api_headers,
     get_thread_session as _get_thread_session,
+    paginate,
     search_url as _search_url,
 )
 from elastic_schema import (
@@ -1011,79 +1012,59 @@ def fetch_sku_items(settings: Settings, pikpak_root: Path | None, day) -> Iterab
     events: list[tuple[datetime, str, dict | None, str]] = []
     total_hits = 0
     start_hits = 0
-    search_after = None
-    page = 0
-    max_pages = 20
-    page_size = 2000
-    while page < max_pages:
-        body = _build_sku_query(
-            robot_id,
-            start_iso,
-            end_iso,
-            ts_fields,
-            sort_field,
-            size=page_size,
-            search_after=search_after,
+    try:
+        outcome = paginate(
+            lambda size, search_after: _build_sku_query(
+                robot_id,
+                start_iso,
+                end_iso,
+                ts_fields,
+                sort_field,
+                size=size,
+                search_after=search_after,
+            ),
+            session=session,
+            endpoint=search_endpoint,
+            headers=headers,
+            page_size=2000,
+            max_pages=20,
+            timeout_sec=8,
+            label="SKU query",
         )
-        try:
-            resp = session.post(search_endpoint, json=body, headers=headers, timeout=8)
-            resp.raise_for_status()
-            data = resp.json()
-            hits = data.get("hits", {}).get("hits", [])
-        except Exception as exc:
-            err_text = ""
-            if isinstance(exc, requests.RequestException) and exc.response is not None:
-                try:
-                    err_text = exc.response.text
-                except Exception:
-                    err_text = ""
-            message = f"[elastic] SKU query failed: {exc} {err_text}"
-            print(message)
-            raise ElasticFetchError(message, []) from exc
-        if not hits:
-            break
-        for hit in hits:
-            total_hits += 1
-            src = hit.get("_source", {})
-            ts_val = src.get("@timestamp_ros") or src.get(sort_field) or src.get("@timestamp")
-            ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
-            if not ts:
-                continue
-            ts = _ensure_utc(ts)
-            state_name = str(src.get("state_name") or "").strip()
-            message = str(src.get("message") or "")
-            service_name = _extract_service_name(src)
-            if state_name == "start_pnp":
-                start_hits += 1
-                sku_dbg = src.get("data_collection") or src.get("sku") or {}
-                print(
-                    f"[sku-debug] start_pnp {ts.isoformat()} system_id={src.get('system_id')} "
-                    f"sku={sku_dbg}"
-                )
-            if _is_manual_state(state_name):
-                events.append((ts, "manual", None, state_name))
-            if _is_automatic_state(state_name):
-                events.append((ts, "auto", None, state_name))
-            if _is_stop_like_event(state_name, message, service_name):
-                events.append((ts, "stop", None, state_name))
-            selection = _extract_ui_selection(src)
-            if state_name == "start_pnp":
-                events.append((ts, "start", selection, state_name))
-            elif selection:
-                events.append((ts, "select", selection, state_name))
-        if len(hits) < page_size:
-            break
-        last_sort = hits[-1].get("sort")
-        if not last_sort:
-            break
-        search_after = last_sort
-        page += 1
-    if page >= max_pages - 1:
-        print(
-            f"[sku-debug] reached page cap (max_pages={max_pages}, page_size={page_size}); "
-            "results may be truncated",
-            flush=True,
-        )
+    except ElasticFetchError as exc:
+        # Callers expect exc.items to hold TimelineItems, not raw hits.
+        raise ElasticFetchError(str(exc), []) from exc
+    for hit in outcome.hits:
+        total_hits += 1
+        src = hit.get("_source", {})
+        ts_val = src.get("@timestamp_ros") or src.get(sort_field) or src.get("@timestamp")
+        ts = _parse_ts(ts_val) if isinstance(ts_val, str) else None
+        if not ts:
+            continue
+        ts = _ensure_utc(ts)
+        state_name = str(src.get("state_name") or "").strip()
+        message = str(src.get("message") or "")
+        service_name = _extract_service_name(src)
+        if state_name == "start_pnp":
+            start_hits += 1
+            sku_dbg = src.get("data_collection") or src.get("sku") or {}
+            print(
+                f"[sku-debug] start_pnp {ts.isoformat()} system_id={src.get('system_id')} "
+                f"sku={sku_dbg}"
+            )
+        if _is_manual_state(state_name):
+            events.append((ts, "manual", None, state_name))
+        if _is_automatic_state(state_name):
+            events.append((ts, "auto", None, state_name))
+        if _is_stop_like_event(state_name, message, service_name):
+            events.append((ts, "stop", None, state_name))
+        selection = _extract_ui_selection(src)
+        if state_name == "start_pnp":
+            events.append((ts, "start", selection, state_name))
+        elif selection:
+            events.append((ts, "select", selection, state_name))
+    if outcome.truncated:
+        print("[sku-debug] reached page cap; results may be truncated", flush=True)
 
     if not events:
         if total_hits:
