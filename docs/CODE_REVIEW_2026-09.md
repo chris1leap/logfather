@@ -245,6 +245,10 @@ unify `TRANSITION_STATES` (`a7d0e10`); fix `_is_past_day` to local date
   `mark_video_cached` pattern); persistent hover items.
 
 ### Stage 3 — risky cores, last
+Progress 2026-09-03: `ocr_offset_store.py` extracted (`7f9aa53`);
+viewer `__init__` split into 8 ordered build sections (`d082d2f`);
+MainWindow `__init__` split into 4 (`eb2acca`). Remaining below:
+TimeAlignment, VideoSource, Tesseract-to-worker is DONE (`249f8a2`).
 - `VideoSource` wrapping cap/fps/seek-vs-grab (de-duplicates main/secondary;
   touches the hot path — do only with the sequential-read invariant tested).
 - A `TimeAlignment` value object (`sync_offset`, `time_offset`,

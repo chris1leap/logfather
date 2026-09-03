@@ -12,6 +12,7 @@ import sys
 
 from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
 from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
@@ -107,8 +108,55 @@ def clamp_rect_to_screen(rect, avail):
     return QRect(x, y, w, h)
 
 
+# Single-instance guard: two instances autosave the same settings file and
+# clobber each other, so a second launch just fronts the running one
+# (Chris, 2026-09-03). The name is shared by dev runs and installed builds
+# on purpose - they use the same settings file.
+SINGLE_INSTANCE_KEY = "TheLogfatherSingleInstance"
+
+
+def _activate_running_instance() -> bool:
+    """True when another instance is already running (it has been asked to
+    come to the front)."""
+    sock = QLocalSocket()
+    sock.connectToServer(SINGLE_INSTANCE_KEY)
+    if not sock.waitForConnected(300):
+        return False
+    sock.write(b"activate\n")
+    sock.flush()
+    sock.waitForBytesWritten(300)
+    sock.disconnectFromServer()
+    return True
+
+
+def _start_instance_server(win: QWidget) -> QLocalServer | None:
+    # A crashed instance can leave a stale name behind (not on Windows,
+    # where named pipes die with the process, but harmless to clear).
+    QLocalServer.removeServer(SINGLE_INSTANCE_KEY)
+    server = QLocalServer(win)
+    if not server.listen(SINGLE_INSTANCE_KEY):
+        print(f"[main] single-instance server failed: {server.errorString()}", flush=True)
+        return None
+
+    def _on_second_instance():
+        conn = server.nextPendingConnection()
+        if conn is not None:
+            conn.close()
+        win.setWindowState((win.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive)
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        print("[main] second launch detected; fronting this window", flush=True)
+
+    server.newConnection.connect(_on_second_instance)
+    return server
+
+
 def main():
     app = QApplication(sys.argv)
+    if _activate_running_instance():
+        print("[main] already running - switched to the open instance", flush=True)
+        return
     icon_path = _resolve_asset_path("logfather.ico")
     if icon_path:
         app.setWindowIcon(QIcon(icon_path))
@@ -119,6 +167,7 @@ def main():
     from logfather.ui.Main_Window import MainWindow
 
     win = MainWindow()
+    _instance_server = _start_instance_server(win)  # noqa: F841 (kept alive)
     _apply_startup_geometry(win, win.settings)
     if splash is not None:
         win.show()
