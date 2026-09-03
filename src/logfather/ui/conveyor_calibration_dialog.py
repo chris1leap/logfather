@@ -160,13 +160,22 @@ class _FrameCanvas(QLabel):
             (sx, sy), (ex, ey) = self._motion_line
             start_px = QPointF(x + sx * dw, y + sy * dh)
             end_px = QPointF(x + ex * dw, y + ey * dh)
+            # A zero-length line is the start-only state (end not yet
+            # captured): one dot, one label — both labels on the same
+            # point made it read "End".
+            start_only = abs(sx - ex) < 1e-9 and abs(sy - ey) < 1e-9
             painter.setPen(QPen(QColor(theme.CAL_TRACK_LINE), 2, Qt.DashLine))
-            painter.drawLine(start_px, end_px)
+            if not start_only:
+                painter.drawLine(start_px, end_px)
             painter.setBrush(QBrush(QColor(theme.CAL_TRACK_LINE)))
             painter.drawEllipse(start_px, 5, 5)
-            painter.drawEllipse(end_px, 5, 5)
+            if not start_only:
+                painter.drawEllipse(end_px, 5, 5)
             painter.setFont(QFont("monospace", 9, QFont.Bold))
-            for label, pt in (("Start", start_px), ("End", end_px)):
+            labels = [("Start", start_px)]
+            if not start_only:
+                labels.append(("End", end_px))
+            for label, pt in labels:
                 tx, ty = int(pt.x()) + 8, int(pt.y()) - 8
                 # Shadow first so the label reads on any footage.
                 painter.setPen(QPen(Qt.black))
