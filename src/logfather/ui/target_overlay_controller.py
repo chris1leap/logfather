@@ -291,7 +291,13 @@ class TargetOverlayController(QObject):
     def _feed_cal_dialog_frame(self, dt: datetime) -> None:
         if self._cal_dialog is None:
             return
-        frame = self._viewer.video_label._frame
+        # last_qimage is set synchronously in show_frame BEFORE this signal;
+        # video_label._frame only updates on a deferred (0ms-timer) repaint,
+        # so reading it here handed the dialog the PREVIOUS frame — making
+        # the first step after a direction change appear to move backwards.
+        frame = self._viewer.last_qimage
+        if frame is None:
+            frame = self._viewer.video_label._frame
         if frame is not None:
             self._cal_dialog.on_frame(frame)
         self._feed_cal_dialog_position()
