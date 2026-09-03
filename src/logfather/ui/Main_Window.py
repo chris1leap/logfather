@@ -624,20 +624,6 @@ class MainWindow(QWidget):
         self._open_system_from_overview(root, day, target_dt)
 
     def closeEvent(self, event):
-        # Capture geometry first, while the window state is still live.
-        # normalGeometry() when maximized, so un-maximizing after a restart
-        # returns to a sensible size instead of the full-screen rect.
-        try:
-            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
-            self.settings.window_geometry = {
-                "x": geo.x(),
-                "y": geo.y(),
-                "w": geo.width(),
-                "h": geo.height(),
-                "maximized": bool(self.isMaximized()),
-            }
-        except Exception:
-            pass
         # Qt delivers close events only to the top-level window: the panels'
         # own closeEvents never fire inside the app, so every worker thread
         # must be stopped from here or it races Qt teardown and crashes.
@@ -654,9 +640,23 @@ class MainWindow(QWidget):
                 shutdown()
             except Exception as exc:
                 print(f"[main] shutdown step failed: {exc}", flush=True)
-        # Must come AFTER viewer.shutdown_workers: its settings-autosave
-        # flush writes the viewer's own Settings object, which would
-        # otherwise overwrite the session we just recorded.
+        # Geometry capture and session save must come AFTER
+        # viewer.shutdown_workers: its settings flush emits settings_saved,
+        # which makes _reload_settings_from_viewer REPLACE self.settings —
+        # anything written onto the old object before that point is lost.
+        # normalGeometry() when maximized, so un-maximizing after a restart
+        # returns to a sensible size instead of the full-screen rect.
+        try:
+            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
+            self.settings.window_geometry = {
+                "x": geo.x(),
+                "y": geo.y(),
+                "w": geo.width(),
+                "h": geo.height(),
+                "maximized": bool(self.isMaximized()),
+            }
+        except Exception:
+            pass
         self._save_last_session()
         # _save_last_session early-returns without saving when nothing was
         # open; the window geometry must persist regardless.

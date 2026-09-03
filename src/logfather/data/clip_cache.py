@@ -66,6 +66,10 @@ class ClipCache(QObject):
         self._prefetch_pending: set[str] = set()
         self._prefetch_futures: dict[str, Future] = {}
         self._prune_lock = threading.Lock()
+        # Set at shutdown so an in-flight SMB copy aborts at the next chunk.
+        # Python joins executor threads at interpreter exit, so without this
+        # the window closes but the process lives until the copy finishes.
+        self._shutdown_event = threading.Event()
 
     # ---- paths & metadata -------------------------------------------------
 
@@ -176,13 +180,26 @@ class ClipCache(QObject):
             return cache_path
         return None
 
+    _COPY_CHUNK_BYTES = 4 * 1024 * 1024
+
     def copy_to_cache(self, source_path: Path, cache_path: Path) -> bool:
         tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             if tmp_path.exists():
                 tmp_path.unlink()
-            shutil.copy2(source_path, tmp_path)
+            # Chunked instead of shutil.copy2 so shutdown can abort a copy
+            # mid-file; a whole-file SMB copy is uninterruptible and kept the
+            # process alive for minutes after the window closed.
+            with open(source_path, "rb") as src, open(tmp_path, "wb") as dst:
+                while True:
+                    if self._shutdown_event.is_set():
+                        raise InterruptedError("clip cache shutting down")
+                    chunk = src.read(self._COPY_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+            shutil.copystat(source_path, tmp_path)
             tmp_path.replace(cache_path)
             self._write_meta(source_path, cache_path)
             self.touch_entry(cache_path)
@@ -412,6 +429,7 @@ class ClipCache(QObject):
     # ---- lifecycle --------------------------------------------------------
 
     def shutdown(self) -> None:
+        self._shutdown_event.set()
         self.cancel_queued_prefetches()
         for executor in (self.executor, self.prefetch_executor):
             try:
