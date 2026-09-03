@@ -329,7 +329,7 @@ class MainWindow(QWidget):
                 ),
             )
         self.viewer = VideoLogViewer()
-        cache_root = getattr(self.viewer, "cache_root", None)
+        cache_root = self.viewer.cache_root
         self.overview_widget = OverviewWidget(
             self.settings,
             cache_root=cache_root,
@@ -381,10 +381,9 @@ class MainWindow(QWidget):
         self.current_system_label = QLabel("")
         self.current_system_label.setStyleSheet("color: #d7dde2; padding-left: 8px;")
         self.current_system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        if hasattr(self.viewer, "add_playback_right_widget"):
-            self.viewer.add_playback_right_widget(self.stop_report_btn)
-            self.viewer.add_playback_right_widget(self.time_picker.fit_btn)
-            self.viewer.add_playback_right_widget(self.time_picker.refresh_btn)
+        self.viewer.add_playback_right_widget(self.stop_report_btn)
+        self.viewer.add_playback_right_widget(self.time_picker.fit_btn)
+        self.viewer.add_playback_right_widget(self.time_picker.refresh_btn)
         self.time_picker.setMinimumHeight(TIMELINE_MIN_HEIGHT)
         self._timeline_min_height = TIMELINE_MIN_HEIGHT
         self._timeline_max_height = TIMELINE_MAX_HEIGHT
@@ -399,6 +398,7 @@ class MainWindow(QWidget):
         self._buffer_panel_target_width = 280
         self._buffer_events = []
         self._buffer_loader_thread = None
+        self._day_prefetch_timer: QTimer | None = None
         self._buffer_loader_refs: list = []   # keeps stale threads alive until they finish
         self._buffer_clip_start: datetime | None = None
         self._buffer_clip_end: datetime | None = None
@@ -502,31 +502,22 @@ class MainWindow(QWidget):
         self.installEventFilter(self)
         self.date_picker.installEventFilter(self)
         self.time_picker.installEventFilter(self)
-        if hasattr(self.time_picker, "view") and hasattr(self.time_picker.view, "viewport"):
-            self.time_picker.view.viewport().installEventFilter(self)
+        self.time_picker.view.viewport().installEventFilter(self)
 
         self.date_picker.date_selected.connect(self.on_date_selected)
-        if hasattr(self.date_picker, "system_id_selected"):
-            self.date_picker.system_id_selected.connect(self._set_system_id_override)
+        self.date_picker.system_id_selected.connect(self._set_system_id_override)
         # Settings button removed from DatePicker UI
         self.time_picker.time_selected.connect(self.on_time_chosen)
         self.time_picker.items_changed.connect(self._sync_viewer_sku_overlay)
         if ENABLE_DAY_PREFETCH:
             self.time_picker.items_changed.connect(self._prefetch_day_clips)
-        if hasattr(self.viewer, "current_time_changed"):
-            self.viewer.current_time_changed.connect(self.time_picker.set_playhead_datetime)
-        if hasattr(self.viewer, "clip_range_export_requested"):
-            self.viewer.clip_range_export_requested.connect(self._export_current_viewer_clip_range)
-        if hasattr(self.viewer, "annotation_status_changed"):
-            self.viewer.annotation_status_changed.connect(self.time_picker.mark_video_annotated)
-        if hasattr(self.viewer, "cache_clip_ready"):
-            self.viewer.cache_clip_ready.connect(self.time_picker.mark_video_cached)
-        if hasattr(self.viewer, "current_time_changed"):
-            self.viewer.current_time_changed.connect(self._on_playhead_for_buffer)
-        if hasattr(self.viewer, "close_gap_threshold_changed"):
-            self.viewer.close_gap_threshold_changed.connect(self._on_close_gap_threshold_changed)
-        if hasattr(self.viewer, "set_export_target_overlay_provider"):
-            self.viewer.set_export_target_overlay_provider(self._export_tracked_target_overlays)
+        self.viewer.current_time_changed.connect(self.time_picker.set_playhead_datetime)
+        self.viewer.clip_range_export_requested.connect(self._export_current_viewer_clip_range)
+        self.viewer.annotation_status_changed.connect(self.time_picker.mark_video_annotated)
+        self.viewer.cache_clip_ready.connect(self.time_picker.mark_video_cached)
+        self.viewer.current_time_changed.connect(self._on_playhead_for_buffer)
+        self.viewer.close_gap_threshold_changed.connect(self._on_close_gap_threshold_changed)
+        self.viewer.set_export_target_overlay_provider(self._export_tracked_target_overlays)
         self.left_toggle.toggled.connect(lambda checked: self._set_date_picker_visible(checked, horizontal_splitter))
 
         # Apply last parent if available
@@ -549,10 +540,10 @@ class MainWindow(QWidget):
     def _current_calibration_system_id(self) -> str:
         if self.system_id_override:
             return str(self.system_id_override)
-        top_dir = getattr(self.date_picker, "top_dir", None)
+        top_dir = self.date_picker.top_dir
         if isinstance(top_dir, Path):
             return str(top_dir.name)
-        active_name = getattr(self.date_picker, "active_pikpak_name", None)
+        active_name = self.date_picker.active_pikpak_name
         if isinstance(active_name, str) and active_name and active_name != "__SIM__":
             return active_name
         return ""
@@ -562,8 +553,7 @@ class MainWindow(QWidget):
         if self._post_show_started:
             return
         self._post_show_started = True
-        if hasattr(self.viewer, "start_background_maintenance"):
-            QTimer.singleShot(0, self.viewer.start_background_maintenance)
+        QTimer.singleShot(0, self.viewer.start_background_maintenance)
 
     def _apply_initial_timeline_size(self):
         sizes = self._main_splitter.sizes()
@@ -589,11 +579,9 @@ class MainWindow(QWidget):
         return static_tracks
 
     def on_date_selected(self, pikpak_root: Path | None, day: date | None):
-        if hasattr(self.viewer, "prepare_for_new_clip"):
-            self.viewer.prepare_for_new_clip(show_loading=False)
+        self.viewer.prepare_for_new_clip(show_loading=False)
         self.time_picker.show_times(pikpak_root, day)
-        if hasattr(self.time_picker, "clear_clip_target_rate_heat"):
-            self.time_picker.clear_clip_target_rate_heat()
+        self.time_picker.clear_clip_target_rate_heat()
         self._update_current_system_label(pikpak_root, day)
         if self.date_picker.parent_dir:
             self.overview_widget.set_parent_dir(self.date_picker.parent_dir)
@@ -661,11 +649,7 @@ class MainWindow(QWidget):
         self.buffer_widget.set_buffer_events(events)
         self.buffer_widget.set_alerted_target_ids(self._close_gap_target_ids)
         self.buffer_widget.set_wide_gap_target_ids(self._wide_gap_target_ids)
-        if (
-            hasattr(self.time_picker, "set_clip_target_rate_heat")
-            and self._buffer_clip_start is not None
-            and self._buffer_clip_end is not None
-        ):
+        if self._buffer_clip_start is not None and self._buffer_clip_end is not None:
             buckets = self._clip_target_rate_buckets_from_buffer_events(
                 events,
                 self._buffer_clip_start,
@@ -760,10 +744,9 @@ class MainWindow(QWidget):
         dialog.finished.connect(self._on_cal_dialog_closed)
 
         # Feed dialog the current frame if available
-        if hasattr(self.viewer, "video_label"):
-            frame = getattr(self.viewer.video_label, "_frame", None)
-            if frame is not None:
-                dialog.on_frame(frame)
+        frame = self.viewer.video_label._frame
+        if frame is not None:
+            dialog.on_frame(frame)
             # Live frame updates
             self.viewer.current_time_changed.connect(self._feed_cal_dialog_frame)
 
@@ -781,10 +764,9 @@ class MainWindow(QWidget):
     def _feed_cal_dialog_frame(self, dt: datetime) -> None:
         if self._cal_dialog is None:
             return
-        if hasattr(self.viewer, "video_label"):
-            frame = getattr(self.viewer.video_label, "_frame", None)
-            if frame is not None:
-                self._cal_dialog.on_frame(frame)
+        frame = self.viewer.video_label._frame
+        if frame is not None:
+            self._cal_dialog.on_frame(frame)
         if self._buffer_events:
             from target_buffer_loader import buffer_state_at
             if dt.tzinfo is None:
@@ -818,8 +800,7 @@ class MainWindow(QWidget):
             return
         buffer_targets, _last_event = self._buffer_targets_for_time(dt)
         tracked_targets = self._visible_tracked_targets(buffer_targets, dt)
-        if hasattr(self.viewer, "video_label"):
-            self.viewer.video_label.set_target_overlays(self._tracked_target_overlays(tracked_targets, dt))
+        self.viewer.video_label.set_target_overlays(self._tracked_target_overlays(tracked_targets, dt))
         self._last_targets = tracked_targets
 
     def _buffer_targets_for_time(self, dt: datetime) -> tuple[list, object | None]:
@@ -892,11 +873,11 @@ class MainWindow(QWidget):
         wide_flagged: set[str] = set()
         add_times: list[float] = []
         last_add_time: float | None = None
-        threshold = float(getattr(self.viewer, "close_gap_threshold", 0.5))
+        threshold = float(self.viewer.close_gap_threshold)
         for ev in events:
-            if getattr(ev, "event_type", "") != "target_added":
+            if ev.event_type != "target_added":
                 continue
-            if not getattr(ev, "buffer_snapshot", None):
+            if not ev.buffer_snapshot:
                 continue
             target = ev.buffer_snapshot[-1]
             current_dt = ev.timestamp
@@ -926,11 +907,11 @@ class MainWindow(QWidget):
 
     def _export_tracked_target_overlays(self, t_seconds: float) -> list[dict]:
         playback_dt = None
-        drift_seconds = float(getattr(self.viewer, "time_offset", 0.0) or 0.0)
-        if getattr(self.viewer, "video_start_dt", None) is not None and getattr(self.viewer, "fps", 0) > 0:
+        drift_seconds = float(self.viewer.time_offset or 0.0)
+        if self.viewer.video_start_dt is not None and self.viewer.fps > 0:
             adjusted_seconds = t_seconds + (self.viewer.ocr_frame_offset / self.viewer.fps)
             playback_dt = self.viewer.video_start_dt + timedelta(seconds=adjusted_seconds - drift_seconds)
-        elif getattr(self.viewer, "current_video_filename_dt", None) is not None:
+        elif self.viewer.current_video_filename_dt is not None:
             playback_dt = self.viewer.current_video_filename_dt + timedelta(seconds=t_seconds - drift_seconds)
         if playback_dt is None:
             return []
@@ -963,9 +944,9 @@ class MainWindow(QWidget):
         bucket_count = max(1, int((span_seconds + bucket_seconds - 1) // bucket_seconds))
         counts = [0] * bucket_count
         for ev in events:
-            if getattr(ev, "event_type", "") != "target_added":
+            if ev.event_type != "target_added":
                 continue
-            ts = getattr(ev, "timestamp", None)
+            ts = ev.timestamp
             if not isinstance(ts, datetime):
                 continue
             ts = ensure_utc(ts)
@@ -1063,9 +1044,7 @@ class MainWindow(QWidget):
     def _is_timeline_obj(self, obj) -> bool:
         if obj is self.time_picker:
             return True
-        if hasattr(self.time_picker, "view") and hasattr(self.time_picker.view, "viewport"):
-            return obj is self.time_picker.view.viewport()
-        return False
+        return obj is self.time_picker.view.viewport()
 
     def _set_timeline_expanded(self, expanded: bool):
         expanded = bool(expanded)
@@ -1124,7 +1103,7 @@ class MainWindow(QWidget):
     def _auto_hide_if_outside(self):
         if not self.date_picker.isVisible():
             return
-        if getattr(self.date_picker, "active_day", None) is None:
+        if self.date_picker.active_day is None:
             return
         # Hide if mouse is not over date picker anymore.
         pos = self.date_picker.mapFromGlobal(self.cursor().pos())
@@ -1160,12 +1139,10 @@ class MainWindow(QWidget):
         if item.kind == "video" and isinstance(item.payload, Path):
             self.open_in_viewer(item)
         elif item.kind == "additional" and isinstance(item.payload, Path):
-            if hasattr(self.time_picker, "clear_clip_target_rate_heat"):
-                self.time_picker.clear_clip_target_rate_heat()
+            self.time_picker.clear_clip_target_rate_heat()
             self.load_additional_in_viewer(item.payload)
         else:
-            if hasattr(self.time_picker, "clear_clip_target_rate_heat"):
-                self.time_picker.clear_clip_target_rate_heat()
+            self.time_picker.clear_clip_target_rate_heat()
             QMessageBox.information(self, "Selected item", item.label)
 
     def open_in_viewer(self, item: TimelineItem):
@@ -1206,43 +1183,36 @@ class MainWindow(QWidget):
             def _apply_markers():
                 markers = self.time_picker.collect_event_markers(item)
                 self.viewer.set_timeline_markers(markers)
-                if hasattr(self.viewer, "set_clip_marker_fallback"):
-                    self.viewer.set_clip_marker_fallback(markers)
+                self.viewer.set_clip_marker_fallback(markers)
                 if DEBUG_CLIP_TIMING:
                     print(f"[main] timeline markers set at +{time.perf_counter() - t0:.2f}s", flush=True)
             QTimer.singleShot(0, _apply_markers)
         if ENABLE_PREFETCH_ADJACENT:
             QTimer.singleShot(0, lambda: self._prefetch_adjacent_clips(item))
-        current_root = getattr(self.time_picker, "current_root", None)
+        current_root = self.time_picker.current_root
         if current_root and item.start and item.end:
             self._load_buffer_events(current_root, item.start, item.end)
-        elif hasattr(self.time_picker, "clear_clip_target_rate_heat"):
+        else:
             self.time_picker.clear_clip_target_rate_heat()
 
         if ENABLE_LOG_BUTTON:
-            current_root = getattr(self.time_picker, "current_root", None)
+            current_root = self.time_picker.current_root
             if current_root and item.start and item.end:
                 start_iso = item.start.isoformat()
                 end_iso = (item.end + timedelta(minutes=1)).isoformat()
                 if DEBUG_CLIP_TIMING:
                     print(f"[main] Logs pending for {start_iso} -> {end_iso}", flush=True)
-                if hasattr(self.viewer, "set_pending_logs"):
-                    self.viewer.set_pending_logs(str(current_root), start_iso, end_iso)
+                self.viewer.set_pending_logs(str(current_root), start_iso, end_iso)
 
     def load_additional_in_viewer(self, video_path: Path):
         if not isinstance(video_path, Path) or not video_path.exists():
             QMessageBox.warning(self, "File not found", str(video_path))
             return
-        if hasattr(self.viewer, "load_additional_cctv_from_path"):
-            self.viewer.load_additional_cctv_from_path(video_path)
+        self.viewer.load_additional_cctv_from_path(video_path)
 
     def _prefetch_day_clips(self):
-        if not hasattr(self.viewer, "prefetch_clips_to_cache"):
-            return
-        if not hasattr(self.time_picker, "video_paths"):
-            return
         # items_changed fires several times while a day loads; coalesce.
-        timer = getattr(self, "_day_prefetch_timer", None)
+        timer = self._day_prefetch_timer
         if timer is None:
             timer = QTimer(self)
             timer.setSingleShot(True)
@@ -1255,16 +1225,11 @@ class MainWindow(QWidget):
         paths = self.time_picker.video_paths()
         if paths:
             # Stop downloading a previously viewed day before queueing this one.
-            if hasattr(self.viewer, "cancel_queued_prefetches"):
-                self.viewer.cancel_queued_prefetches()
+            self.viewer.cancel_queued_prefetches()
             print(f"[main] day prefetch: queueing {len(paths)} clips", flush=True)
             self.viewer.prefetch_clips_to_cache(paths)
 
     def _prefetch_adjacent_clips(self, item: TimelineItem):
-        if not hasattr(self.time_picker, "get_adjacent_video_items"):
-            return
-        if not hasattr(self.viewer, "prefetch_clips_to_cache"):
-            return
         prev_item, next_item = self.time_picker.get_adjacent_video_items(item)
         paths: list[Path] = []
         if prev_item and isinstance(prev_item.payload, Path):
@@ -1277,16 +1242,12 @@ class MainWindow(QWidget):
     def _prefetch_overview_clips(self, paths: list[Path]):
         if not paths:
             return
-        if not hasattr(self.viewer, "prefetch_clips_to_cache"):
-            return
         self.viewer.prefetch_clips_to_cache(paths)
 
     def _sync_viewer_sku_overlay(self):
-        if not hasattr(self.viewer, "set_sku_timeline_items"):
-            return
         sku_items = [
             itm
-            for itm in getattr(self.time_picker, "_items", [])
+            for itm in self.time_picker._items
             if itm.kind == "sku" and itm.start is not None and itm.end is not None
         ]
         sku_items.sort(key=lambda itm: itm.start)
@@ -1349,11 +1310,10 @@ class MainWindow(QWidget):
         if entry.video_item is None or entry.video_path is None:
             return
         self.open_in_viewer(entry.video_item)
-        if hasattr(self.viewer, "seek_to_seconds"):
-            self.viewer.seek_to_seconds(entry.seek_seconds, pause=True)
+        self.viewer.seek_to_seconds(entry.seek_seconds, pause=True)
 
     def _build_stop_report_entries(self) -> list[StopReportEntry]:
-        items = list(getattr(self.time_picker, "_items", []) or [])
+        items = list(self.time_picker._items or [])
         if not items:
             return []
         has_operator_stop_in_timeline = any(self._is_operator_stop_item(itm) for itm in items)
@@ -1445,10 +1405,10 @@ class MainWindow(QWidget):
         return entries
 
     def _fetch_operator_stop_events(self) -> list[tuple[datetime, str, str, str]]:
-        day = getattr(self.time_picker, "_current_date", None)
+        day = self.time_picker._current_date
         if day is None:
             return []
-        root = getattr(self.time_picker, "current_root", None)
+        root = self.time_picker.current_root
         start_dt = local_day_start_utc(day)
         end_dt = local_day_end_utc(day)
         try:
@@ -1482,10 +1442,6 @@ class MainWindow(QWidget):
 
     def _cache_paths_for_report(self, paths: list[Path]):
         if not paths:
-            return
-        if not hasattr(self.viewer, "_cache_executor") or not hasattr(self.viewer, "_cache_path_for"):
-            return
-        if not hasattr(self.viewer, "_copy_to_cache"):
             return
         progress = QProgressDialog("Preparing report clips...", "Cancel", 0, 1, self)
         progress.setWindowTitle("Stop Report")
@@ -1643,38 +1599,34 @@ class MainWindow(QWidget):
         if video_path is None:
             return None
         # Avoid network reads in the UI thread: only use already-cached local files.
-        cache_root = getattr(self.viewer, "cache_root", None)
+        cache_root = self.viewer.cache_root
         if cache_root is None:
             return None
         try:
-            if hasattr(self.viewer, "get_valid_cached_path"):
-                cached = self.viewer.get_valid_cached_path(video_path)
-                if cached and isinstance(cached, Path):
-                    return cached
-            if hasattr(self.viewer, "_cache_path_for"):
-                cached = self.viewer._cache_path_for(video_path)
-                if cached and isinstance(cached, Path) and cached.exists():
-                    return cached
+            cached = self.viewer.get_valid_cached_path(video_path)
+            if cached and isinstance(cached, Path):
+                return cached
+            cached = self.viewer._cache_path_for(video_path)
+            if cached and isinstance(cached, Path) and cached.exists():
+                return cached
         except Exception:
             return None
         return None
 
     def _export_source_path(self, original_path: Path) -> Path | None:
-        viewer_original = getattr(self.viewer, "current_video_original_path", None)
-        viewer_loaded = getattr(self.viewer, "current_video_path", None)
+        viewer_original = self.viewer.current_video_original_path
+        viewer_loaded = self.viewer.current_video_path
         if viewer_original is not None and Path(viewer_original) == original_path and viewer_loaded:
             viewer_loaded_path = Path(viewer_loaded)
             if viewer_loaded_path.exists():
                 return viewer_loaded_path
         try:
-            if hasattr(self.viewer, "get_valid_cached_path"):
-                cached = self.viewer.get_valid_cached_path(original_path)
-                if cached and cached.exists():
-                    return cached
-            if hasattr(self.viewer, "_cache_path_for") and hasattr(self.viewer, "_ensure_cached_copy"):
-                cache_path = self.viewer._cache_path_for(original_path)
-                if self.viewer._ensure_cached_copy(original_path, cache_path) and cache_path.exists():
-                    return cache_path
+            cached = self.viewer.get_valid_cached_path(original_path)
+            if cached and cached.exists():
+                return cached
+            cache_path = self.viewer._cache_path_for(original_path)
+            if self.viewer._ensure_cached_copy(original_path, cache_path) and cache_path.exists():
+                return cache_path
         except Exception:
             pass
         return original_path if original_path.exists() else None
@@ -1683,7 +1635,7 @@ class MainWindow(QWidget):
         if end_seconds <= start_seconds:
             QMessageBox.information(self, "Export Clip", "Select a non-zero clip range first.")
             return
-        viewer_original = getattr(self.viewer, "current_video_original_path", None)
+        viewer_original = self.viewer.current_video_original_path
         if viewer_original is None:
             QMessageBox.information(self, "Export Clip", "No video is currently loaded.")
             return
@@ -1712,9 +1664,6 @@ class MainWindow(QWidget):
             return
         ffmpeg_path = shutil.which("ffmpeg")
         target_path = Path(target_path_str)
-        if not hasattr(self.viewer, "export_current_clip_with_overlays"):
-            QMessageBox.warning(self, "Export Clip", "Overlay export is not available in this build.")
-            return
         ok, message = self.viewer.export_current_clip_with_overlays(
             source_path,
             start_seconds,
@@ -1734,8 +1683,7 @@ class MainWindow(QWidget):
         self.date_picker.set_system_layout_settings(self.settings)
         self.overview_widget.set_system_layout_settings(self.settings)
         self.fleetwide_search_widget.set_settings(self.settings)
-        if hasattr(self.time_picker, "_static_tracks"):
-            self.time_picker._static_tracks = self._build_static_tracks()
+        self.time_picker._static_tracks = self._build_static_tracks()
         current_parent = self.date_picker.parent_dir
         target_parent = Path(self.settings.last_parent) if self.settings.last_parent else None
         if target_parent and target_parent.exists():
@@ -1757,10 +1705,8 @@ class MainWindow(QWidget):
         # Keep the viewer's embedded settings panels on the same settings
         # object so a later autosave cannot overwrite fleetwide searches.
         self.viewer.settings = self.settings
-        if hasattr(self.viewer, "settings_panel"):
-            self.viewer.settings_panel.settings = self.settings
-        if hasattr(self.viewer, "system_layout_panel"):
-            self.viewer.system_layout_panel.settings = self.settings
+        self.viewer.settings_panel.settings = self.settings
+        self.viewer.system_layout_panel.settings = self.settings
 
     def _should_show_overview(self) -> bool:
         return self.overview_btn.isChecked()
@@ -1831,11 +1777,7 @@ class MainWindow(QWidget):
         else:
             self._pending_overview_navigation = None
             self._overview_nav_timer.stop()
-        if hasattr(self.date_picker, "select_pikpak_folder_and_day"):
-            self.date_picker.select_pikpak_folder_and_day(pikpak_root, selected_day)
-        else:
-            self.date_picker.use_pikpak_folder(pikpak_root)
-            self.on_date_selected(pikpak_root, selected_day)
+        self.date_picker.select_pikpak_folder_and_day(pikpak_root, selected_day)
 
     def _continue_overview_navigation(self):
         pending = self._pending_overview_navigation
@@ -1857,13 +1799,13 @@ class MainWindow(QWidget):
             return
 
         if pending.get("stage") == "load_timeline":
-            if getattr(self.time_picker, "current_root", None) != target_root:
+            if self.time_picker.current_root != target_root:
                 return
-            if getattr(self.time_picker, "_current_date", None) != target_day:
+            if self.time_picker._current_date != target_day:
                 return
-            if getattr(self.time_picker, "_loader_thread", None) is not None:
+            if self.time_picker._loader_thread is not None:
                 return
-            items = list(getattr(self.time_picker, "_items", []) or [])
+            items = list(self.time_picker._items or [])
             video_items = [itm for itm in items if itm.kind == "video" and isinstance(itm.payload, Path)]
             if not video_items:
                 return
@@ -1886,8 +1828,8 @@ class MainWindow(QWidget):
                 return
             pending["clip_item"] = clip_item
             self.open_in_viewer(clip_item)
-            viewer_path = getattr(self.viewer, "current_video_original_path", None)
-            viewer_cap = getattr(self.viewer, "cap", None)
+            viewer_path = self.viewer.current_video_original_path
+            viewer_cap = self.viewer.cap
             if viewer_cap is None or viewer_path is None or Path(viewer_path) != Path(clip_item.payload):
                 return
             pending["stage"] = "sync_and_seek"
@@ -1900,8 +1842,8 @@ class MainWindow(QWidget):
             self._pending_overview_navigation = None
             self._overview_nav_timer.stop()
             return
-        viewer_path = getattr(self.viewer, "current_video_original_path", None)
-        viewer_cap = getattr(self.viewer, "cap", None)
+        viewer_path = self.viewer.current_video_original_path
+        viewer_cap = self.viewer.cap
         if viewer_cap is None or viewer_path is None or Path(viewer_path) != Path(clip_item.payload):
             return
         clip_start_dt = clip_item.start
@@ -1919,14 +1861,13 @@ class MainWindow(QWidget):
         if clip_duration_seconds > 0.0:
             seek_seconds = min(seek_seconds, clip_duration_seconds)
         seek_seconds = max(0.0, seek_seconds)
-        if not pending.get("sync_forced") and hasattr(self.viewer, "_auto_sync_with_ocr"):
+        if not pending.get("sync_forced"):
             pending["sync_forced"] = True
             try:
                 self.viewer._auto_sync_with_ocr(force=True)
             except Exception:
                 pass
-        if hasattr(self.viewer, "seek_to_seconds"):
-            self.viewer.seek_to_seconds(seek_seconds, pause=True)
+        self.viewer.seek_to_seconds(seek_seconds, pause=True)
         self._pending_overview_navigation = None
         self._overview_nav_timer.stop()
 
@@ -1944,10 +1885,7 @@ def main():
     win.resize(1400, 700)
     if splash is not None:
         win.show()
-        if hasattr(splash, "fade_and_finish"):
-            splash.fade_and_finish(win)
-        else:
-            splash.finish(win)
+        splash.fade_and_finish(win)
     else:
         win.show()
     sys.exit(app.exec())
