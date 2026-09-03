@@ -195,8 +195,14 @@ unify `TRANSITION_STATES` (`a7d0e10`); fix `_is_past_day` to local date
    (`af91557` date scan, `1bd9308` buffer, `6ce4bd2` fleetwide,
    `cabb5e2` overview, `cf789c1` timeline) — one worker pattern, no
    terminate(), no keep-alive hacks, no request-id staleness protocols.
-   **STAGE 1 COMPLETE.** Next: Stage 2 (elastic_loader split with the
-   Argus schema seam, stop_report.py, target_overlay_controller.py).
+   **STAGE 1 COMPLETE.** Stage 2 progress 2026-09-03: elastic_schema.py
+   — the single Argus 1/2 seam, 11 tests (`0bc9fdd`, `8a7aa2e`);
+   elastic_client.py session/URL/headers (`8c22aee`); sku_timeline.py
+   band state machine as a pure function, 9 tests (`fdddfab`);
+   stop_report.py out of Main_Window (`8887f70`). Remaining from Stage 2:
+   target_overlay_controller.py, the paginate/retry-ladder unification
+   (verify loop-by-loop against live Elastic), the overview nav polling
+   replacement, and the scene rebuild-in-place work.
 2. Delete the 49 `hasattr`/`getattr` capability probes in Main_Window —
    they hide typos; the ~20-method viewer interface they conceal becomes
    visible and documentable.
