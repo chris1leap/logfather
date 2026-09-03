@@ -771,3 +771,62 @@ class TestFetchSkuItemsLastVideoEnd:
                 Path("Z:/public/PikPak012"),
                 date(2026, 9, 1),
             )
+
+
+class TestTimelineLoaderConcurrency:
+    """_load_timeline_items runs extra loaders concurrently with the video
+    scan; each receives a resolver for the last-video-end that blocks until
+    the scan publishes it."""
+
+    class _FakeJob:
+        def __init__(self):
+            self.partials = []
+        def interrupted(self):
+            return False
+        def emit_progress(self, payload):
+            self.partials.append(payload)
+
+    def test_resolver_delivers_last_video_end(self):
+        from datetime import date
+        from logfather.ui.Time_Picker import _load_timeline_items
+
+        clips = [
+            Path("Z:/nowhere/PikPak012 -Line 1-_00_20260901080000.mp4"),
+            Path("Z:/nowhere/PikPak012 -Line 1-_00_20260901081500.mp4"),
+        ]
+        seen = {}
+
+        def extra_loader(_root, _day, resolve_last_video_end):
+            assert callable(resolve_last_video_end)
+            seen["value"] = resolve_last_video_end()
+            return []
+
+        job = self._FakeJob()
+        result = _load_timeline_items(
+            job, Path("Z:/nowhere"), date(2026, 9, 1),
+            lambda _root, _day: clips, [extra_loader], None,
+        )
+        assert result is not None
+        items, _day, _root = result
+        videos = [i for i in items if i.kind == "video"]
+        assert len(videos) == 2
+        assert seen["value"] == max(v.end for v in videos)
+        # All partials append now; arrival order no longer matters.
+        assert all(p[3] is True for p in job.partials if p[0] == "partial")
+
+    def test_no_videos_resolves_none(self):
+        from datetime import date
+        from logfather.ui.Time_Picker import _load_timeline_items
+
+        seen = {}
+
+        def extra_loader(_root, _day, resolve_last_video_end):
+            seen["value"] = resolve_last_video_end()
+            return []
+
+        result = _load_timeline_items(
+            self._FakeJob(), Path("Z:/nowhere"), date(2026, 9, 1),
+            lambda _root, _day: [], [extra_loader], None,
+        )
+        assert result is not None
+        assert seen["value"] is None

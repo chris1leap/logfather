@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
@@ -1139,11 +1140,71 @@ class TimePicker(QWidget):
 
 
 def _load_timeline_items(job, root: Path, day: date, load_func, extra_loaders, cache_root: Optional[Path]):
-    """Worker for the day timeline: video clips first (one partial), then
-    the Elastic extra loaders as they complete (more partials), returning
-    the merged sorted list. Progress payloads are tagged tuples:
-    ("partial", items, day, append, root) and ("warning", message)."""
+    """Worker for the day timeline: the Elastic extra loaders run
+    CONCURRENTLY with the video scan of the share (each emits a partial as
+    it completes; all partials append, and show_times cleared the items).
+    The loaders receive a zero-arg resolver for the day's last-video-end —
+    fetch_sku_items needs that value only for its final band-capping step,
+    so its Elastic queries overlap the scan and the resolver blocks only
+    if the scan hasn't finished by then. Progress payloads are tagged
+    tuples: ("partial", items, day, append, root) and ("warning", message).
+    """
     t_total_start = perf_counter()
+
+    last_video_end_box: dict[str, object] = {}
+    last_video_end_ready = threading.Event()
+
+    def _resolve_last_video_end():
+        last_video_end_ready.wait()
+        return last_video_end_box.get("value")
+
+    executor: ThreadPoolExecutor | None = None
+    future_to_name: dict = {}
+    future_to_start: dict = {}
+    extra_started = perf_counter()
+    if extra_loaders:
+        executor = ThreadPoolExecutor(max_workers=max(1, len(extra_loaders)))
+        for loader in extra_loaders:
+            future = executor.submit(loader, root, day, _resolve_last_video_end)
+            future_to_name[future] = getattr(loader, "__name__", repr(loader))
+            future_to_start[future] = perf_counter()
+
+    try:
+        return _scan_videos_and_collect(
+            job,
+            root,
+            day,
+            load_func,
+            cache_root,
+            t_total_start,
+            last_video_end_box,
+            last_video_end_ready,
+            future_to_name,
+            future_to_start,
+            extra_started,
+        )
+    finally:
+        # Never leave a loader blocked on the resolver (early return on
+        # interruption, or a scan failure); abandoned loaders finish on
+        # their own request timeouts.
+        last_video_end_ready.set()
+        if executor is not None:
+            executor.shutdown(wait=False)
+
+
+def _scan_videos_and_collect(
+    job,
+    root: Path,
+    day: date,
+    load_func,
+    cache_root: Optional[Path],
+    t_total_start: float,
+    last_video_end_box: dict,
+    last_video_end_ready: threading.Event,
+    future_to_name: dict,
+    future_to_start: dict,
+    extra_started: float,
+):
     t_video_start = perf_counter()
     paths = list(load_func(root, day))
     cache_index = _build_cache_index(cache_root) if cache_root else set()
@@ -1194,12 +1255,13 @@ def _load_timeline_items(job, root: Path, day: date, load_func, extra_loaders, c
                 path_key=_path_key(path_obj),
             )
         )
-    # The end of the last clip (inferred_live_clip_end) — handed to the
-    # extra loaders so fetch_sku_items need not re-list this same day
-    # folder on the share (~5s per scan on the WAN share).
-    last_video_end = items[-1].end if items else None
+    # The end of the last clip (inferred_live_clip_end) — published to the
+    # extra loaders' resolver so fetch_sku_items need not re-list this same
+    # day folder on the share (~5s per scan on the WAN share).
+    last_video_end_box["value"] = items[-1].end if items else None
+    last_video_end_ready.set()
     if items:
-        job.emit_progress(("partial", items, day, False, root))
+        job.emit_progress(("partial", items, day, True, root))
     _timeline_perf_log(
         f"video loader: files={len(paths)} items={len(items)} "
         f"time={(perf_counter() - t_video_start) * 1000:.0f}ms"
@@ -1209,42 +1271,35 @@ def _load_timeline_items(job, root: Path, day: date, load_func, extra_loaders, c
         f"time={stat_fallback_ms:.0f}ms"
     )
 
-    # Run extra loaders (e.g., Elastic). Each loader already enforces its own HTTP/request
-    # timeout so we don't apply another hard timeout here; that was causing results to be
-    # dropped for larger queries that legitimately take longer than a few seconds.
+    # Collect the extra loaders (e.g., Elastic) that have been running since
+    # before the scan. Each loader already enforces its own HTTP/request
+    # timeout so we don't apply another hard timeout here; that was causing
+    # results to be dropped for larger queries that legitimately take longer
+    # than a few seconds.
     warnings: list[str] = []
-    if extra_loaders:
-        with ThreadPoolExecutor(max_workers=max(1, len(extra_loaders))) as executor:
-            future_to_name = {}
-            future_to_start = {}
-            for loader in extra_loaders:
-                future = executor.submit(loader, root, day, last_video_end)
-                future_to_name[future] = getattr(loader, "__name__", repr(loader))
-                future_to_start[future] = perf_counter()
-            extra_started = perf_counter()
-            for fut in as_completed(future_to_name):
-                if job.interrupted():
-                    executor.shutdown(cancel_futures=True)
-                    return None
-                loader_name = future_to_name.get(fut, "extra_loader")
-                t_loader = future_to_start.get(fut, perf_counter())
-                try:
-                    res = fut.result()
-                except ElasticFetchError as exc:
-                    warnings.append(str(exc))
-                    res = exc.items
-                except Exception as exc:
-                    warnings.append(str(exc))
-                    continue
-                _timeline_perf_log(
-                    f"extra loader {loader_name}: items={len(res) if res else 0} "
-                    f"time={(perf_counter() - t_loader) * 1000:.0f}ms"
-                )
-                if res:
-                    for itm in res:
-                        items.append(itm)
-                    job.emit_progress(("partial", list(res), day, True, root))
-            _timeline_perf_log(f"extra loaders total: {(perf_counter() - extra_started) * 1000:.0f}ms")
+    if future_to_name:
+        for fut in as_completed(future_to_name):
+            if job.interrupted():
+                return None
+            loader_name = future_to_name.get(fut, "extra_loader")
+            t_loader = future_to_start.get(fut, perf_counter())
+            try:
+                res = fut.result()
+            except ElasticFetchError as exc:
+                warnings.append(str(exc))
+                res = exc.items
+            except Exception as exc:
+                warnings.append(str(exc))
+                continue
+            _timeline_perf_log(
+                f"extra loader {loader_name}: items={len(res) if res else 0} "
+                f"time={(perf_counter() - t_loader) * 1000:.0f}ms"
+            )
+            if res:
+                for itm in res:
+                    items.append(itm)
+                job.emit_progress(("partial", list(res), day, True, root))
+        _timeline_perf_log(f"extra loaders total: {(perf_counter() - extra_started) * 1000:.0f}ms")
 
     t_finalize = perf_counter()
     for itm in items:

@@ -704,7 +704,9 @@ def fetch_events(
 ) -> Iterable[TimelineItem]:
     """last_video_end: the inferred end of the day's last clip, when the
     caller (the timeline loader) has already scanned the share for it —
-    re-listing a day folder on the WAN share costs ~5s."""
+    re-listing a day folder on the WAN share costs ~5s. May also be a
+    zero-arg callable (resolver) that fetch_sku_items calls only at its
+    final band-capping step, letting the queries overlap the scan."""
     t_fetch_start = perf_counter()
     if not day or (pikpak_root is None and SYSTEM_ID_OVERRIDE is None):
         print("[elastic] No PikPak or day selected; skipping event fetch.")
@@ -1017,7 +1019,6 @@ def fetch_sku_items(
             }
         )
 
-    cap_end = _ensure_utc(last_video_end) if last_video_end else day_end
     events: list[tuple[datetime, str, dict | None, str]] = []
     total_hits = 0
     start_hits = 0
@@ -1183,6 +1184,12 @@ def fetch_sku_items(
         except Exception as exc:
             print(f"[sku-debug] fallback start_pnp query failed: {exc}", flush=True)
 
+    if callable(last_video_end):
+        # A resolver from the timeline loader: blocks until the concurrent
+        # share scan publishes the value. Resolved here — after all the
+        # Elastic queries — so they overlap the scan.
+        last_video_end = last_video_end()
+    cap_end = _ensure_utc(last_video_end) if last_video_end else day_end
     return build_sku_bands(events, cap_end)
 
 
