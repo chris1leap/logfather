@@ -385,12 +385,13 @@ class TargetOverlayController(QObject):
         """Overlay provider for clip export: maps clip time to playback time."""
         viewer = self._viewer
         playback_dt = None
-        drift_seconds = float(viewer.time_offset or 0.0)
+        alignment = viewer.alignment
         if viewer.video_start_dt is not None and viewer.fps > 0:
-            adjusted_seconds = t_seconds + (viewer.ocr_frame_offset / viewer.fps)
-            playback_dt = viewer.video_start_dt + timedelta(seconds=adjusted_seconds - drift_seconds)
+            playback_dt = alignment.playback_datetime(viewer.video_start_dt, t_seconds)
         elif viewer.current_video_filename_dt is not None:
-            playback_dt = viewer.current_video_filename_dt + timedelta(seconds=t_seconds - drift_seconds)
+            playback_dt = alignment.playback_datetime_from_filename(
+                viewer.current_video_filename_dt, t_seconds
+            )
         if playback_dt is None:
             return []
         buffer_targets, _last_event = self._buffer_targets_for_time(playback_dt)

@@ -34,6 +34,7 @@ from logfather.core.frame_analysis import (
 from logfather.ui.annotated_video_widget import AnnotatedVideoWidget
 from logfather.data.clip_cache import ClipCache
 from logfather.data.ocr_offset_store import OcrOffsetStore
+from logfather.core.time_alignment import TimeAlignment
 from logfather.core.log_events import (
     LOCAL_TIMEZONE,
     MESSAGE_COLUMN,
@@ -2665,10 +2666,7 @@ class VideoLogViewer(QWidget):
         print("[viewer] populate_log_list done", flush=True)
 
     def _event_seconds_to_video_seconds(self, event_seconds: float) -> float:
-        t = float(event_seconds) + self.effective_offset()
-        if self.fps > 0 and self.ocr_frame_offset:
-            t -= float(self.ocr_frame_offset) / float(self.fps)
-        return max(0.0, t)
+        return self.alignment.event_to_video(event_seconds)
 
     def _on_log_item_clicked(self, index: QModelIndex):
         if self.cap is None or not self.events:
@@ -3565,6 +3563,9 @@ class VideoLogViewer(QWidget):
     def _ppm_overlay_lines(self, t_seconds: float) -> list[str]:
         if not self._ppm_event_seconds:
             return []
+        # Pre-dates OCR sync: skips alignment.ocr_correction, unlike
+        # video_to_event — PPM matching can lag the log highlight by the
+        # OCR frame offset.
         t_log = float(t_seconds) - float(self.effective_offset())
         n = bisect_right(self._ppm_event_seconds, t_log)
         if n <= 0:
@@ -3657,14 +3658,36 @@ class VideoLogViewer(QWidget):
             return self._sku_overlay_lines_from_item(last_known_item)
         return []
 
+    @property
+    def alignment(self) -> TimeAlignment:
+        """The playback-time maths for the primary video, snapshotting the
+        viewer's mutable offset attrs. All conversions go through this —
+        never re-derive the formulas at a call site."""
+        return TimeAlignment(
+            fps=self.fps,
+            sync_offset=self.sync_offset,
+            time_offset=self.time_offset,
+            ocr_frame_offset=self.ocr_frame_offset,
+        )
+
+    @property
+    def secondary_alignment(self) -> TimeAlignment:
+        """Alignment for the secondary camera (wall-clock slaved to the
+        primary; sync/drift offsets do not apply to it)."""
+        return TimeAlignment(
+            fps=self.secondary_fps,
+            ocr_frame_offset=self.secondary_ocr_frame_offset,
+        )
+
     def effective_offset(self) -> float:
-        return self.sync_offset + self.time_offset
+        return self.alignment.effective_offset
 
     def _overlay_context_for_time(self, t_seconds: float) -> tuple[list[str], datetime | None]:
         playback_dt = None
         if self.video_start_dt is not None and self.fps > 0:
-            adjusted_seconds = t_seconds + (self.ocr_frame_offset / self.fps)
-            playback_dt = self.video_start_dt + timedelta(seconds=adjusted_seconds)
+            # Note: the burned-in clock time, deliberately without the
+            # user drift — SKU matching follows the camera clock.
+            playback_dt = self.alignment.clock_datetime(self.video_start_dt, t_seconds)
         elif self.current_video_filename_dt is not None:
             playback_dt = self.current_video_filename_dt + timedelta(seconds=t_seconds)
         ppm_lines = self._ppm_overlay_lines(t_seconds)
@@ -3678,20 +3701,20 @@ class VideoLogViewer(QWidget):
         time_str = format_timecode(td).replace(",", ".")
         if hasattr(self, "info_label"):
             self.info_label.display(time_str)
-        drift_seconds = float(self.time_offset)
         playback_dt = None
         if self.video_start_dt is not None and self.fps > 0:
-            adjusted_seconds = t_seconds + (self.ocr_frame_offset / self.fps)
-            calc_dt = self.video_start_dt + timedelta(seconds=adjusted_seconds)
+            calc_dt = self.alignment.clock_datetime(self.video_start_dt, t_seconds)
             calc_str = calc_dt.strftime("%H:%M:%S.%f")[:-3]
             if hasattr(self, "calc_label"):
                 self.calc_label.display(calc_str)
-            playback_dt = calc_dt - timedelta(seconds=drift_seconds)
+            playback_dt = self.alignment.playback_datetime(self.video_start_dt, t_seconds)
         else:
             if hasattr(self, "calc_label"):
                 self.calc_label.display("00:00:00.000")
             if self.current_video_filename_dt is not None:
-                playback_dt = self.current_video_filename_dt + timedelta(seconds=t_seconds - drift_seconds)
+                playback_dt = self.alignment.playback_datetime_from_filename(
+                    self.current_video_filename_dt, t_seconds
+                )
         ppm_lines, playback_dt_from_helper = self._overlay_context_for_time(t_seconds)
         if playback_dt is None:
             playback_dt = playback_dt_from_helper
@@ -3707,11 +3730,7 @@ class VideoLogViewer(QWidget):
         if not self.events or self._log_model.rowCount() == 0:
             return
 
-        # Mirror the correction applied in _event_seconds_to_video_seconds so
-        # the reverse mapping stays consistent when OCR frame sync is active.
-        ocr_correction = (self.ocr_frame_offset / self.fps) if self.fps > 0 and self.ocr_frame_offset else 0.0
-        t_td = timedelta(seconds=t_seconds + ocr_correction) - timedelta(seconds=self.effective_offset())
-        t_secs = t_td.total_seconds()
+        t_secs = self.alignment.video_to_event(t_seconds)
 
         # Frame interval: [t_secs, t_secs + one_frame).  All log events whose
         # start falls inside this window are "between this frame and the next."
@@ -4307,13 +4326,10 @@ class VideoLogViewer(QWidget):
                 print(f"[viewer] secondary update took {dt:.2f}s (no fps)", flush=True)
             return
         if self.video_start_dt is not None and self.secondary_video_start_dt is not None:
-            adjusted_seconds = t_seconds
-            if self.fps and self.fps > 0:
-                adjusted_seconds += self.ocr_frame_offset / self.fps
-            abs_time = self.video_start_dt + timedelta(seconds=adjusted_seconds)
-            t2 = (abs_time - self.secondary_video_start_dt).total_seconds()
-            if self.secondary_fps > 0:
-                t2 -= self.secondary_ocr_frame_offset / self.secondary_fps
+            abs_time = self.alignment.clock_datetime(self.video_start_dt, t_seconds)
+            t2 = self.secondary_alignment.video_seconds_for_clock(
+                self.secondary_video_start_dt, abs_time
+            )
         else:
             t2 = t_seconds
         frame_index = int(round(t2 * self.secondary_fps)) + int(self.secondary_manual_offset_frames)
@@ -4731,6 +4747,9 @@ class VideoLogViewer(QWidget):
         if not self.events or self.cap is None:
             self._set_log_markers([])
             return
+        # Pre-dates OCR sync: skips alignment.ocr_correction, unlike
+        # event_to_video — markers can sit an OCR frame offset away from
+        # where clicking the log row seeks.
         offset = self.effective_offset()
         markers: list[tuple[float, str]] = []
         for ev in self.events:
@@ -4934,9 +4953,7 @@ class VideoLogViewer(QWidget):
         if current_row == -1:
             # No selection yet; pick the closest event to current time.
             t = self.current_frame / self.fps if self.fps > 0 else 0.0
-            if self.fps > 0 and self.ocr_frame_offset:
-                t += float(self.ocr_frame_offset) / float(self.fps)
-            current_td = timedelta(seconds=t) - timedelta(seconds=self.effective_offset())
+            current_td = timedelta(seconds=self.alignment.video_to_event(t))
             try:
                 closest = min(
                     range(len(self.events)),
