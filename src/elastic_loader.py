@@ -25,6 +25,18 @@ from Time_Picker import (
 )
 from settings_store import Settings, Condition
 from elastic_errors import ElasticFetchError
+from elastic_schema import (
+    TRANSITION_STATES,
+    extract_hit_robot_id as _extract_hit_robot_id,
+    extract_service_name as _extract_service_name,
+    extract_ui_selection as _extract_ui_selection,
+    identity_filter,
+    is_automatic_state as _is_automatic_state,
+    is_manual_state as _is_manual_state,
+    is_shutdown_message as _is_shutdown_message,
+    is_stop_like_event as _is_stop_like_event,
+    robot_id_from_folder,
+)
 
 # Defaults (can be overridden in settings dialog). Index must be provided by user if default is incorrect.
 KIBANA_BASE_DEFAULT = "https://leap-deployment.kb.europe-west2.gcp.elastic-cloud.com:9243"
@@ -38,23 +50,6 @@ ELASTIC_EVENT_MAX_PAGES = 20
 # (de)serialization or the SKU/event extraction logic.
 EVENTS_CACHE_SCHEMA_VERSION = 2
 
-# The single list of operation-state transitions every query filters on.
-# This used to exist as three divergent copies (the SKU query was missing
-# system_stop/emergency_stop, so timeline SKU bands didn't terminate on
-# those states while the overview board did — same day, two answers).
-# Consumers that only care about a subset ignore unknown states.
-TRANSITION_STATES = [
-    "start_pnp",
-    "stop_pnp",
-    "operator_stop",
-    "caution_led_on",
-    "hardware_emergency_stop",
-    "protective_stop",
-    "controller_node_manual_mode",
-    "controller_node_automatic_mode",
-    "system_stop",
-    "emergency_stop",
-]
 ELASTIC_EVENT_PAGE_SIZE = 1500
 ELASTIC_EVENT_MIN_PAGE_SIZE = 300
 ELASTIC_EVENT_TIMEOUT_SEC = 12
@@ -142,13 +137,8 @@ def _events_cache_path(settings: Settings, pikpak_root: Path, day) -> Path | Non
 
 
 def _extract_robot_id(pikpak_root: Path) -> str | None:
-    """
-    Build robot id from PikPak folder name: expects trailing digits like PikPak012 -> 35-2300-012.
-    """
-    m = re.search(r"(\d{3})$", pikpak_root.name)
-    if not m:
-        return None
-    return f"35-2300-{m.group(1)}"
+    """PikPak folder -> robot id (canonical rule lives in elastic_schema)."""
+    return robot_id_from_folder(pikpak_root.name)
 
 
 def _get_robot_id(pikpak_root: Path | None) -> str | None:
@@ -179,147 +169,12 @@ def _ensure_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def _extract_ui_selection(source_doc: dict) -> dict | None:
-    source_val = str(source_doc.get("source") or "").strip()
-    allowed_sources = {"/leap/manip1/ui_node", "/leap/manip1/behaviour_node"}
-    has_sku_fields = any(
-        key in source_doc
-        for key in (
-            "data_collection",
-            "data_collection.sku_name",
-            "sku",
-            "sku.name",
-        )
-    )
-    if source_val and source_val not in allowed_sources and not has_sku_fields:
-        return None
-    params = None
-    json_req = source_doc.get("json_request")
-    if isinstance(json_req, dict):
-        params = json_req.get("params")
-    if params is None:
-        params = source_doc.get("json_request.params")
-    payload = {}
-    if isinstance(params, str) and params:
-        try:
-            payload = json.loads(params)
-        except Exception:
-            payload = {}
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if isinstance(data, dict):
-        sku = data.get("user_selection")
-        tray = data.get("tray_selection")
-        tool = data.get("tool_selection")
-    else:
-        sku = None
-        tray = None
-        tool = None
-
-    # Argus 2.0: SKU may be stored directly on the document.
-    if not sku:
-        sku = source_doc.get("data_collection.sku_name") or source_doc.get("sku.name")
-    if not sku:
-        data_collection = source_doc.get("data_collection")
-        if isinstance(data_collection, dict):
-            # Argus 1.x schema
-            sku = sku or data_collection.get("user_selection")
-            tray = tray or data_collection.get("tray_selection")
-            tool = tool or data_collection.get("tool_selection")
-            # Argus 2.x schema
-            sku = sku or data_collection.get("sku_name")
-            tray = tray or data_collection.get("sku_tray")
-            tool = tool or data_collection.get("sku_tool")
-        sku_block = source_doc.get("sku")
-        if isinstance(sku_block, dict):
-            sku = sku or sku_block.get("name")
-            tray = tray or sku_block.get("tray")
-            tool = tool or sku_block.get("tool")
-        # Flat field fallback if mapping flattens nested keys.
-        sku = sku or source_doc.get("data_collection.user_selection")
-        tray = tray or source_doc.get("data_collection.tray_selection")
-        tool = tool or source_doc.get("data_collection.tool_selection")
-
-    if not sku:
-        return None
-    return {
-        "sku": str(sku),
-        "tray": str(tray) if tray else "",
-        "tool": str(tool) if tool else "",
-    }
-
-
-def _is_manual_state(state_name: str) -> bool:
-    s = (state_name or "").strip().lower()
-    if not s:
-        return False
-    return s == "controller_node_manual_mode" or ("manual" in s and "mode" in s)
-
-
-def _is_automatic_state(state_name: str) -> bool:
-    s = (state_name or "").strip().lower()
-    if not s:
-        return False
-    return s == "controller_node_automatic_mode" or ("automatic" in s and "mode" in s)
-
-
-def _is_shutdown_message(message: str) -> bool:
-    msg = (message or "").strip().lower()
-    if not msg:
-        return False
-    return "shutting down system" in msg
-
-
-def _extract_service_name(source_doc: dict) -> str:
-    direct = source_doc.get("json_request.service_name")
-    if isinstance(direct, str) and direct.strip():
-        return direct.strip()
-    json_request = source_doc.get("json_request")
-    if isinstance(json_request, dict):
-        nested = json_request.get("service_name")
-        if isinstance(nested, str) and nested.strip():
-            return nested.strip()
-    return ""
-
-
-def _is_stop_like_event(state_name: str, message: str, service_name: str = "") -> bool:
-    lower_state = (state_name or "").strip().lower()
-    if (
-        "stop" in lower_state
-        or "estop" in lower_state
-        or "caution" in lower_state
-        or lower_state in {
-            "hardware_emergency_stop",
-            "protective_stop",
-            "emergency_stop",
-            "system_stop",
-            "stop_pnp",
-            "caution_led_on",
-        }
-    ):
-        return True
-    if (service_name or "").strip().lower() == "system_shutdown":
-        return True
-    return _is_shutdown_message(message)
-
-
 def _build_robot_filters(robot_id: str) -> dict:
-    should_terms = []
-    for field in ("leap_robot_id", "system_id", "system_id.raw"):
-        should_terms.extend(
-            [
-                {"term": {f"{field}.keyword": robot_id}},
-                {"term": {field: robot_id}},
-                {"match_phrase": {field: robot_id}},
-            ]
-        )
-    return {"bool": {"should": should_terms, "minimum_should_match": 1}}
+    return identity_filter([robot_id])
 
 
 def _build_multi_robot_filters(robot_ids: list[str]) -> dict:
-    should_terms = []
-    for robot_id in robot_ids:
-        should_terms.append(_build_robot_filters(robot_id))
-    return {"bool": {"should": should_terms, "minimum_should_match": 1}}
+    return identity_filter(robot_ids)
 
 
 def _build_query(
@@ -399,14 +254,6 @@ def _build_query(
     if search_after:
         body["search_after"] = search_after
     return body
-
-
-def _extract_hit_robot_id(source_doc: dict) -> str | None:
-    for key in ("leap_robot_id", "system_id", "system_id.raw"):
-        value = source_doc.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
 
 
 def _build_overview_query(

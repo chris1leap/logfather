@@ -37,6 +37,7 @@ from Time_Picker import (
     _cache_key_for,
 )
 from elastic_loader import fetch_overview_event_chunks
+from elastic_schema import robot_id_from_folder
 from app_assets import resolve_asset_path as _resolve_asset_path
 from qt_worker import JobSlot
 from settings_store import (
@@ -78,11 +79,7 @@ OVERVIEW_THUMBNAIL_MAX_AGE = timedelta(minutes=30)
 
 
 def _extract_robot_id(root: Path) -> str | None:
-    name = root.name
-    digits = "".join(ch for ch in name[-3:] if ch.isdigit())
-    if len(digits) != 3:
-        return None
-    return f"35-2300-{digits}"
+    return robot_id_from_folder(root.name)
 
 
 def _local_now() -> datetime:

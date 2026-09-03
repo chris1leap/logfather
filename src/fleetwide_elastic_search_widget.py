@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from elastic_loader import fetch_fleetwide_search_histogram
+from elastic_schema import robot_id_from_folder
 from qt_worker import JobSlot
 from settings_store import (
     FleetwideSearchDefinition, Settings, display_customer_name, display_line_name,
@@ -25,8 +26,7 @@ RANGE_BUCKET_SECONDS = {1: 3600, 7: 6 * 3600, 30: 24 * 3600, 90: 3 * 24 * 3600}
 
 
 def _robot_id_for_folder(path: Path) -> str:
-    match = re.search(r"(\d{3})$", path.name)
-    return f"35-2300-{match.group(1)}" if match else ""
+    return robot_id_from_folder(path.name) or ""
 
 
 class FleetwideSearchSettingsPage(QWidget):
