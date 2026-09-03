@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QStackedWidget,
     QFileDialog,
+    QProgressBar,
     QProgressDialog,
 )
 
@@ -661,22 +662,24 @@ class MainWindow(QWidget):
             event.accept()
             return
         self._shutdown_in_progress = True
-        popup = QLabel(
-            "Shutting down...",
+        t_shutdown = time.perf_counter()
+        popup = QWidget(
             None,
             Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint,
         )
         popup.setStyleSheet(
-            "background-color: #10151a; color: #d7dde2; padding: 18px 28px;"
-            "border: 1px solid #4a5560; font-size: 12px;"
+            "QWidget { background-color: #10151a; color: #d7dde2;"
+            " border: 1px solid #4a5560; font-size: 12px; }"
+            "QProgressBar { border: 1px solid #31414d; background: #0f1419;"
+            " height: 12px; text-align: center; }"
+            "QProgressBar::chunk { background-color: #5e9bff; }"
         )
-        popup.setAlignment(Qt.AlignCenter)
-        popup.setMinimumWidth(340)
-
-        def _step(label: str):
-            popup.setText(f"Shutting down...\n\n{label}")
-            popup.show()
-            QApplication.processEvents()
+        popup_layout = QVBoxLayout(popup)
+        popup_layout.setContentsMargins(24, 18, 24, 18)
+        popup_title = QLabel("Shutting down...")
+        popup_title.setStyleSheet("border: none; font-weight: bold;")
+        popup_step = QLabel("")
+        popup_step.setStyleSheet("border: none; color: #9aa0a6;")
 
         steps = (
             ("Stopping target-overlay worker", self._overlay_controller.shutdown),
@@ -687,8 +690,22 @@ class MainWindow(QWidget):
             ("Stopping fleetwide search", self.fleetwide_search_widget.shutdown_workers),
             ("Saving settings, stopping viewer workers", self.viewer.shutdown_workers),
         )
-        for label, shutdown in steps:
-            _step(label)
+        popup_bar = QProgressBar()
+        popup_bar.setRange(0, len(steps) + 1)
+        popup_bar.setTextVisible(False)
+        popup_layout.addWidget(popup_title)
+        popup_layout.addWidget(popup_step)
+        popup_layout.addWidget(popup_bar)
+        popup.setMinimumWidth(360)
+
+        def _step(label: str, done: int):
+            popup_step.setText(label)
+            popup_bar.setValue(done)
+            popup.show()
+            QApplication.processEvents()
+
+        for done, (label, shutdown) in enumerate(steps):
+            _step(label, done)
             t0 = time.perf_counter()
             try:
                 shutdown()
@@ -697,7 +714,7 @@ class MainWindow(QWidget):
             dt_ms = (time.perf_counter() - t0) * 1000
             if dt_ms > 100:
                 print(f"[shutdown] '{label}' took {dt_ms:.0f}ms", flush=True)
-        _step("Saving session")
+        _step("Saving session", len(steps))
         # Geometry capture and session save must come AFTER
         # viewer.shutdown_workers: its settings flush emits settings_saved,
         # which makes _reload_settings_from_viewer REPLACE self.settings —
@@ -722,6 +739,11 @@ class MainWindow(QWidget):
             self.settings.save()
         except Exception:
             pass
+        popup_bar.setValue(len(steps) + 1)
+        print(
+            f"[shutdown] total {(time.perf_counter() - t_shutdown) * 1000:.0f}ms",
+            flush=True,
+        )
         popup.close()
         super().closeEvent(event)
 

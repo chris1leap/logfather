@@ -97,6 +97,31 @@ def _apply_startup_geometry(win: QWidget, settings) -> None:
         win.setWindowState(win.windowState() | Qt.WindowMaximized)
 
 
+def _nudge_frame_fully_onscreen(win: QWidget) -> None:
+    """Post-show correction: geometry() excludes the window frame, and
+    before show() the frame margins are unknown, so a restored position can
+    leave the title bar off the top of the screen. Once shown, the frame
+    rect is real - shift the window so all of it is visible."""
+    if win.isMaximized():
+        return
+    screen = win.screen() or QApplication.primaryScreen()
+    avail = screen.availableGeometry()
+    frame = win.frameGeometry()
+    dx = 0
+    dy = 0
+    if frame.right() > avail.right():
+        dx = avail.right() - frame.right()
+    if frame.bottom() > avail.bottom():
+        dy = avail.bottom() - frame.bottom()
+    # Top/left last: the title bar must win when the window is oversized.
+    if frame.left() + dx < avail.left():
+        dx = avail.left() - frame.left()
+    if frame.top() + dy < avail.top():
+        dy = avail.top() - frame.top()
+    if dx or dy:
+        win.move(win.x() + dx, win.y() + dy)
+
+
 def clamp_rect_to_screen(rect, avail):
     """Shrink and shift `rect` so it lies fully inside `avail` (QRects)."""
     from PySide6.QtCore import QRect
@@ -174,6 +199,7 @@ def main():
         splash.fade_and_finish(win)
     else:
         win.show()
+    QTimer.singleShot(0, lambda: _nudge_frame_fully_onscreen(win))
     sys.exit(app.exec())
 
 def _build_splash_image() -> QSplashScreen | None:
