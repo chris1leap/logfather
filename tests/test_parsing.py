@@ -708,3 +708,31 @@ class TestOcrOffsetStore:
         assert store.get("k") is None
         store.set("k", 2.0, 4)  # recovers by rewriting
         assert store.get("k")["offset_seconds"] == 2.0
+
+
+class TestLayoutSettingsSnapshot:
+    """_layout_settings_snapshot gates the settings_saved reload reaction:
+    equal snapshots skip the widget rebuild (which re-lists the Z: share)."""
+
+    @staticmethod
+    def _snapshot(settings):
+        from logfather.ui.Main_Window import MainWindow
+        return MainWindow._layout_settings_snapshot(settings)
+
+    def test_volatile_fields_do_not_change_the_snapshot(self):
+        from logfather.data.settings_store import Settings
+        plain = Settings()
+        volatile = Settings(
+            last_session={"system": "PikPak010"},
+            window_geometry={"x": 1, "y": 2, "w": 3, "h": 4},
+            load_warning="recovered",
+        )
+        assert self._snapshot(plain) == self._snapshot(volatile)
+
+    def test_layout_field_change_is_detected(self):
+        from logfather.data.settings_store import Settings
+        assert self._snapshot(Settings()) != self._snapshot(Settings(customers=["Acme"]))
+
+    def test_last_parent_change_is_detected(self):
+        from logfather.data.settings_store import Settings
+        assert self._snapshot(Settings()) != self._snapshot(Settings(last_parent="Z:/public"))

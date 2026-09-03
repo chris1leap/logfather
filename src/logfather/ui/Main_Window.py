@@ -1,5 +1,6 @@
 import shutil
 import time
+from dataclasses import asdict
 from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 
@@ -76,9 +77,11 @@ class MainWindow(QWidget):
         version = str(load_version_info().get("version") or "dev")
         self.setWindowTitle(f"The Logfather - version {version}")
         self._post_show_started = False
+        self._shutdown_in_progress = False
 
         self.system_id_override: str | None = None
         self.settings = Settings.load()
+        self._last_layout_snapshot = self._layout_settings_snapshot(self.settings)
         if self.settings.load_warning:
             QTimer.singleShot(
                 0,
@@ -1054,12 +1057,43 @@ class MainWindow(QWidget):
             return
         QMessageBox.information(self, "Export Clip", f"Clip exported to:\n{target_path}")
 
+    @staticmethod
+    def _layout_settings_snapshot(settings: Settings) -> dict:
+        # Everything except the volatile per-session fields: when this is
+        # unchanged, no widget rebuilt below can look any different.
+        snapshot = asdict(settings)
+        for key in ("last_session", "window_geometry", "load_warning"):
+            snapshot.pop(key, None)
+        return snapshot
+
     def _reload_settings_from_viewer(self):
+        # Every settings save lands here via settings_saved. The rebuild
+        # below re-lists the Z: share on the UI thread (seconds when a clip
+        # copy saturates the link), so it runs only when a field the
+        # pickers/filters consume actually changed — and never during
+        # shutdown. The Settings.load() must happen unconditionally: the
+        # close path saves geometry/session onto self.settings afterwards,
+        # and a stale object would clobber the viewer's flush.
         self.settings = Settings.load()
+        if self._shutdown_in_progress:
+            return
+        snapshot = self._layout_settings_snapshot(self.settings)
+        if snapshot == self._last_layout_snapshot:
+            return
+        self._last_layout_snapshot = snapshot
+
+        marks: list[tuple[str, float]] = [("start", time.perf_counter())]
+
+        def mark(label: str):
+            marks.append((label, time.perf_counter()))
         self.date_picker.set_system_layout_settings(self.settings)
+        mark("date_picker layout")
         self.overview_widget.set_system_layout_settings(self.settings)
+        mark("overview layout")
         self.fleetwide_search_widget.set_settings(self.settings)
+        mark("fleetwide settings")
         self.time_picker._static_tracks = self._build_static_tracks()
+        mark("static tracks")
         current_parent = self.date_picker.parent_dir
         target_parent = Path(self.settings.last_parent) if self.settings.last_parent else None
         if target_parent:
@@ -1072,11 +1106,23 @@ class MainWindow(QWidget):
             if same_parent:
                 self.overview_widget.set_parent_dir(target_parent)
                 self.fleetwide_search_widget.set_parent_dir(target_parent)
+                mark("parent dirs (same)")
             elif target_parent.exists():  # network stat only on a real change
+                mark("target_parent.exists")
                 self.date_picker.set_parent_dir(target_parent)
                 self.overview_widget.set_parent_dir(target_parent)
                 self.fleetwide_search_widget.set_parent_dir(target_parent)
+                mark("parent dirs (changed)")
+            else:
+                mark("target_parent.exists (missing)")
         self.overview_widget.refresh_layout()
+        mark("refresh_layout")
+        if (marks[-1][1] - marks[0][1]) > 0.1:
+            steps = " ".join(
+                f"{label}={((t - prev) * 1000):.0f}ms"
+                for (label, t), (_, prev) in zip(marks[1:], marks[:-1])
+            )
+            print(f"[settings-reload] {steps}", flush=True)
 
     def _sync_settings_from_fleetwide_search(self):
         # Keep the viewer's embedded settings panels on the same settings
