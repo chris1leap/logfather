@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from elastic_loader import fetch_fleetwide_search_histogram
+from qt_worker import JobSlot
 from settings_store import (
     FleetwideSearchDefinition, Settings, display_customer_name, display_line_name,
     system_group_sort_key,
@@ -371,43 +372,30 @@ class FleetwideSystemCard(QFrame):
         self.graph.set_buckets(displayed_buckets)
 
 
-class FleetwideSearchThread(QThread):
-    progress = Signal(int, int, int)
-    results_ready = Signal(int, object, object)
-
-    def __init__(self, request_id: int, settings: Settings, systems: list[Path], queries: list[str], days: int):
-        super().__init__()
-        self.request_id = request_id
-        self.settings = settings
-        self.systems = list(systems)
-        self.queries = list(queries)
-        self.days = days
-
-    def run(self):
-        end_dt = datetime.now(timezone.utc)
-        start_dt = end_dt - timedelta(days=self.days)
-        bucket_seconds = RANGE_BUCKET_SECONDS[self.days]
-        results = {}
-        errors = {}
-        with ThreadPoolExecutor(max_workers=min(4, max(1, len(self.systems)))) as executor:
-            futures = {
-                executor.submit(fetch_fleetwide_search_histogram, self.settings, system, self.queries,
-                                start_dt, end_dt, bucket_seconds): system
-                for system in self.systems
-            }
-            completed = 0
-            for future in as_completed(futures):
-                system = futures[future]
-                if self.isInterruptionRequested():
-                    break
-                try:
-                    results[system.name] = future.result()
-                except Exception as exc:
-                    errors[system.name] = str(exc)[:600]
-                completed += 1
-                self.progress.emit(self.request_id, completed, len(self.systems))
-        if not self.isInterruptionRequested():
-            self.results_ready.emit(self.request_id, results, errors)
+def _run_fleetwide_search(job, settings: Settings, systems: list[Path], queries: list[str], days: int):
+    end_dt = datetime.now(timezone.utc)
+    start_dt = end_dt - timedelta(days=days)
+    bucket_seconds = RANGE_BUCKET_SECONDS[days]
+    results = {}
+    errors = {}
+    with ThreadPoolExecutor(max_workers=min(4, max(1, len(systems)))) as executor:
+        futures = {
+            executor.submit(fetch_fleetwide_search_histogram, settings, system, queries,
+                            start_dt, end_dt, bucket_seconds): system
+            for system in systems
+        }
+        completed = 0
+        for future in as_completed(futures):
+            system = futures[future]
+            if job.interrupted():
+                break
+            try:
+                results[system.name] = future.result()
+            except Exception as exc:
+                errors[system.name] = str(exc)[:600]
+            completed += 1
+            job.emit_progress((completed, len(systems)))
+    return results, errors
 
 
 class FleetwideElasticSearchWidget(QWidget):
@@ -419,9 +407,7 @@ class FleetwideElasticSearchWidget(QWidget):
         self.settings = settings
         self.parent_dir: Path | None = None
         self._active = False
-        self._request_id = 0
-        self._load_thread: FleetwideSearchThread | None = None
-        self._loader_refs: list[FleetwideSearchThread] = []
+        self._search_slot = JobSlot(self)
         self._results: dict[str, dict] = {}
         self._errors: dict[str, str] = {}
         self._has_loaded_results = False
@@ -570,7 +556,7 @@ class FleetwideElasticSearchWidget(QWidget):
 
     def activate(self, active: bool):
         self._active = bool(active)
-        if self._active and not self._results and not (self._load_thread and self._load_thread.isRunning()):
+        if self._active and not self._results and not self._search_slot.is_running():
             self.status_label.setText("Select the searches and range, then click Run Search.")
 
     def _show_settings(self):
@@ -672,10 +658,6 @@ class FleetwideElasticSearchWidget(QWidget):
             self.status_label.setText("Choose a parent folder containing system folders.")
             self._apply_filters()
             return
-        if self._load_thread and self._load_thread.isRunning():
-            self._load_thread.requestInterruption()
-        self._request_id += 1
-        request_id = self._request_id
         name, queries = selected
         days = self._selected_days()
         self._results = {}
@@ -684,45 +666,30 @@ class FleetwideElasticSearchWidget(QWidget):
         self._search_pending = False
         self.status_label.setText(f"Loading {name} across {len(systems)} systems…")
         self._apply_filters()
-        thread = FleetwideSearchThread(request_id, self.settings, systems, queries, days)
-        thread.progress.connect(self._on_progress)
-        thread.results_ready.connect(self._on_results)
-        thread.finished.connect(lambda t=thread: self._release_thread(t))
-        self._load_thread = thread
-        self._loader_refs.append(thread)
-        thread.start()
+        settings = self.settings
+        run_systems = list(systems)
+        run_queries = list(queries)
+        self._search_slot.start(
+            lambda job: _run_fleetwide_search(job, settings, run_systems, run_queries, days),
+            on_result=self._on_results,
+            on_progress=self._on_progress,
+        )
 
-    def _on_progress(self, request_id: int, completed: int, total: int):
-        if request_id == self._request_id:
-            self.status_label.setText(f"Loading systems… {completed}/{total}")
+    def _on_progress(self, payload):
+        completed, total = payload
+        self.status_label.setText(f"Loading systems… {completed}/{total}")
 
-    def _on_results(self, request_id: int, results: dict, errors: dict):
-        if request_id != self._request_id:
-            return
+    def _on_results(self, payload):
+        results, errors = payload
         self._results = dict(results)
         self._errors = dict(errors)
         self._has_loaded_results = True
         self._apply_filters()
 
-    def _release_thread(self, thread: FleetwideSearchThread):
-        if thread in self._loader_refs:
-            self._loader_refs.remove(thread)
-        if self._load_thread is thread:
-            self._load_thread = None
-        thread.deleteLater()
-
     def shutdown_workers(self):
         """Stop background searches. Called by MainWindow.closeEvent —
         panel closeEvents never fire inside the app."""
-        for thread in list(self._loader_refs):
-            thread.requestInterruption()
-        for thread in list(self._loader_refs):
-            self._loader_refs.remove(thread)
-            if not thread.wait(1000):
-                # Still blocked in a request; keep the wrapper alive until
-                # the worker notices the interruption and exits on its own.
-                park_thread_until_finished(self._loader_refs, thread)
-        self._load_thread = None
+        self._search_slot.shutdown(1000)
 
     def closeEvent(self, event):
         self.shutdown_workers()
