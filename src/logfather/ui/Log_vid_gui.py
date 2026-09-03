@@ -4377,26 +4377,35 @@ class VideoLogViewer(QWidget):
         suffix = f":{tag}" if tag else ""
         return f"{pikpak_id}:{ts_key}{suffix}"
 
-    def _plan_ocr_video_source(self, path: Path) -> tuple[Path, Path | None]:
+    def _plan_ocr_video_source(self, path: Path) -> tuple[Path, Path | None, bool]:
         """Decide on the UI thread where OCR should read the clip from.
 
-        Returns (source, copy_to): copy_to is the cache destination when the
-        clip still needs copying off the share, else None. The copy itself
-        happens on a worker via _ocr_video_source().
+        Returns (source, copy_to, wait_for_download): copy_to is the cache
+        destination when the clip still needs copying off the share, else
+        None. wait_for_download means the main clip download already owns
+        that copy — the OCR worker must wait for it to land rather than
+        start a second copy or read the share (a cv2 open on the share
+        freezes for 30s+ stream timeouts). The copy/wait happens on a
+        worker via _ocr_video_source().
         """
         if self._is_path_in_cache(path):
-            return path, None
-        if self._pending_video_load is not None and path == self._pending_video_load[1]:
-            # This clip is downloading right now; don't start a second copy
-            # of the same file — let OCR read the share.
-            return path, None
+            return path, None, False
         try:
-            return path, self._cache_path_for(path)
+            cache_path = self._cache_path_for(path)
         except Exception:
-            return path, None
+            return path, None, False
+        if self._pending_video_load is not None and path == self._pending_video_load[1]:
+            return path, cache_path, True
+        return path, cache_path, False
 
-    @staticmethod
-    def _ocr_video_source(src: Path, copy_to: Path | None, should_abort=None, on_progress=None) -> Path:
+    def _ocr_video_source(
+        self,
+        src: Path,
+        copy_to: Path | None,
+        should_abort=None,
+        on_progress=None,
+        wait_for_download: bool = False,
+    ) -> Path:
         """Worker-side: materialize the OCR source decided by
         _plan_ocr_video_source, falling back to the share on copy failure.
         The copy is chunked so shutdown can abort it mid-file (an
@@ -4404,6 +4413,18 @@ class VideoLogViewer(QWidget):
         `on_progress(done_bytes, total_bytes)` is called per chunk."""
         if copy_to is None:
             return src
+        if wait_for_download:
+            # The main clip download owns this copy: poll until it is no
+            # longer pending for this clip (finished, failed, or the user
+            # moved on), then use the copy if it landed intact.
+            while True:
+                if should_abort is not None and should_abort():
+                    raise InterruptedError("OCR wait for download aborted")
+                pending = self._pending_video_load
+                if pending is None or pending[1] != src:
+                    break
+                time.sleep(0.5)
+            return copy_to if self._is_cached_copy_current(src, copy_to) else src
         tmp_path = copy_to.with_suffix(copy_to.suffix + ".part")
         try:
             if not copy_to.exists():
@@ -4493,7 +4514,7 @@ class VideoLogViewer(QWidget):
         # 2026-09-04: the OCR window must not pop up mid-download); the
         # activity bar shows the download meanwhile.
         self._ocr_tool_dialog = dlg
-        src, copy_to = self._plan_ocr_video_source(Path(self.current_video_path))
+        src, copy_to, wait_dl = self._plan_ocr_video_source(Path(self.current_video_path))
 
         def _open_when_ready(ready_path):
             if self._ocr_tool_dialog is not dlg:
@@ -4502,11 +4523,12 @@ class VideoLogViewer(QWidget):
             dlg.open_video(str(ready_path))
 
         self._ocr_sync_slot.start(
-            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(
+            lambda job, src=src, copy_to=copy_to, wait_dl=wait_dl: self._ocr_video_source(
                 src,
                 copy_to,
                 should_abort=job.interrupted,
                 on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
+                wait_for_download=wait_dl,
             ),
             on_result=_open_when_ready,
             on_progress=self._on_ocr_sync_progress,
@@ -4564,7 +4586,7 @@ class VideoLogViewer(QWidget):
         dlg.resize(900, 600)
         # Hidden until the clip copy lands — see open_ocr_roi_tool.
         self._ocr_tool_dialog = dlg
-        src, copy_to = self._plan_ocr_video_source(Path(self.secondary_video_path))
+        src, copy_to, wait_dl = self._plan_ocr_video_source(Path(self.secondary_video_path))
 
         def _open_when_ready(ready_path):
             if self._ocr_tool_dialog is not dlg:
@@ -4573,11 +4595,12 @@ class VideoLogViewer(QWidget):
             dlg.open_video(str(ready_path))
 
         self._ocr_secondary_sync_slot.start(
-            lambda job, src=src, copy_to=copy_to: self._ocr_video_source(
+            lambda job, src=src, copy_to=copy_to, wait_dl=wait_dl: self._ocr_video_source(
                 src,
                 copy_to,
                 should_abort=job.interrupted,
                 on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
+                wait_for_download=wait_dl,
             ),
             on_result=_open_when_ready,
             on_progress=lambda payload: self._on_ocr_sync_progress(payload, cam_label=" (2nd cam)"),
@@ -4641,15 +4664,16 @@ class VideoLogViewer(QWidget):
             return
         # SMB copy + Tesseract run off the UI thread; the offset is applied
         # when the job lands, if this clip is still the one showing.
-        src, copy_to = self._plan_ocr_video_source(path)
+        src, copy_to, wait_dl = self._plan_ocr_video_source(path)
         settings_path = self.ocr_settings_path
 
-        def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
+        def _analyze(job, src=src, copy_to=copy_to, wait_dl=wait_dl, pikpak_id=pikpak_id):
             video_path = self._ocr_video_source(
                 src,
                 copy_to,
                 should_abort=job.interrupted,
                 on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
+                wait_for_download=wait_dl,
             )
             return analyze_video_offset(
                 str(video_path),
@@ -4732,15 +4756,16 @@ class VideoLogViewer(QWidget):
             return
         if not pikpak_id:
             return
-        src, copy_to = self._plan_ocr_video_source(cache_path)
+        src, copy_to, wait_dl = self._plan_ocr_video_source(cache_path)
         settings_path = self.ocr_settings_path
 
-        def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
+        def _analyze(job, src=src, copy_to=copy_to, wait_dl=wait_dl, pikpak_id=pikpak_id):
             video_path = self._ocr_video_source(
                 src,
                 copy_to,
                 should_abort=job.interrupted,
                 on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
+                wait_for_download=wait_dl,
             )
             return analyze_video_offset(
                 str(video_path),
