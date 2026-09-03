@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel, QCalendarWidget, QMessageBox, QHBoxLayout, QScrollArea, QGridLayout, QButtonGroup,
     QSizePolicy
 )
+from qt_worker import park_thread_until_finished
 from settings_store import (
     Settings,
     customer_logo_bytes,
@@ -55,6 +56,7 @@ class DatePicker(QWidget):
         self.available_dates: set[date] = set()
         self.active_pikpak_name: str | None = None
         self.scan_thread: QThread | None = None
+        self._retired_threads: list[QThread] = []
         self.current_scan_path: Path | None = None
         self.active_day: date | None = None
         self.settings = Settings()
@@ -451,8 +453,7 @@ class DatePicker(QWidget):
         if thread.isRunning():
             thread.requestInterruption()
             if not thread.wait(3000):
-                thread.terminate()
-                thread.wait()
+                park_thread_until_finished(self._retired_threads, thread)
         self.current_scan_path = None
 
     def _apply_active_day(self, qd: QDate):

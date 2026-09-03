@@ -17,6 +17,8 @@ except Exception:
     ZoneInfo = None
 
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
+
+from qt_worker import park_thread_until_finished
 from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics
 from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
@@ -312,6 +314,7 @@ class TimePicker(QWidget):
         self._loading_rect = None
         self._loading_text = None
         self._loader_thread: QThread | None = None
+        self._retired_threads: list[QThread] = []
         self._progress: QProgressDialog | None = None
         self._last_cursor_x: Optional[float] = None
         self._cache_root = cache_root
@@ -917,8 +920,8 @@ class TimePicker(QWidget):
         if thread.isRunning():
             thread.requestInterruption()
             if not thread.wait(8000):
-                thread.terminate()
-                thread.wait()
+                park_thread_until_finished(self._retired_threads, thread)
+                return
         thread.deleteLater()
 
     def _on_loader_thread_done(self):

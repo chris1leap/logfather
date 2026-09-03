@@ -717,10 +717,11 @@ class FleetwideElasticSearchWidget(QWidget):
         for thread in list(self._loader_refs):
             thread.requestInterruption()
         for thread in list(self._loader_refs):
+            self._loader_refs.remove(thread)
             if not thread.wait(1000):
-                thread.terminate()
-                thread.wait()
-        self._loader_refs.clear()
+                # Still blocked in a request; keep the wrapper alive until
+                # the worker notices the interruption and exits on its own.
+                park_thread_until_finished(self._loader_refs, thread)
         self._load_thread = None
 
     def closeEvent(self, event):

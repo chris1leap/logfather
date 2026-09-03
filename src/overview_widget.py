@@ -37,6 +37,7 @@ from Time_Picker import (
     _cache_key_for,
 )
 from elastic_loader import fetch_overview_event_chunks
+from qt_worker import park_thread_until_finished
 from settings_store import (
     Settings,
     customer_logo_bytes,
@@ -478,6 +479,7 @@ class OverviewWidget(QWidget):
         self._active = False
         self._background_enabled = False
         self._load_thread: _OverviewLoadThread | None = None
+        self._retired_threads: list[QThread] = []
         self._collapsed_customers: set[str] = set()
         self._range_anim_now_local: datetime | None = None
         self._range_anim_span_seconds: float | None = None
@@ -867,8 +869,8 @@ class OverviewWidget(QWidget):
         try:
             thread.requestInterruption()
             if not thread.wait(5000):
-                thread.terminate()
-                thread.wait()
+                park_thread_until_finished(self._retired_threads, thread)
+                return
         except Exception:
             pass
         thread.deleteLater()
