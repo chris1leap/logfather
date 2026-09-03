@@ -60,7 +60,6 @@ from target_buffer_widget import TargetBufferWidget, _summary_rows, _detail_rows
 from conveyor_calibration import ConveyorCalibration, load_calibration, save_calibration
 from conveyor_calibration_dialog import ConveyorCalibrationDialog
 
-SPLASH_IMAGE_FILENAME = "Logfather Argus II.jpg"
 
 DEBUG_CLIP_TIMING = True
 ENABLE_CACHE_COLOR_UPDATE = True
@@ -282,36 +281,6 @@ class StopReportDialog(QDialog):
             self._intro.setText(f"{total} stop events for selected day")
         else:
             self._intro.setText(f"Showing {visible_count} of {total} stop events for selected day")
-
-
-class FadeSplashScreen(QSplashScreen):
-    def __init__(self, pixmap: QPixmap, flags=Qt.WindowType.Widget):
-        super().__init__(pixmap, flags)
-        self._fade_anim = QVariantAnimation(self)
-        self._fade_anim.setDuration(220)
-        self._fade_anim.setStartValue(1.0)
-        self._fade_anim.setEndValue(0.0)
-        self._fade_anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._fade_anim.valueChanged.connect(self._on_fade_value_changed)
-        self._fade_anim.finished.connect(self._on_fade_finished)
-
-    def fade_and_finish(self, widget: QWidget):
-        try:
-            widget.raise_()
-            widget.activateWindow()
-        except Exception:
-            pass
-        self.setWindowOpacity(1.0)
-        self._fade_anim.start()
-
-    def _on_fade_value_changed(self, value):
-        try:
-            self.setWindowOpacity(float(value))
-        except Exception:
-            pass
-
-    def _on_fade_finished(self):
-        self.close()
 
 
 class MainWindow(QWidget):
@@ -1873,59 +1842,9 @@ class MainWindow(QWidget):
         self._overview_nav_timer.stop()
 
 
-def main():
-    app = QApplication(sys.argv)
-    icon_path = _resolve_asset_path("logfather.ico")
-    if icon_path:
-        app.setWindowIcon(QIcon(icon_path))
-    splash = _build_splash_image()
-    if splash is not None:
-        splash.show()
-        app.processEvents()
-    win = MainWindow()
-    win.resize(1400, 700)
-    if splash is not None:
-        win.show()
-        splash.fade_and_finish(win)
-    else:
-        win.show()
-    sys.exit(app.exec())
-
-def _build_splash_image() -> QSplashScreen | None:
-    try:
-        image_path = _resolve_asset_path(SPLASH_IMAGE_FILENAME)
-        if not image_path:
-            return None
-        pixmap = QPixmap(image_path)
-        if pixmap.isNull():
-            return None
-        scaled = pixmap.scaled(
-            max(1, int(pixmap.width() * 0.33)),
-            max(1, int(pixmap.height() * 0.33)),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        )
-        framed = QPixmap(scaled.width() + 4, scaled.height() + 4)
-        framed.fill(QColor("#10151a"))
-        painter = QPainter(framed)
-        painter.drawPixmap(2, 2, scaled)
-        pen = QPen(QColor("#4a5560"))
-        pen.setWidth(2)
-        painter.setPen(pen)
-        painter.drawRect(1, 1, framed.width() - 3, framed.height() - 3)
-        painter.end()
-        splash = FadeSplashScreen(framed, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        splash.setFont(QFont("", 10))
-        splash.showMessage(
-            f"Loading...  {format_version_label()}",
-            Qt.AlignBottom | Qt.AlignHCenter,
-            QColor(255, 255, 255, 210),
-        )
-        return splash
-    except Exception:
-        return None
-
 
 
 if __name__ == "__main__":
+    from app_main import main
+
     main()
