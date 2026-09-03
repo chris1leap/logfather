@@ -131,9 +131,21 @@ class VideoLogViewer(QWidget):
 
     def __init__(self):
         super().__init__()
-
         self.setWindowTitle("The Logfather")
         self.settings = Settings.load()
+        # Construction is split into ordered sections (Stage 3). The call
+        # order matters: later sections consume attributes from earlier ones.
+        self._init_state()
+        self._build_filter_panel()
+        self._build_custom_filter_tab()
+        self._build_video_and_playback()
+        self._build_analysis_controls()
+        self._build_middle_layout()
+        self._build_right_tabs()
+        self._assemble_and_wire()
+
+    def _init_state(self):
+        """Non-widget state: playback, caches, executors, timers, slots."""
         self._export_target_overlay_provider = None
 
         # Video state
@@ -295,8 +307,8 @@ class VideoLogViewer(QWidget):
         self._ocr_sync_slot = JobSlot(self)
         self._ocr_secondary_sync_slot = JobSlot(self)
 
-        # ----- LEFT FILTER PANEL: SOURCE + MESSAGE -----
-
+    def _build_filter_panel(self):
+        """The Filters tab: source / state / message checkbox columns."""
         self.filters_loaded = False
 
         # Source filter
@@ -390,8 +402,8 @@ class VideoLogViewer(QWidget):
         self.filter_container_layout.setSpacing(8)
         self.filter_container_layout.addWidget(self.filter_panel)
 
-        # ----- CUSTOM FILTER TAB -----
-
+    def _build_custom_filter_tab(self):
+        """The Custom tab: 15 preset buttons + 5 free-text filter blocks."""
         self.custom_filter_blocks: list[tuple[QPushButton, QLineEdit, QLineEdit, QLabel]] = []
         self.custom_filter_hint = QLabel("Empty entries are ignored. Use commas to separate terms.")
         self.custom_filter_hint.setStyleSheet("color: #888888;")
@@ -400,7 +412,9 @@ class VideoLogViewer(QWidget):
         self.active_filter_preset_index: int | None = None
         self.active_filter_presets: set[int] = set()
 
-        preset_container = QWidget()
+        # Kept on self: inserted into the filter container during final
+        # assembly (_assemble_and_wire).
+        self._preset_container = preset_container = QWidget()
         preset_container_layout = QVBoxLayout(preset_container)
         preset_container_layout.setContentsMargins(0, 0, 0, 0)
         preset_container_layout.setSpacing(4)
@@ -466,8 +480,9 @@ class VideoLogViewer(QWidget):
 
         custom_layout.addStretch(1)
 
-        # ----- MIDDLE: VIDEO + CONTROLS -----
-
+    def _build_video_and_playback(self):
+        """Video panes, sync buttons, seek slider, LCDs, playback bar,
+        cache controls."""
         self._placeholder_image = _load_placeholder_image()
         self.video_label = AnnotatedVideoWidget("No video loaded")
         self.video_label.setMinimumSize(300, 200)
@@ -573,7 +588,8 @@ class VideoLogViewer(QWidget):
         self.delete_cache_btn = QPushButton("Delete Current Cache Copy")
         self.delete_cache_btn.clicked.connect(self.delete_current_cache_copy)
 
-        cache_controls_layout = QHBoxLayout()
+        # Kept on self: mounted into the Settings tab in _build_right_tabs.
+        self._cache_controls_layout = cache_controls_layout = QHBoxLayout()
         cache_controls_layout.addWidget(self.cache_status_label, 1)
         cache_controls_layout.addWidget(self.open_cache_btn)
         cache_controls_layout.addWidget(self.delete_cache_btn)
@@ -589,7 +605,8 @@ class VideoLogViewer(QWidget):
         # Additional CCTV loads via timeline selection.
         self.playback_layout.addStretch(1)
 
-        # ----- Analysis controls (diff + optical flow) -----
+    def _build_analysis_controls(self):
+        """Frame-diff / optical-flow controls and the analysis view pane."""
         self.analysis_mode_combo = QComboBox()
         self.analysis_mode_combo.addItems(["Off", "Frame Diff", "Optical Flow"])
         self.analysis_mode_combo.currentIndexChanged.connect(self._on_analysis_mode_changed)
@@ -757,7 +774,11 @@ class VideoLogViewer(QWidget):
         self._update_analysis_controls_state()
         self._update_analysis_output()
 
-        middle_layout = QVBoxLayout()
+    def _build_middle_layout(self):
+        """Stack the video row, marker bars, seek slider and playback bar;
+        add the drift/gap sliders onto the playback bar."""
+        # Kept on self: mounted into the root layout in _assemble_and_wire.
+        self._middle_layout = middle_layout = QVBoxLayout()
         self.event_marker_bar = EventMarkerBar()
         self.timeline_marker_bar = EventMarkerBar()
         self.timeline_marker_bar.set_triangle_red_markers(True)
@@ -823,8 +844,9 @@ class VideoLogViewer(QWidget):
         self.playback_layout.addWidget(self.close_gap_display)
         self._update_close_gap_threshold_display()
 
-        # ----- RIGHT: LOG WINDOW -----
-
+    def _build_right_tabs(self):
+        """The collapsible right panel: Logs / Filters / Custom / Settings /
+        Systems / Readme tabs plus the pin button."""
         self.log_label = QLabel("Log entries")
         self._log_model = LogListModel(self)
         self.log_list = QListView()
@@ -890,13 +912,13 @@ class VideoLogViewer(QWidget):
         systems_tab_layout.addWidget(self.system_layout_panel)
         settings_tab_layout.addStretch(1)
         settings_tab_layout.addWidget(self.sync_start_btn)
-        settings_tab_layout.addLayout(cache_controls_layout)
+        settings_tab_layout.addLayout(self._cache_controls_layout)
         settings_tab_layout.addStretch(1)
 
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(log_tab, "Logs")
         self.right_tabs.addTab(self.filter_container, "Filters")
-        self.right_tabs.addTab(custom_tab, "Custom")
+        self.right_tabs.addTab(self._custom_tab, "Custom")
         self.right_tabs.addTab(settings_tab, "Settings")
         self.right_tabs.addTab(systems_tab, "Systems")
         self.right_tabs.addTab(ReadmePanel(), "Readme")
@@ -924,10 +946,11 @@ class VideoLogViewer(QWidget):
         self._pin_btn.toggled.connect(self._on_pin_toggled)
         self.right_tabs.setCornerWidget(self._pin_btn, Qt.TopRightCorner)
 
-        # ----- MAIN LAYOUT -----
-
+    def _assemble_and_wire(self):
+        """Mount everything into the root layout; final wiring that spans
+        sections (event filters, autosave/debounce timers, saved pin state)."""
         root_layout = QHBoxLayout()
-        root_layout.addLayout(middle_layout, stretch=3)
+        root_layout.addLayout(self._middle_layout, stretch=3)
         root_layout.addWidget(self.right_tabs, stretch=0)
 
         self.setLayout(root_layout)
@@ -938,7 +961,7 @@ class VideoLogViewer(QWidget):
         self._log_busy_dialog: QProgressDialog | None = None
         self._set_filter_tabs_enabled(False)
 
-        self.filter_container_layout.insertWidget(0, preset_container)
+        self.filter_container_layout.insertWidget(0, self._preset_container)
         self._load_custom_filter_settings()
         self._load_filter_preset_settings()
         self._startup_maintenance_started = False
