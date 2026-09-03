@@ -68,7 +68,8 @@ from PySide6.QtWidgets import (
     QSlider, QSizePolicy, QListView, QAbstractItemView,
     QCheckBox, QScrollArea, QProgressDialog, QTabWidget,
     QLineEdit, QComboBox, QInputDialog, QMenu, QColorDialog,
-    QToolButton, QButtonGroup, QStyleOptionSlider, QStyle, QLCDNumber
+    QToolButton, QButtonGroup, QStyleOptionSlider, QStyle, QLCDNumber,
+    QProgressBar
 )
 
 from logfather.ui.time_ocr import analyze_video_offset, OcrVideoPlayer, parse_filename_datetime
@@ -845,6 +846,17 @@ class VideoLogViewer(QWidget):
         self.playback_layout.addWidget(self.close_gap_slider)
         self.playback_layout.addWidget(self.close_gap_display)
         self._update_close_gap_threshold_display()
+        # OCR sync progress: hidden unless a sync is downloading/analyzing.
+        self._ocr_progress_caption = QLabel("")
+        self._ocr_progress_caption.setStyleSheet(theme.SLIDER_CAPTION)
+        self._ocr_progress_caption.hide()
+        self._ocr_progress_bar = QProgressBar()
+        self._ocr_progress_bar.setFixedWidth(110)
+        self._ocr_progress_bar.setFixedHeight(14)
+        self._ocr_progress_bar.hide()
+        self.playback_layout.addSpacing(6)
+        self.playback_layout.addWidget(self._ocr_progress_caption)
+        self.playback_layout.addWidget(self._ocr_progress_bar)
 
     def _build_right_tabs(self):
         """The collapsible right panel: Logs / Filters / Custom / Settings /
@@ -4392,16 +4404,25 @@ class VideoLogViewer(QWidget):
             return path, None
 
     @staticmethod
-    def _ocr_video_source(src: Path, copy_to: Path | None, should_abort=None) -> Path:
+    def _ocr_video_source(src: Path, copy_to: Path | None, should_abort=None, on_progress=None) -> Path:
         """Worker-side: materialize the OCR source decided by
         _plan_ocr_video_source, falling back to the share on copy failure.
         The copy is chunked so shutdown can abort it mid-file (an
-        uninterruptible SMB copy held the close for seconds)."""
+        uninterruptible SMB copy held the close for seconds).
+        `on_progress(done_bytes, total_bytes)` is called per chunk."""
         if copy_to is None:
             return src
         tmp_path = copy_to.with_suffix(copy_to.suffix + ".part")
         try:
             if not copy_to.exists():
+                t_copy = time.perf_counter()
+                try:
+                    total_bytes = int(src.stat().st_size)
+                except Exception:
+                    total_bytes = 0
+                done_bytes = 0
+                if on_progress is not None:
+                    on_progress(0, total_bytes)
                 with open(src, "rb") as fin, open(tmp_path, "wb") as fout:
                     while True:
                         if should_abort is not None and should_abort():
@@ -4410,8 +4431,18 @@ class VideoLogViewer(QWidget):
                         if not chunk:
                             break
                         fout.write(chunk)
+                        done_bytes += len(chunk)
+                        if on_progress is not None:
+                            on_progress(done_bytes, total_bytes)
                 shutil.copystat(src, tmp_path)
                 tmp_path.replace(copy_to)
+                copy_secs = time.perf_counter() - t_copy
+                mb = done_bytes / (1024 * 1024)
+                rate = mb / copy_secs if copy_secs > 0 else 0.0
+                print(
+                    f"[ocr] clip copy: {mb:.0f} MB in {copy_secs:.1f}s ({rate:.1f} MB/s)",
+                    flush=True,
+                )
             return copy_to
         except Exception:
             try:
@@ -4547,6 +4578,36 @@ class VideoLogViewer(QWidget):
             on_result=_open_when_ready,
         )
 
+    def _on_ocr_sync_progress(self, payload, cam_label: str = ""):
+        """UI-thread handler for OCR sync worker progress: copy byte counts
+        and analysis stage names."""
+        try:
+            kind = payload[0]
+        except Exception:
+            return
+        prefix = f"OCR sync{cam_label}"
+        if kind == "ocr-copy":
+            _, done, total = payload
+            if total > 0:
+                mb = total / (1024 * 1024)
+                self._ocr_progress_caption.setText(f"{prefix}: downloading {mb:.0f} MB")
+                self._ocr_progress_bar.setRange(0, 1000)
+                self._ocr_progress_bar.setValue(int(done * 1000 / total))
+            else:
+                self._ocr_progress_caption.setText(f"{prefix}: downloading")
+                self._ocr_progress_bar.setRange(0, 0)  # busy
+        elif kind == "ocr-stage":
+            self._ocr_progress_caption.setText(f"{prefix}: {payload[1]}")
+            self._ocr_progress_bar.setRange(0, 0)  # busy
+        else:
+            return
+        self._ocr_progress_caption.show()
+        self._ocr_progress_bar.show()
+
+    def _hide_ocr_sync_progress(self):
+        self._ocr_progress_caption.hide()
+        self._ocr_progress_bar.hide()
+
     def _auto_sync_with_ocr(self, force: bool = False):
         if not self.current_video_path:
             return
@@ -4588,13 +4649,19 @@ class VideoLogViewer(QWidget):
         settings_path = self.ocr_settings_path
 
         def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
-            video_path = self._ocr_video_source(src, copy_to, should_abort=job.interrupted)
+            video_path = self._ocr_video_source(
+                src,
+                copy_to,
+                should_abort=job.interrupted,
+                on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
+            )
             return analyze_video_offset(
                 str(video_path),
                 settings_path=settings_path,
                 settings_key=pikpak_id,
                 parent=None,
                 should_abort=job.interrupted,
+                on_stage=lambda label: job.emit_progress(("ocr-stage", label)),
             )
 
         def _apply(result, src=src, key=key):
@@ -4618,6 +4685,8 @@ class VideoLogViewer(QWidget):
             _analyze,
             on_result=_apply,
             on_error=lambda msg: print(f"[ocr] auto-sync failed: {msg}"),
+            on_progress=self._on_ocr_sync_progress,
+            on_finished=self._hide_ocr_sync_progress,
         )
 
     def _auto_sync_secondary_with_ocr(self, force: bool = False):
@@ -4671,13 +4740,19 @@ class VideoLogViewer(QWidget):
         settings_path = self.ocr_settings_path
 
         def _analyze(job, src=src, copy_to=copy_to, pikpak_id=pikpak_id):
-            video_path = self._ocr_video_source(src, copy_to, should_abort=job.interrupted)
+            video_path = self._ocr_video_source(
+                src,
+                copy_to,
+                should_abort=job.interrupted,
+                on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
+            )
             return analyze_video_offset(
                 str(video_path),
                 settings_path=settings_path,
                 settings_key=pikpak_id,
                 parent=None,
                 should_abort=job.interrupted,
+                on_stage=lambda label: job.emit_progress(("ocr-stage", label)),
             )
 
         def _apply(result, src=src, key=key):
@@ -4702,6 +4777,8 @@ class VideoLogViewer(QWidget):
             _analyze,
             on_result=_apply,
             on_error=lambda msg: print(f"[ocr] secondary auto-sync failed: {msg}"),
+            on_progress=lambda payload: self._on_ocr_sync_progress(payload, cam_label=" (2nd cam)"),
+            on_finished=self._hide_ocr_sync_progress,
         )
 
     def _refresh_secondary_after_sync(self):

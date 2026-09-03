@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from time import perf_counter
 import json
 import math
 import re
@@ -1318,10 +1319,22 @@ def analyze_video_offset(
     settings_key: str | None = None,
     parent: QWidget | None = None,
     should_abort=None,
+    on_stage=None,
 ) -> OcrOffsetResult | None:
     """`should_abort` (callable -> bool) is polled between frames so a
     worker-thread run can be interrupted quickly (e.g. at app shutdown);
-    aborted runs return None."""
+    aborted runs return None. `on_stage` (callable(str)) is told when each
+    analysis stage begins, for progress UI."""
+    t_total = perf_counter()
+
+    def _stage(label: str) -> float:
+        if on_stage is not None:
+            try:
+                on_stage(label)
+            except Exception:
+                pass
+        return perf_counter()
+
     _ensure_tesseract()
     base_dt = parse_filename_datetime(video_path)
     if base_dt is None:
@@ -1361,6 +1374,7 @@ def analyze_video_offset(
 
     fast_seconds = OCR_SYNC_FAST_SECONDS
     fallback_seconds = OCR_SYNC_FALLBACK_SECONDS
+    t_stage = _stage(f"scanning clock (coarse, first {fast_seconds}s)")
     samples = _find_second_boundary_samples_for_cap(
         cap,
         fps,
@@ -1373,7 +1387,13 @@ def analyze_video_offset(
         should_abort=should_abort,
     )
     best_start = _estimate_start_from_samples(samples, base_dt)
+    print(
+        f"[ocr] coarse scan {fast_seconds}s: {(perf_counter() - t_stage) * 1000:.0f}ms "
+        f"samples={len(samples)} found={best_start is not None}",
+        flush=True,
+    )
     if best_start is None and not _aborted():
+        t_stage = _stage(f"reading clock every frame (first {fast_seconds}s)")
         samples = _collect_ocr_samples_for_cap(
             cap,
             fps,
@@ -1386,7 +1406,13 @@ def analyze_video_offset(
             should_abort=should_abort,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
+        print(
+            f"[ocr] dense scan {fast_seconds}s: {(perf_counter() - t_stage) * 1000:.0f}ms "
+            f"samples={len(samples)} found={best_start is not None}",
+            flush=True,
+        )
     if best_start is None and fallback_seconds > fast_seconds and not _aborted():
+        t_stage = _stage(f"scanning clock (coarse, first {fallback_seconds}s)")
         samples = _find_second_boundary_samples_for_cap(
             cap,
             fps,
@@ -1399,7 +1425,13 @@ def analyze_video_offset(
             should_abort=should_abort,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
+        print(
+            f"[ocr] coarse scan {fallback_seconds}s: {(perf_counter() - t_stage) * 1000:.0f}ms "
+            f"samples={len(samples)} found={best_start is not None}",
+            flush=True,
+        )
     if best_start is None and fallback_seconds > fast_seconds and not _aborted():
+        t_stage = _stage(f"reading clock every frame (first {fallback_seconds}s)")
         samples = _collect_ocr_samples_for_cap(
             cap,
             fps,
@@ -1412,17 +1444,36 @@ def analyze_video_offset(
             should_abort=should_abort,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
+        print(
+            f"[ocr] dense scan {fallback_seconds}s: {(perf_counter() - t_stage) * 1000:.0f}ms "
+            f"samples={len(samples)} found={best_start is not None}",
+            flush=True,
+        )
     if best_start is None or _aborted():
         cap.release()
+        print(
+            f"[ocr] analyze total: {(perf_counter() - t_total) * 1000:.0f}ms (no result)",
+            flush=True,
+        )
         return None
 
     offset_seconds = (best_start - base_dt).total_seconds()
+    t_stage = _stage("verifying frame offset")
     frame_offset, report = _verify_frame_offset_for_cap(
         cap,
         fps,
         frame_count,
         best_start,
         roi,
+    )
+    print(
+        f"[ocr] verify: {(perf_counter() - t_stage) * 1000:.0f}ms",
+        flush=True,
+    )
+    print(
+        f"[ocr] analyze total: {(perf_counter() - t_total) * 1000:.0f}ms "
+        f"(offset={offset_seconds:+.3f}s frames={frame_offset})",
+        flush=True,
     )
     cap.release()
     result = OcrOffsetResult(
