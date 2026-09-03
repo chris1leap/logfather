@@ -187,11 +187,14 @@ class TestEventsCacheSkuComplete:
         _, sku_complete = result
         assert sku_complete is False
 
-    def test_is_past_day(self):
-        from datetime import datetime, timezone, timedelta
-        today_utc = datetime.now(timezone.utc).date()
-        assert elastic_loader._is_past_day(today_utc - timedelta(days=1)) is True
-        assert elastic_loader._is_past_day(today_utc) is False
+    def test_is_past_day_uses_local_date(self):
+        # Days are local calendar days: today (local) must never be "past",
+        # even when the UTC date has already rolled over.
+        from datetime import date, timedelta
+        today_local = date.today()
+        assert elastic_loader._is_past_day(today_local - timedelta(days=1)) is True
+        assert elastic_loader._is_past_day(today_local) is False
+        assert elastic_loader._is_past_day(today_local + timedelta(days=1)) is False
 
 
 class TestSettingsResilience:
