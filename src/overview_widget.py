@@ -38,7 +38,7 @@ from Time_Picker import (
 )
 from elastic_loader import fetch_overview_event_chunks
 from app_assets import resolve_asset_path as _resolve_asset_path
-from qt_worker import park_thread_until_finished
+from qt_worker import JobSlot
 from settings_store import (
     Settings,
     customer_logo_bytes,
@@ -351,92 +351,74 @@ def _latest_video_thumbnail(
     return image
 
 
-class _OverviewLoadThread(QThread):
-    loaded = Signal(object)
-    failed = Signal(str)
-    progress = Signal(str)
-
-    def __init__(self, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None):
-        super().__init__()
-        self.settings = settings
-        self.parent_dir = parent_dir
-        self.cache_root = cache_root
-        self.full_refresh = bool(full_refresh)
-        self.since_dt = since_dt
-
-    def run(self):
-        try:
-            now_local = _local_now()
-            day_value = _timeline_day_date(now_local)
-            day_start_local = _start_of_day_local(now_local)
-            system_roots = []
-            if self.parent_dir.exists():
-                system_roots = [p for p in self.parent_dir.iterdir() if p.is_dir()]
-            system_roots.sort(key=lambda p: p.name.lower())
-            total_systems = len(system_roots)
-            if total_systems:
-                self.progress.emit(f"Scanning systems... 0/{total_systems}")
-            systems = []
-            for idx, root in enumerate(system_roots, start=1):
-                if self.isInterruptionRequested():
-                    return
-                robot_id = _extract_robot_id(root)
-                video_items = _build_video_items(root, day_value)
-                systems.append(
-                    {
-                        "name": root.name,
-                        "root": root,
-                        "robot_id": robot_id,
-                        "events": [],
-                        "video_items": video_items,
-                        "thumbnail_image": _latest_video_thumbnail(video_items, self.cache_root, now_local),
-                    }
-                )
-                self.progress.emit(f"Scanning systems... {idx}/{total_systems}")
-            fetch_start = day_start_local if self.full_refresh or self.since_dt is None else max(day_start_local, self.since_dt)
-            final_systems = []
-            for row in systems:
-                if self.isInterruptionRequested():
-                    return
-                updated_row = dict(row)
-                updated_row["events"] = []
-                final_systems.append(updated_row)
-            row_by_robot: dict[str, dict] = {}
-            for row in final_systems:
-                robot_id = row.get("robot_id")
-                if isinstance(robot_id, str) and robot_id:
-                    row_by_robot[robot_id] = row
-            chunk_minutes = 10
-            total_chunks = max(1, int(((now_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
-            self.progress.emit(f"Loading Elastic data... 0/{total_chunks} chunks")
-            for chunk_idx, chunk in enumerate(fetch_overview_event_chunks(
-                self.settings,
-                system_roots,
-                fetch_start,
-                now_local,
-                chunk_minutes=chunk_minutes,
-            ), start=1):
-                if self.isInterruptionRequested():
-                    return
-                for robot_id, events in chunk.items():
-                    row = row_by_robot.get(robot_id)
-                    if row is None:
-                        continue
-                    row["events"].extend(list(events or []))
-                self.progress.emit(f"Loading Elastic data... {chunk_idx}/{total_chunks} chunks")
-            self.progress.emit("Rendering overview...")
-            self.loaded.emit(
-                {
-                    "systems": final_systems,
-                    "now_local": now_local,
-                    "day_value": day_value,
-                    "full_refresh": self.full_refresh,
-                    "replace": False,
-                    "final": True,
-                }
-            )
-        except Exception as exc:
-            self.failed.emit(str(exc))
+def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None):
+    now_local = _local_now()
+    day_value = _timeline_day_date(now_local)
+    day_start_local = _start_of_day_local(now_local)
+    system_roots = []
+    if parent_dir.exists():
+        system_roots = [p for p in parent_dir.iterdir() if p.is_dir()]
+    system_roots.sort(key=lambda p: p.name.lower())
+    total_systems = len(system_roots)
+    if total_systems:
+        job.emit_progress(f"Scanning systems... 0/{total_systems}")
+    systems = []
+    for idx, root in enumerate(system_roots, start=1):
+        if job.interrupted():
+            return None
+        robot_id = _extract_robot_id(root)
+        video_items = _build_video_items(root, day_value)
+        systems.append(
+            {
+                "name": root.name,
+                "root": root,
+                "robot_id": robot_id,
+                "events": [],
+                "video_items": video_items,
+                "thumbnail_image": _latest_video_thumbnail(video_items, cache_root, now_local),
+            }
+        )
+        job.emit_progress(f"Scanning systems... {idx}/{total_systems}")
+    fetch_start = day_start_local if full_refresh or since_dt is None else max(day_start_local, since_dt)
+    final_systems = []
+    for row in systems:
+        if job.interrupted():
+            return None
+        updated_row = dict(row)
+        updated_row["events"] = []
+        final_systems.append(updated_row)
+    row_by_robot: dict[str, dict] = {}
+    for row in final_systems:
+        robot_id = row.get("robot_id")
+        if isinstance(robot_id, str) and robot_id:
+            row_by_robot[robot_id] = row
+    chunk_minutes = 10
+    total_chunks = max(1, int(((now_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
+    job.emit_progress(f"Loading Elastic data... 0/{total_chunks} chunks")
+    for chunk_idx, chunk in enumerate(fetch_overview_event_chunks(
+        settings,
+        system_roots,
+        fetch_start,
+        now_local,
+        chunk_minutes=chunk_minutes,
+    ), start=1):
+        if job.interrupted():
+            return None
+        for robot_id, events in chunk.items():
+            row = row_by_robot.get(robot_id)
+            if row is None:
+                continue
+            row["events"].extend(list(events or []))
+        job.emit_progress(f"Loading Elastic data... {chunk_idx}/{total_chunks} chunks")
+    job.emit_progress("Rendering overview...")
+    return {
+        "systems": final_systems,
+        "now_local": now_local,
+        "day_value": day_value,
+        "full_refresh": full_refresh,
+        "replace": False,
+        "final": True,
+    }
 
 
 class OverviewWidget(QWidget):
@@ -462,8 +444,7 @@ class OverviewWidget(QWidget):
         self._last_full_refresh_local: datetime | None = None
         self._active = False
         self._background_enabled = False
-        self._load_thread: _OverviewLoadThread | None = None
-        self._retired_threads: list[QThread] = []
+        self._overview_slot = JobSlot(self)
         self._collapsed_customers: set[str] = set()
         self._range_anim_now_local: datetime | None = None
         self._range_anim_span_seconds: float | None = None
@@ -627,19 +608,22 @@ class OverviewWidget(QWidget):
         since_dt = None
         if not full_refresh and self._latest_event_ts is not None:
             since_dt = self._latest_event_ts - OVERVIEW_INCREMENTAL_OVERLAP
-        if self._load_thread is not None:
+        if self._overview_slot.is_running():
             return
         if not self._states:
             self.status_label.setText("Loading overview...")
             self._set_loading_visible(True, "Loading overview...")
         else:
             self.status_label.setText("Refreshing overview...")
-        self._load_thread = _OverviewLoadThread(self.settings, self.parent_dir, self.cache_root, full_refresh, since_dt)
-        self._load_thread.loaded.connect(self._on_loaded)
-        self._load_thread.failed.connect(self._on_failed)
-        self._load_thread.progress.connect(self._on_load_progress)
-        self._load_thread.finished.connect(self._on_load_finished)
-        self._load_thread.start()
+        settings = self.settings
+        parent_dir = self.parent_dir
+        cache_root = self.cache_root
+        self._overview_slot.start(
+            lambda job: _run_overview_load(job, settings, parent_dir, cache_root, full_refresh, since_dt),
+            on_result=self._on_loaded,
+            on_error=self._on_failed,
+            on_progress=self._on_load_progress,
+        )
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -820,6 +804,8 @@ class OverviewWidget(QWidget):
         self._redraw()
 
     def _on_loaded(self, payload: dict):
+        if payload is None:
+            return
         self._background_enabled = True
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
@@ -840,24 +826,8 @@ class OverviewWidget(QWidget):
         else:
             self._set_loading_visible(True, f"Overview refresh failed: {message}")
 
-    def _on_load_finished(self):
-        if self._load_thread is not None:
-            self._load_thread.deleteLater()
-            self._load_thread = None
-
     def _stop_load_thread(self):
-        thread = self._load_thread
-        if thread is None:
-            return
-        self._load_thread = None
-        try:
-            thread.requestInterruption()
-            if not thread.wait(5000):
-                park_thread_until_finished(self._retired_threads, thread)
-                return
-        except Exception:
-            pass
-        thread.deleteLater()
+        self._overview_slot.retire()
 
     def _visible_window(self) -> tuple[datetime, datetime] | None:
         now_local = self._range_anim_now_local or _local_now()
@@ -1156,7 +1126,7 @@ class OverviewWidget(QWidget):
             return
         states = sorted(self._states.values(), key=lambda item: system_group_sort_key(self.settings, item.name))
         if not states:
-            if self._load_thread is not None:
+            if self._overview_slot.is_running():
                 self.status_label.setText("Loading overview...")
                 self._set_loading_visible(True, "Loading overview...")
             else:
