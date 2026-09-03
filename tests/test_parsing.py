@@ -264,3 +264,40 @@ class TestSettingsResilience:
         with pytest.raises(ValueError):
             s.import_shareable(export)
         assert s.elastic_url == "https://keep-me.example"
+
+
+class TestFrameAnalysis:
+    def _frames(self):
+        import numpy as np
+        base = np.zeros((40, 60, 3), dtype=np.uint8)
+        moved = base.copy()
+        moved[10:20, 20:40] = 255
+        return base, moved
+
+    def test_pixel_diff_shape_and_signal(self):
+        import numpy as np
+        from frame_analysis import compute_pixel_diff_view
+        base, moved = self._frames()
+        out = compute_pixel_diff_view(
+            moved, base, gain=1.0, threshold=10, heatmap=False, overlay=False, alpha=0.5
+        )
+        assert out.shape == base.shape and out.dtype == np.uint8
+        assert out.sum() > 0  # the changed region must register
+
+    def test_pixel_diff_identical_frames_dark(self):
+        from frame_analysis import compute_pixel_diff_view
+        base, _ = self._frames()
+        out = compute_pixel_diff_view(
+            base, base.copy(), gain=1.0, threshold=10, heatmap=False, overlay=False, alpha=0.5
+        )
+        assert int(out.sum()) == 0
+
+    def test_optical_flow_shape(self):
+        import numpy as np
+        from frame_analysis import compute_optical_flow_view
+        base, moved = self._frames()
+        out = compute_optical_flow_view(
+            moved, base, gain=1.0, min_motion=0, heatmap=False, overlay=False,
+            alpha=0.5, arrows=False, arrow_step=16, arrow_scale=1.0, compute_scale=1.0,
+        )
+        assert out.shape == base.shape and out.dtype == np.uint8
