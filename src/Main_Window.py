@@ -81,9 +81,12 @@ class MainWindow(QWidget):
         )
         self.overview_widget.open_requested.connect(self._open_system_from_overview)
         self._pending_overview_navigation: dict | None = None
-        self._overview_nav_timer = QTimer(self)
-        self._overview_nav_timer.setInterval(150)
-        self._overview_nav_timer.timeout.connect(self._continue_overview_navigation)
+        # Failsafe: drop a navigation that never completes (e.g. the target
+        # day turns out to have no clips) so it can't fire much later.
+        self._overview_nav_failsafe = QTimer(self)
+        self._overview_nav_failsafe.setSingleShot(True)
+        self._overview_nav_failsafe.setInterval(120_000)
+        self._overview_nav_failsafe.timeout.connect(self._cancel_overview_navigation)
         self.viewer.settings_saved.connect(self._reload_settings_from_viewer)
         # Allow timeline expansion in non-maximised windows by reducing
         # the viewer's minimum height constraint.
@@ -248,6 +251,8 @@ class MainWindow(QWidget):
         # Settings button removed from DatePicker UI
         self.time_picker.time_selected.connect(self.on_time_chosen)
         self.time_picker.items_changed.connect(self._sync_viewer_sku_overlay)
+        self.time_picker.items_changed.connect(self._on_items_changed_for_navigation)
+        self.viewer.clip_opened.connect(self._on_clip_opened_for_navigation)
         if ENABLE_DAY_PREFETCH:
             self.time_picker.items_changed.connect(self._prefetch_day_clips)
         self.viewer.current_time_changed.connect(self.time_picker.set_playhead_datetime)
@@ -897,109 +902,79 @@ class MainWindow(QWidget):
                 "day": selected_day,
                 "target_dt": target_dt,
                 "stage": "load_timeline",
-                "attempts": 0,
-                "max_attempts": 400,
-                "sync_forced": False,
             }
-            self._overview_nav_timer.start()
+            self._overview_nav_failsafe.start()
         else:
-            self._pending_overview_navigation = None
-            self._overview_nav_timer.stop()
+            self._cancel_overview_navigation()
         self.date_picker.select_pikpak_folder_and_day(pikpak_root, selected_day)
 
-    def _continue_overview_navigation(self):
+    def _cancel_overview_navigation(self) -> None:
+        self._pending_overview_navigation = None
+        self._overview_nav_failsafe.stop()
+
+    def _on_items_changed_for_navigation(self) -> None:
+        """Stage 1: once the target day's clips are on the timeline, open the
+        clip containing the target moment. Signal-driven replacement for the
+        old 150 ms polling state machine."""
         pending = self._pending_overview_navigation
-        if not pending:
-            self._overview_nav_timer.stop()
+        if not pending or pending.get("stage") != "load_timeline":
             return
-        pending["attempts"] = int(pending.get("attempts", 0)) + 1
-        max_attempts = max(1, int(pending.get("max_attempts", 400)))
-        if pending["attempts"] > max_attempts:
-            self._pending_overview_navigation = None
-            self._overview_nav_timer.stop()
+        if self.time_picker.current_root != pending["root"]:
             return
-        target_root = pending.get("root")
-        target_day = pending.get("day")
-        target_dt = pending.get("target_dt")
-        if not isinstance(target_root, Path) or not isinstance(target_day, date) or not isinstance(target_dt, datetime):
-            self._pending_overview_navigation = None
-            self._overview_nav_timer.stop()
+        if self.time_picker._current_date != pending["day"]:
             return
+        target_dt = pending["target_dt"]
+        items = list(self.time_picker._items or [])
+        video_items = [itm for itm in items if itm.kind == "video" and isinstance(itm.payload, Path)]
+        if not video_items:
+            return  # video partial not in yet; a later items_changed will bring it
+        clip_item = None
+        previous_item = None
+        for itm in video_items:
+            if itm.start <= target_dt < itm.end:
+                clip_item = itm
+                break
+            if itm.start <= target_dt:
+                previous_item = itm
+            elif target_dt < itm.start:
+                clip_item = previous_item or itm
+                break
+        if clip_item is None:
+            clip_item = previous_item or video_items[0]
+        pending["clip_item"] = clip_item
+        pending["stage"] = "await_clip"
+        self.open_in_viewer(clip_item)
+        # A cached clip opens synchronously, in which case clip_opened has
+        # already fired inside open_in_viewer and cleared the pending state.
 
-        if pending.get("stage") == "load_timeline":
-            if self.time_picker.current_root != target_root:
-                return
-            if self.time_picker._current_date != target_day:
-                return
-            if self.time_picker.is_loading():
-                return
-            items = list(self.time_picker._items or [])
-            video_items = [itm for itm in items if itm.kind == "video" and isinstance(itm.payload, Path)]
-            if not video_items:
-                return
-            clip_item = None
-            previous_item = None
-            for itm in video_items:
-                if itm.start <= target_dt < itm.end:
-                    clip_item = itm
-                    break
-                if itm.start <= target_dt:
-                    previous_item = itm
-                elif target_dt < itm.start:
-                    clip_item = previous_item or itm
-                    break
-            if clip_item is None:
-                clip_item = previous_item or (video_items[0] if video_items else None)
-            if clip_item is None:
-                self._pending_overview_navigation = None
-                self._overview_nav_timer.stop()
-                return
-            pending["clip_item"] = clip_item
-            self.open_in_viewer(clip_item)
-            viewer_path = self.viewer.current_video_original_path
-            viewer_cap = self.viewer.cap
-            if viewer_cap is None or viewer_path is None or Path(viewer_path) != Path(clip_item.payload):
-                return
-            pending["stage"] = "sync_and_seek"
-            pending["attempts"] = 0
-            pending["max_attempts"] = 200
+    def _on_clip_opened_for_navigation(self, opened_path: Path) -> None:
+        """Stage 2: the clip is open (possibly after an async download) —
+        force OCR sync and seek to the target moment."""
+        pending = self._pending_overview_navigation
+        if not pending or pending.get("stage") != "await_clip":
             return
-
         clip_item = pending.get("clip_item")
         if not isinstance(clip_item, TimelineItem):
-            self._pending_overview_navigation = None
-            self._overview_nav_timer.stop()
+            self._cancel_overview_navigation()
             return
-        viewer_path = self.viewer.current_video_original_path
-        viewer_cap = self.viewer.cap
-        if viewer_cap is None or viewer_path is None or Path(viewer_path) != Path(clip_item.payload):
+        if Path(opened_path) != Path(clip_item.payload):
+            # The user opened something else; abandon the navigation.
+            self._cancel_overview_navigation()
             return
-        clip_start_dt = clip_item.start
-        if clip_start_dt.tzinfo is None:
-            clip_start_dt = clip_start_dt.replace(tzinfo=timezone.utc)
-        else:
-            clip_start_dt = clip_start_dt.astimezone(timezone.utc)
-        clip_end_dt = clip_item.end
-        if clip_end_dt.tzinfo is None:
-            clip_end_dt = clip_end_dt.replace(tzinfo=timezone.utc)
-        else:
-            clip_end_dt = clip_end_dt.astimezone(timezone.utc)
+        target_dt = pending["target_dt"]
+        clip_start_dt = ensure_utc(clip_item.start)
+        clip_end_dt = ensure_utc(clip_item.end)
         seek_seconds = (target_dt - clip_start_dt).total_seconds()
         clip_duration_seconds = max(0.0, (clip_end_dt - clip_start_dt).total_seconds())
         if clip_duration_seconds > 0.0:
             seek_seconds = min(seek_seconds, clip_duration_seconds)
         seek_seconds = max(0.0, seek_seconds)
-        if not pending.get("sync_forced"):
-            pending["sync_forced"] = True
-            try:
-                self.viewer._auto_sync_with_ocr(force=True)
-            except Exception:
-                pass
+        self._cancel_overview_navigation()
+        try:
+            self.viewer._auto_sync_with_ocr(force=True)
+        except Exception:
+            pass
         self.viewer.seek_to_seconds(seek_seconds, pause=True)
-        self._pending_overview_navigation = None
-        self._overview_nav_timer.stop()
-
-
 
 
 if __name__ == "__main__":

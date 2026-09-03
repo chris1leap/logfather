@@ -121,6 +121,8 @@ class VideoLogViewer(QWidget):
     annotation_status_changed = Signal(object, bool)
     cache_prefetch_done = Signal()
     cache_clip_ready = Signal(object)
+    # Emitted with the ORIGINAL (share) path once a clip is open and seekable.
+    clip_opened = Signal(object)
     clip_range_export_requested = Signal(float, float)
     settings_saved = Signal()
     close_gap_threshold_changed = Signal(float)
@@ -1728,6 +1730,7 @@ class VideoLogViewer(QWidget):
                 0, lambda: self.seek_to_seconds(seek_seconds, pause=seek_pause)
             )
         print(f"[viewer] load_video_from_path total {time.perf_counter() - t0:.2f}s", flush=True)
+        self.clip_opened.emit(path_obj)
         return True
 
     # Prefetch caching disabled (was slowing clip switching)
