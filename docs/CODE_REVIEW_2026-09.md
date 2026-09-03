@@ -182,6 +182,11 @@ unify `TRANSITION_STATES` (`a7d0e10`); fix `_is_past_day` to local date
 
 ### Stage 1 — zero-risk extractions + purge (mostly mechanical)
 1. Delete the dead-code inventory (§4) — ~1,100 lines.
+   **DONE 2026-09-03** (`50ea9dc`, `12de32c`, `bf5c2b8`, `350dd28`,
+   `b5b81dc`, `9281c6d`): ~1,230 lines removed across elastic_loader,
+   conveyor_calibration (homography kept as raw data pass-through),
+   Time_Picker, Main_Window, Log_vid_gui, target_buffer_widget.
+   Items 2-3 below (hasattr purge, module extractions) still open.
 2. Delete the 49 `hasattr`/`getattr` capability probes in Main_Window —
    they hide typos; the ~20-method viewer interface they conceal becomes
    visible and documentable.
