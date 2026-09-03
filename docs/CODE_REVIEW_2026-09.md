@@ -186,7 +186,13 @@ unify `TRANSITION_STATES` (`a7d0e10`); fix `_is_past_day` to local date
    `b5b81dc`, `9281c6d`): ~1,230 lines removed across elastic_loader,
    conveyor_calibration (homography kept as raw data pass-through),
    Time_Picker, Main_Window, Log_vid_gui, target_buffer_widget.
-   Items 2-3 below (hasattr purge, module extractions) still open.
+   Item 2 (hasattr purge) DONE (`5565cb5`). Item 3 extractions DONE
+   2026-09-03: frame_analysis (`1cb20e4`), app_assets (`c139025`),
+   viewer_widgets (`263d822`), annotated_video_widget (`a2803ac`),
+   log_events (`039539c`), clip_cache with the prune-race fix (`073ee4b`),
+   app_main (`da6a070`). Log_vid_gui: 6,900 → ~4,900 lines; Main_Window:
+   2,085 → ~1,850. STILL OPEN from Stage 1: the qt_worker Job/JobSlot
+   abstraction + porting the five panel loader threads onto it.
 2. Delete the 49 `hasattr`/`getattr` capability probes in Main_Window —
    they hide typos; the ~20-method viewer interface they conceal becomes
    visible and documentable.
