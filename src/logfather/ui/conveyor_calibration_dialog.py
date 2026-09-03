@@ -491,8 +491,19 @@ class ConveyorCalibrationDialog(QDialog):
     def _update_capture_markers(self):
         markers = [f for f in (self._start_fraction, self._end_fraction) if f is not None]
         self._scrub.set_markers(markers)
-        self._btn_go_start.setEnabled(self._start_fraction is not None)
-        self._btn_go_end.setEnabled(self._end_fraction is not None)
+        unavailable_hint = (
+            "Capture position unknown: the line was captured on a different "
+            "clip (or with an older version). Recapture to enable."
+        )
+        for btn, fraction, tip in (
+            (self._btn_go_start, self._start_fraction,
+             "Jump the viewer to the frame where the start point was captured"),
+            (self._btn_go_end, self._end_fraction,
+             "Jump the viewer to the frame where the end point was captured"),
+        ):
+            known = fraction is not None
+            btn.setEnabled(known)
+            btn.setToolTip(tip if known else unavailable_hint)
 
     def _finish_tracking_line(self, nx: float, ny: float):
         if self._line_start_capture is None or self._current_time is None:
