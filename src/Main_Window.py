@@ -145,6 +145,10 @@ class MainWindow(QWidget):
         self._buffer_panel_visible = False
         self._buffer_panel_target_width = 280
         self._day_prefetch_timer: QTimer | None = None
+        self._session_save_timer = QTimer(self)
+        self._session_save_timer.setInterval(60_000)
+        self._session_save_timer.timeout.connect(self._save_last_session)
+        self._session_save_timer.start()
         # Buffer events, gap classification, calibration and per-frame
         # overlays live in the controller.
         self._overlay_controller = TargetOverlayController(
@@ -547,13 +551,20 @@ class MainWindow(QWidget):
         if not self.date_picker.rect().contains(pos):
             self._set_date_picker_visible(False, self._horizontal_splitter)
 
-    def _save_last_session(self) -> None:
-        """Remember system/day/playhead so startup can offer to resume."""
+    def _save_last_session(self, playhead_override: datetime | None = None) -> None:
+        """Remember system/day/playhead so startup can offer to resume.
+
+        Saved on every clip open and once a minute (not just at close), so a
+        killed process still resumes close to where the user was."""
         root = self.time_picker.current_root
         day = self.time_picker._current_date
         if root is None or day is None:
             return
-        playhead = self._overlay_controller._last_playhead_dt
+        playhead = (
+            playhead_override
+            if playhead_override is not None
+            else self._overlay_controller._last_playhead_dt
+        )
         playhead_iso = None
         if isinstance(playhead, datetime):
             playhead_iso = ensure_playhead_local(playhead).astimezone(timezone.utc).isoformat()
@@ -563,6 +574,7 @@ class MainWindow(QWidget):
             "playhead": playhead_iso,
         }
         self.settings.save()
+        print(f"[main] session saved: {root.name} {day.isoformat()} @ {playhead_iso}", flush=True)
 
     def _maybe_resume_last_session(self) -> None:
         session = self.settings.last_session
@@ -686,6 +698,8 @@ class MainWindow(QWidget):
             QTimer.singleShot(0, _apply_markers)
         if ENABLE_PREFETCH_ADJACENT:
             QTimer.singleShot(0, lambda: self._prefetch_adjacent_clips(item))
+        if item.start is not None:
+            self._save_last_session(playhead_override=item.start)
         current_root = self.time_picker.current_root
         if current_root and item.start and item.end:
             self._overlay_controller.load_buffer_events(current_root, item.start, item.end)
