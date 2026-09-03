@@ -199,10 +199,15 @@ unify `TRANSITION_STATES` (`a7d0e10`); fix `_is_past_day` to local date
    — the single Argus 1/2 seam, 11 tests (`0bc9fdd`, `8a7aa2e`);
    elastic_client.py session/URL/headers (`8c22aee`); sku_timeline.py
    band state machine as a pure function, 9 tests (`fdddfab`);
-   stop_report.py out of Main_Window (`8887f70`). Remaining from Stage 2:
-   target_overlay_controller.py, the paginate/retry-ladder unification
-   (verify loop-by-loop against live Elastic), the overview nav polling
-   replacement, and the scene rebuild-in-place work.
+   stop_report.py out of Main_Window (`8887f70`);
+   target_overlay_controller.py (`1a0b288`); signal-driven overview nav
+   (`3f80309`); overview hover fix (`18f86e4`); paginate/retry-ladder
+   unification DONE 2026-09-03 (`3bed7c4` paginate() + 17 tests, then
+   the six loop ports `6117c1c` SKU, `587a1d0` log range, `db60390`
+   overview, `cc0bb18` target buffer, `d8962d5` per-condition events,
+   `b857c68` fleetwide — each verified against live Elastic with
+   identical before/after output digests on fixed PikPak012 2026-09-01
+   windows). **STAGE 2 COMPLETE.**
 2. Delete the 49 `hasattr`/`getattr` capability probes in Main_Window —
    they hide typos; the ~20-method viewer interface they conceal becomes
    visible and documentable.
