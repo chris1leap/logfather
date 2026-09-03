@@ -290,21 +290,21 @@ class MainWindow(QWidget):
         # rate behind the time-remaining estimate.
         self._activity_rate_anchors: dict[str, tuple[float, int]] = {}
         self._activity_bar = QWidget()
-        self._activity_bar.setFixedHeight(24)
+        self._activity_bar.setFixedHeight(28)
         self._activity_bar.setStyleSheet(theme.ACTIVITY_BAR)
-        activity_layout = QHBoxLayout(self._activity_bar)
-        activity_layout.setContentsMargins(8, 2, 8, 2)
-        activity_layout.setSpacing(8)
+        # Text on top, a slim full-width progress bar underneath (Chris).
+        activity_layout = QVBoxLayout(self._activity_bar)
+        activity_layout.setContentsMargins(8, 3, 8, 3)
+        activity_layout.setSpacing(3)
         self._activity_label = QLabel("")
         self._activity_label.setStyleSheet(theme.ACTIVITY_BAR_TEXT)
         self._activity_progress = QProgressBar()
-        self._activity_progress.setFixedWidth(240)
-        self._activity_progress.setFixedHeight(14)
+        self._activity_progress.setFixedHeight(5)
         self._activity_progress.setTextVisible(False)
         self._activity_progress.setStyleSheet(theme.ACTIVITY_PROGRESS)
         self._activity_progress.hide()
-        activity_layout.addWidget(self._activity_label, 1)
-        activity_layout.addWidget(self._activity_progress, 0)
+        activity_layout.addWidget(self._activity_label)
+        activity_layout.addWidget(self._activity_progress)
         # Sweep entries whose source stopped reporting (a worker that died
         # without a finished signal) so the bar can never stick.
         self._activity_sweep_timer = QTimer(self)
