@@ -19,7 +19,7 @@ from typing import Callable
 
 from PySide6.QtCore import QObject
 
-from Time_Picker import ensure_utc
+from timeline_model import ensure_utc
 from conveyor_calibration import ConveyorCalibration, load_calibration
 from conveyor_calibration_dialog import ConveyorCalibrationDialog
 from qt_worker import JobSlot

@@ -13,7 +13,7 @@ from typing import Iterable, List
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from Time_Picker import (
+from timeline_model import (
     TimelineItem,
     load_day_files,
     parse_time_from_name,

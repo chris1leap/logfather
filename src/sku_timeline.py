@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from Time_Picker import TimelineItem
+from timeline_model import TimelineItem
 
 
 def build_sku_bands(

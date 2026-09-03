@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from Time_Picker import (
+from timeline_model import (
     TimelineItem,
     format_local_time,
     local_day_end_utc,
