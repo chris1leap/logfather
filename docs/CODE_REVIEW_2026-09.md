@@ -171,12 +171,14 @@ field name. Detect each robot's schema variant once and narrow the filters
 
 ## 5. Refactoring plan (flat src/ throughout)
 
-### Stage 0 — bug fixes first (small, independent)
-closeEvent for MainWindow; atomic settings write + backup + loud load
-failure; don't cache partial Elastic days (record `complete` flag) + add
-schema version to the events-cache digest; unify `TRANSITION_STATES`; fix
-`_is_past_day` to local date; fix the log-dedupe-key and busy-dialog-stick
-bugs; kill the four `terminate()` calls.
+### Stage 0 — bug fixes first (small, independent) — DONE 2026-09-03
+closeEvent for MainWindow (`4dc7238`); atomic settings write + backup +
+loud load failure (`bc6cf0b`); don't cache partial Elastic days + surface
+page-cap truncation + schema-version the events-cache digest (`8d4d3c1`);
+unify `TRANSITION_STATES` (`a7d0e10`); fix `_is_past_day` to local date
+(`1f44382`); fix the log-dedupe-key and busy-dialog-stick bugs
+(`baf2ca1`); replace the four `terminate()` calls with parked threads
+(`74fcbc9`, seeds `qt_worker.py`).
 
 ### Stage 1 — zero-risk extractions + purge (mostly mechanical)
 1. Delete the dead-code inventory (§4) — ~1,100 lines.
