@@ -250,6 +250,7 @@ class TargetOverlayController(QObject):
         dialog.transport_seek_fraction.connect(self._on_cal_transport_seek)
         dialog.transport_play.connect(self._viewer.play)
         dialog.transport_pause.connect(self._viewer.pause)
+        dialog.transport_jump_fraction.connect(self._on_cal_transport_jump)
 
         # Live frame updates. Connected unconditionally: previously this only
         # connected when a frame existed at open time, so a dialog opened
@@ -272,6 +273,18 @@ class TargetOverlayController(QObject):
 
     def _on_cal_transport_step(self, delta_frames: int) -> None:
         self._viewer.scrub_by_frames(int(delta_frames))
+
+    def _on_cal_transport_jump(self, fraction: float) -> None:
+        """Exact inverse of the position feed (current_frame/(frame_count-1)),
+        so a go-to lands on the captured frame itself — the seconds-based
+        seek path can be off by one frame."""
+        viewer = self._viewer
+        if viewer.cap is None or viewer.frame_count <= 1:
+            return
+        frame = int(round(max(0.0, min(1.0, float(fraction))) * (viewer.frame_count - 1)))
+        viewer.pause()
+        viewer.current_frame = frame
+        viewer.show_frame(frame)
 
     def _on_cal_transport_seek(self, fraction: float) -> None:
         viewer = self._viewer

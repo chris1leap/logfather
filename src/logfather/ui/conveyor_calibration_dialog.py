@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QMessageBox,
     QStyle,
+    QStyleOptionSlider,
 )
 
 from logfather.data.conveyor_calibration import ConveyorCalibration, save_calibration
@@ -54,6 +55,36 @@ def resolve_tracking_line(
         (float(end_pos[0]), float(end_pos[1])),
         float(signed_dt),
     )
+
+
+class _MarkerSlider(QSlider):
+    """QSlider that paints the captured start/end positions as vertical
+    ticks over the groove (fractions 0.0..1.0)."""
+
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self._markers: list[float] = []
+
+    def set_markers(self, fractions: list[float]) -> None:
+        self._markers = [max(0.0, min(1.0, float(f))) for f in fractions]
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._markers:
+            return
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+        groove = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+        handle = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+        span = max(1, groove.width() - handle.width())
+        x0 = groove.x() + handle.width() // 2
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor(theme.CAL_TRACK_LINE), 2))
+        for fraction in self._markers:
+            x = x0 + int(round(fraction * span))
+            painter.drawLine(x, groove.top() - 2, x, groove.bottom() + 2)
+        painter.end()
 
 
 class _FrameCanvas(QLabel):
@@ -117,10 +148,12 @@ class _FrameCanvas(QLabel):
             nx, ny = self._pending_dot
             px = x + nx * dw
             py = y + ny * dh
-            painter.setPen(QPen(QColor("#f1c40f"), 2))
+            painter.setPen(QPen(QColor(theme.CAL_TRACK_LINE), 2))
             painter.drawLine(int(px) - 10, int(py), int(px) + 10, int(py))
             painter.drawLine(int(px), int(py) - 10, int(px), int(py) + 10)
-            painter.setBrush(QBrush(QColor(241, 196, 15, 120)))
+            fill = QColor(theme.CAL_TRACK_LINE)
+            fill.setAlpha(120)
+            painter.setBrush(QBrush(fill))
             painter.drawEllipse(QPointF(px, py), 5, 5)
 
         if self._motion_line is not None:
@@ -176,6 +209,8 @@ class ConveyorCalibrationDialog(QDialog):
     transport_seek_fraction = Signal(float)  # 0.0..1.0 within the loaded clip
     transport_play = Signal()
     transport_pause = Signal()
+    # Exact-frame jump to a captured position (0.0..1.0 of frame range).
+    transport_jump_fraction = Signal(float)
 
     def __init__(self, cal: ConveyorCalibration, parent=None):
         super().__init__(parent, Qt.Window)
@@ -190,8 +225,14 @@ class ConveyorCalibrationDialog(QDialog):
             tracking_line_duration_sec=cal.tracking_line_duration_sec,
         )
         self._current_time: datetime | None = None
-        self._line_start_capture: tuple[datetime, tuple[float, float]] | None = None
+        self._line_start_capture: tuple[datetime, tuple[float, float], float | None] | None = None
         self._line_capture_mode: str | None = None
+        # Clip position (0..1 of frame range) fed by on_clip_position, and
+        # the captured start/end positions for the scrub markers and the
+        # go-to buttons. Session-only: saved calibrations don't carry them.
+        self._last_position_fraction: float | None = None
+        self._start_fraction: float | None = None
+        self._end_fraction: float | None = None
 
         self._build_ui()
         self._refresh_status()
@@ -229,7 +270,7 @@ class ConveyorCalibrationDialog(QDialog):
             btn.setToolTip(tip)
             btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
             transport_row.addWidget(btn)
-        self._scrub = QSlider(Qt.Horizontal)
+        self._scrub = _MarkerSlider(Qt.Horizontal)
         self._scrub.setRange(0, 1000)
         self._scrub.setToolTip("Scrub the main viewer within the loaded clip")
         self._scrub.valueChanged.connect(self._on_scrub_changed)
@@ -288,6 +329,18 @@ class ConveyorCalibrationDialog(QDialog):
         mark_row.addWidget(self._btn_clear_line)
         vel_layout.addLayout(mark_row)
 
+        goto_row = QHBoxLayout()
+        self._btn_go_start = QPushButton("Go to start")
+        self._btn_go_start.setToolTip("Jump the viewer to the frame where the start point was captured")
+        self._btn_go_start.clicked.connect(lambda: self._jump_to_capture(self._start_fraction))
+        self._btn_go_end = QPushButton("Go to end")
+        self._btn_go_end.setToolTip("Jump the viewer to the frame where the end point was captured")
+        self._btn_go_end.clicked.connect(lambda: self._jump_to_capture(self._end_fraction))
+        for btn in (self._btn_go_start, self._btn_go_end):
+            btn.setEnabled(False)
+            goto_row.addWidget(btn)
+        vel_layout.addLayout(goto_row)
+
         self._vel_status_lbl = QLabel("No markers set.")
         self._vel_status_lbl.setStyleSheet(theme.HINT_LABEL)
         self._vel_status_lbl.setWordWrap(True)
@@ -323,6 +376,7 @@ class ConveyorCalibrationDialog(QDialog):
 
     def on_clip_position(self, fraction: float) -> None:
         """Reflect the viewer's position on the scrub slider (0.0..1.0)."""
+        self._last_position_fraction = max(0.0, min(1.0, float(fraction)))
         if self._scrub.isSliderDown():
             return  # the user is dragging; don't fight them
         value = int(round(max(0.0, min(1.0, fraction)) * 1000))
@@ -362,7 +416,14 @@ class ConveyorCalibrationDialog(QDialog):
             if self._current_time is None:
                 QMessageBox.information(self, "No time", "No playhead time available.")
                 return
-            self._line_start_capture = (self._current_time.astimezone(timezone.utc), (nx, ny))
+            self._line_start_capture = (
+                self._current_time.astimezone(timezone.utc),
+                (nx, ny),
+                self._last_position_fraction,
+            )
+            self._start_fraction = self._last_position_fraction
+            self._end_fraction = None
+            self._update_capture_markers()
             self._line_capture_mode = None
             self._canvas.set_pending_dot(None)
             self._mode_lbl.setText(
@@ -395,10 +456,20 @@ class ConveyorCalibrationDialog(QDialog):
         self._mode_lbl.setText("Click the same conveyor reference point at the end frame.")
         self._vel_status_lbl.setText("Waiting for end-point click.")
 
+    def _jump_to_capture(self, fraction: float | None):
+        if fraction is not None:
+            self.transport_jump_fraction.emit(fraction)
+
+    def _update_capture_markers(self):
+        markers = [f for f in (self._start_fraction, self._end_fraction) if f is not None]
+        self._scrub.set_markers(markers)
+        self._btn_go_start.setEnabled(self._start_fraction is not None)
+        self._btn_go_end.setEnabled(self._end_fraction is not None)
+
     def _finish_tracking_line(self, nx: float, ny: float):
         if self._line_start_capture is None or self._current_time is None:
             return
-        start_dt, start_pos = self._line_start_capture
+        start_dt, start_pos, start_fraction = self._line_start_capture
         resolved = resolve_tracking_line(
             start_dt.astimezone(timezone.utc),
             start_pos,
@@ -413,8 +484,20 @@ class ConveyorCalibrationDialog(QDialog):
         self._line_capture_mode = None
         # Clear the pending start capture: _refresh_overlays gives it
         # priority, so leaving it set drew a zero-length line at the start
-        # point instead of the finished A->B line with its end marker.
+        # point instead of the finished Start->End line with its end marker.
         self._line_start_capture = None
+        # Keep the go-to fractions in time-forward order, mirroring the
+        # point swap resolve_tracking_line applies on a reverse capture.
+        end_fraction = self._last_position_fraction
+        if (
+            start_fraction is not None
+            and end_fraction is not None
+            and end_fraction < start_fraction
+        ):
+            start_fraction, end_fraction = end_fraction, start_fraction
+        self._start_fraction = start_fraction
+        self._end_fraction = end_fraction
+        self._update_capture_markers()
         self._cal.tracking_line_start_norm = [line_start[0], line_start[1]]
         self._cal.tracking_line_end_norm = [line_end[0], line_end[1]]
         self._cal.tracking_line_duration_sec = dt
@@ -430,6 +513,9 @@ class ConveyorCalibrationDialog(QDialog):
     def _clear_tracking_line(self):
         self._line_capture_mode = None
         self._line_start_capture = None
+        self._start_fraction = None
+        self._end_fraction = None
+        self._update_capture_markers()
         self._cal.tracking_line_start_norm = None
         self._cal.tracking_line_end_norm = None
         self._cal.tracking_line_duration_sec = 0.0
