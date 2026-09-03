@@ -444,3 +444,92 @@ class TestElasticSchema:
         assert is_stop_like_event("start_pnp", "") is False
         assert is_stop_like_event("", "Shutting down system now") is True
         assert is_stop_like_event("", "", "system_shutdown") is True
+
+
+class TestBuildSkuBands:
+    def _dt(self, minute, second=0):
+        from datetime import datetime, timezone
+        return datetime(2026, 9, 1, 8, minute, second, tzinfo=timezone.utc)
+
+    def _bands(self, events, cap_minute=59):
+        from sku_timeline import build_sku_bands
+        return build_sku_bands(events, self._dt(cap_minute))
+
+    def test_empty_events(self):
+        assert self._bands([]) == []
+
+    def test_start_then_stop_makes_one_sku_band(self):
+        sel = {"sku": "SKU-A", "tray": "T", "tool": "X"}
+        bands = self._bands([
+            (self._dt(0), "start", sel, "start_pnp"),
+            (self._dt(10), "stop", None, "stop_pnp"),
+        ])
+        assert len(bands) == 1
+        band = bands[0]
+        assert (band.start, band.end) == (self._dt(0), self._dt(10))
+        assert band.label == "SKU-A"
+        assert band.payload["_ui_sku"] == "SKU-A"
+
+    def test_system_stop_terminates_band(self):
+        # The state the old 8-state query never returned.
+        bands = self._bands([
+            (self._dt(0), "start", {"sku": "S"}, "start_pnp"),
+            (self._dt(5), "stop", None, "system_stop"),
+        ])
+        assert len(bands) == 1
+        assert bands[0].end == self._dt(5)
+
+    def test_manual_closed_by_auto_not_by_stop(self):
+        bands = self._bands([
+            (self._dt(0), "manual", None, "controller_node_manual_mode"),
+            (self._dt(2), "stop", None, "stop_pnp"),      # must NOT close manual
+            (self._dt(8), "auto", None, "controller_node_automatic_mode"),
+        ])
+        assert len(bands) == 1
+        band = bands[0]
+        assert band.payload.get("_ui_manual") is True
+        assert (band.start, band.end) == (self._dt(0), self._dt(8))
+
+    def test_reselect_same_sku_does_not_split(self):
+        sel = {"sku": "S", "tray": "T", "tool": "X"}
+        bands = self._bands([
+            (self._dt(0), "start", sel, "start_pnp"),
+            (self._dt(3), "select", dict(sel), "select"),
+            (self._dt(10), "stop", None, "stop_pnp"),
+        ])
+        assert len(bands) == 1
+
+    def test_select_different_sku_splits_band(self):
+        bands = self._bands([
+            (self._dt(0), "start", {"sku": "A"}, "start_pnp"),
+            (self._dt(4), "select", {"sku": "B"}, "select"),
+            (self._dt(10), "stop", None, "stop_pnp"),
+        ])
+        assert len(bands) == 2
+        assert bands[0].label == "A" and bands[0].end == self._dt(4)
+        assert bands[1].label == "B" and bands[1].start == self._dt(4)
+
+    def test_start_without_data_carries_last_selection(self):
+        bands = self._bands([
+            (self._dt(0), "start", {"sku": "A"}, "start_pnp"),
+            (self._dt(5), "stop", None, "stop_pnp"),
+            (self._dt(20), "start", None, "start_pnp"),
+            (self._dt(25), "stop", None, "stop_pnp"),
+        ])
+        assert len(bands) == 2
+        assert bands[1].label == "A"  # carried forward
+
+    def test_open_band_clamped_to_cap_end(self):
+        bands = self._bands([
+            (self._dt(0), "start", {"sku": "A"}, "start_pnp"),
+        ], cap_minute=30)
+        assert len(bands) == 1
+        assert bands[0].end == self._dt(30)
+
+    def test_events_past_cap_ignored(self):
+        bands = self._bands([
+            (self._dt(0), "start", {"sku": "A"}, "start_pnp"),
+            (self._dt(40), "stop", None, "stop_pnp"),
+        ], cap_minute=30)
+        assert len(bands) == 1
+        assert bands[0].end == self._dt(30)
