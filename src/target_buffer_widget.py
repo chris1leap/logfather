@@ -18,8 +18,6 @@ from PySide6.QtWidgets import (
 from target_buffer_loader import BufferEvent, PickTarget, get_cam_pos
 
 _COLOR_ADD = "#2ecc71"       # green — item in queue
-_COLOR_PICK = "#3498db"      # blue — last pick event
-_COLOR_GATE = "#e67e22"      # orange — last gate-open event
 _CARD_BG = "#1e2630"
 _CARD_BG_ALT = "#243040"   # odd product_id — slightly lighter
 _CARD_BORDER = "#2c3e50"
@@ -115,7 +113,7 @@ def _make_row(k: str, v: str) -> QHBoxLayout:
 
 
 class _TargetCard(QFrame):
-    def __init__(self, target: PickTarget, index: int, now: datetime, gap_status: str = "normal", parent=None):
+    def __init__(self, target: PickTarget, gap_status: str = "normal", parent=None):
         super().__init__(parent)
         self._expanded = False
         self._target = target
@@ -213,26 +211,6 @@ class _TargetCard(QFrame):
         super().mousePressEvent(event)
 
 
-class _ClearBanner(QFrame):
-    """Small banner shown at the bottom when the buffer was just cleared."""
-
-    def __init__(self, event: BufferEvent, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.StyledPanel)
-        color = _COLOR_GATE if event.event_type == "gate_open" else _COLOR_PICK
-        label = "Gate opened — queue cleared" if event.event_type == "gate_open" else "Pick detected — item removed"
-        self.setStyleSheet(
-            f"QFrame {{ background: {color}22; border: 1px solid {color}; "
-            f"border-radius: 4px; margin: 2px 4px; }}"
-        )
-        lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: bold;")
-        lbl.setAlignment(Qt.AlignCenter)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.addWidget(lbl)
-
-
 class TargetBufferWidget(QWidget):
     """
     Panel that displays the current contents of the robot's pick-target buffer.
@@ -250,7 +228,7 @@ class TargetBufferWidget(QWidget):
         self._alerted_target_ids: set[str] = set()
         self._wide_gap_target_ids: set[str] = set()
         self._card_cache: dict[str, _TargetCard] = {}  # target_id -> card
-        self._active_anims: list[QVariantAnimation] = []
+        self._active_anims: list[QSequentialAnimationGroup] = []
 
         # Header
         self._header_lbl = QLabel("Targets")
@@ -332,15 +310,6 @@ class TargetBufferWidget(QWidget):
         self._last_event = last_ev
         self._rebuild_cards(reference_time=dt)
 
-    def set_targets(self, targets: list[PickTarget], reference_time: datetime, last_event: BufferEvent | None = None) -> None:
-        if reference_time.tzinfo is None:
-            reference_time = reference_time.astimezone(timezone.utc)
-        else:
-            reference_time = reference_time.astimezone(timezone.utc)
-        self._current_targets = list(targets)
-        self._last_event = last_event
-        self._rebuild_cards(reference_time=reference_time)
-
     def set_alerted_target_ids(self, target_ids: set[str]) -> None:
         self._alerted_target_ids = set(target_ids or set())
         for tid, card in self._card_cache.items():
@@ -412,8 +381,6 @@ class TargetBufferWidget(QWidget):
             else:
                 card = _TargetCard(
                     target,
-                    index=n - i,
-                    now=now,
                     gap_status=self._gap_status_for_target(tid),
                 )
                 self._card_cache[tid] = card
