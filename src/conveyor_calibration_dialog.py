@@ -27,6 +27,32 @@ from conveyor_calibration import ConveyorCalibration, save_calibration
 from target_buffer_loader import PickTarget
 
 
+def resolve_tracking_line(
+    start_dt: datetime,
+    start_pos: tuple[float, float],
+    end_dt: datetime,
+    end_pos: tuple[float, float],
+) -> tuple[tuple[float, float], tuple[float, float], float] | None:
+    """Order two captures into a time-forward tracking line.
+
+    Returns (line_start, line_end, duration_seconds), swapping the points
+    when the "end" capture was taken at an EARLIER frame — previously that
+    silently produced a belt running in reverse. Returns None when the
+    captures are too close together in time (< 0.1s) to derive a velocity.
+    """
+    signed_dt = (end_dt - start_dt).total_seconds()
+    if abs(signed_dt) < 0.1:
+        return None
+    if signed_dt < 0:
+        start_pos, end_pos = end_pos, start_pos
+        signed_dt = -signed_dt
+    return (
+        (float(start_pos[0]), float(start_pos[1])),
+        (float(end_pos[0]), float(end_pos[1])),
+        float(signed_dt),
+    )
+
+
 class _FrameCanvas(QLabel):
     clicked_norm = Signal(float, float)
 
@@ -296,16 +322,22 @@ class ConveyorCalibrationDialog(QDialog):
         if self._line_start_capture is None or self._current_time is None:
             return
         start_dt, start_pos = self._line_start_capture
-        dt = abs((self._current_time.astimezone(timezone.utc) - start_dt.astimezone(timezone.utc)).total_seconds())
-        if dt < 0.1:
+        resolved = resolve_tracking_line(
+            start_dt.astimezone(timezone.utc),
+            start_pos,
+            self._current_time.astimezone(timezone.utc),
+            (nx, ny),
+        )
+        if resolved is None:
             QMessageBox.warning(self, "Too close", "Scrub further apart in time before capturing the end point.")
             return
+        line_start, line_end, dt = resolved
 
         self._line_capture_mode = None
-        self._cal.tracking_line_start_norm = [float(start_pos[0]), float(start_pos[1])]
-        self._cal.tracking_line_end_norm = [float(nx), float(ny)]
-        self._cal.tracking_line_duration_sec = float(dt)
-        self._cal.belt_pixels_per_sec = (float(nx) - float(start_pos[0])) / dt
+        self._cal.tracking_line_start_norm = [line_start[0], line_start[1]]
+        self._cal.tracking_line_end_norm = [line_end[0], line_end[1]]
+        self._cal.tracking_line_duration_sec = dt
+        self._cal.belt_pixels_per_sec = (line_end[0] - line_start[0]) / dt
         vx, vy = self._cal.tracking_velocity_norm_per_sec() or (0.0, 0.0)
         self._vel_status_lbl.setText(
             f"Tracking line set: dt={dt:.3f}s, vx={vx:.5f}, vy={vy:.5f} norm/s"

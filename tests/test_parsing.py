@@ -582,3 +582,25 @@ class TestGapAndBuckets:
         assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(240)) == 1
         assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(2400)) == 10
         assert choose_clip_target_rate_bucket_seconds(self._ts(0), self._ts(100000)) == 60
+
+
+class TestResolveTrackingLine:
+    def _dt(self, seconds):
+        from datetime import datetime, timezone, timedelta
+        return datetime(2026, 9, 1, 10, 0, 0, tzinfo=timezone.utc) + timedelta(seconds=seconds)
+
+    def test_forward_capture_unchanged(self):
+        from conveyor_calibration_dialog import resolve_tracking_line
+        out = resolve_tracking_line(self._dt(0), (0.2, 0.5), self._dt(4), (0.8, 0.5))
+        assert out == ((0.2, 0.5), (0.8, 0.5), 4.0)
+
+    def test_reverse_capture_swaps_points(self):
+        # End point captured at an EARLIER frame: the item was at 0.8 later
+        # and 0.2 earlier, so the belt still runs 0.2 -> 0.8.
+        from conveyor_calibration_dialog import resolve_tracking_line
+        out = resolve_tracking_line(self._dt(4), (0.8, 0.5), self._dt(0), (0.2, 0.5))
+        assert out == ((0.2, 0.5), (0.8, 0.5), 4.0)
+
+    def test_too_close_in_time_rejected(self):
+        from conveyor_calibration_dialog import resolve_tracking_line
+        assert resolve_tracking_line(self._dt(0), (0.2, 0.5), self._dt(0.05), (0.8, 0.5)) is None
