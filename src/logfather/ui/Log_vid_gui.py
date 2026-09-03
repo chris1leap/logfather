@@ -4489,20 +4489,28 @@ class VideoLogViewer(QWidget):
         dlg.setAttribute(Qt.WA_DeleteOnClose, True)
         dlg.destroyed.connect(lambda _=None: setattr(self, "_ocr_tool_dialog", None))
         dlg.resize(900, 600)
-        dlg.show()
+        # The dialog stays hidden until the clip copy lands (Chris,
+        # 2026-09-04: the OCR window must not pop up mid-download); the
+        # activity bar shows the download meanwhile.
         self._ocr_tool_dialog = dlg
         src, copy_to = self._plan_ocr_video_source(Path(self.current_video_path))
 
         def _open_when_ready(ready_path):
             if self._ocr_tool_dialog is not dlg:
                 return
+            dlg.show()
             dlg.open_video(str(ready_path))
 
         self._ocr_sync_slot.start(
             lambda job, src=src, copy_to=copy_to: self._ocr_video_source(
-                src, copy_to, should_abort=job.interrupted
+                src,
+                copy_to,
+                should_abort=job.interrupted,
+                on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
             ),
             on_result=_open_when_ready,
+            on_progress=self._on_ocr_sync_progress,
+            on_finished=self._hide_ocr_sync_progress,
         )
 
     def open_secondary_ocr_tool(self, auto_start: bool = True, auto_close_on_success: bool = False):
@@ -4554,20 +4562,26 @@ class VideoLogViewer(QWidget):
         dlg.setAttribute(Qt.WA_DeleteOnClose, True)
         dlg.destroyed.connect(lambda _=None: setattr(self, "_ocr_tool_dialog", None))
         dlg.resize(900, 600)
-        dlg.show()
+        # Hidden until the clip copy lands — see open_ocr_roi_tool.
         self._ocr_tool_dialog = dlg
         src, copy_to = self._plan_ocr_video_source(Path(self.secondary_video_path))
 
         def _open_when_ready(ready_path):
             if self._ocr_tool_dialog is not dlg:
                 return
+            dlg.show()
             dlg.open_video(str(ready_path))
 
         self._ocr_secondary_sync_slot.start(
             lambda job, src=src, copy_to=copy_to: self._ocr_video_source(
-                src, copy_to, should_abort=job.interrupted
+                src,
+                copy_to,
+                should_abort=job.interrupted,
+                on_progress=lambda done, total: job.emit_progress(("ocr-copy", done, total)),
             ),
             on_result=_open_when_ready,
+            on_progress=lambda payload: self._on_ocr_sync_progress(payload, cam_label=" (2nd cam)"),
+            on_finished=lambda: self._hide_ocr_sync_progress(cam_label=" (2nd cam)"),
         )
 
     def _on_ocr_sync_progress(self, payload, cam_label: str = ""):
