@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from logfather.data.elastic_loader import fetch_fleetwide_search_histogram
 from logfather.data.elastic_schema import robot_id_from_folder
+from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
     FleetwideSearchDefinition, Settings, display_customer_name, display_line_name,
@@ -276,7 +277,7 @@ class FleetwideSystemCard(QFrame):
         super().__init__(parent)
         self.system_root = system_root
         self.setObjectName("fleetwideSystemCard")
-        self.setStyleSheet("QFrame#fleetwideSystemCard { background: #1b232b; border: 1px solid #34414c; border-radius: 8px; }")
+        self.setStyleSheet(theme.FLEETWIDE_CARD)
         self.setMinimumHeight(205)
         customer = display_customer_name(settings, system_root.name)
         line = display_line_name(settings, system_root.name)
@@ -292,7 +293,7 @@ class FleetwideSystemCard(QFrame):
         if robot_id:
             detail_parts.append(robot_id)
         detail = QLabel("  •  ".join(detail_parts))
-        detail.setStyleSheet("color: #9aa6b2;")
+        detail.setStyleSheet(theme.FLEETWIDE_MUTED)
         self.count_label = QLabel("—")
         count_font = QFont(self.font())
         count_font.setPointSize(count_font.pointSize() + 12)
@@ -301,7 +302,7 @@ class FleetwideSystemCard(QFrame):
         self.count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.count_caption = QLabel("occurrences")
         self.count_caption.setAlignment(Qt.AlignRight)
-        self.count_caption.setStyleSheet("color: #9aa6b2;")
+        self.count_caption.setStyleSheet(theme.FLEETWIDE_MUTED)
         heading = QGridLayout()
         heading.addWidget(title, 0, 0)
         heading.addWidget(detail, 1, 0)
@@ -311,7 +312,7 @@ class FleetwideSystemCard(QFrame):
         self.graph = FleetwideGraph(self)
         self.error_label = QLabel("")
         self.error_label.setWordWrap(True)
-        self.error_label.setStyleSheet("color: #ff8a80;")
+        self.error_label.setStyleSheet(theme.ERROR_LABEL)
         self.error_label.setVisible(False)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -473,12 +474,12 @@ class FleetwideElasticSearchWidget(QWidget):
             operation_row.addWidget(button)
         self.operation_buttons["operating"].setChecked(True)
         operation_note = QLabel("Operation begins 60 seconds after start_pnp and ends on stop, manual, caution or shutdown.")
-        operation_note.setStyleSheet("color: #8f9aa3;")
+        operation_note.setStyleSheet(theme.FLEETWIDE_NOTE)
         operation_row.addWidget(operation_note)
         operation_row.addStretch(1)
         legend = QLabel(
-            '<span style="color:#e74c3c;">■</span> Operation&nbsp;&nbsp;'
-            '<span style="color:#f39c12;">■</span> Startup / stopped'
+            f'<span style="color:{theme.LEGEND_OPERATION};">■</span> Operation&nbsp;&nbsp;'
+            f'<span style="color:{theme.LEGEND_STARTUP};">■</span> Startup / stopped'
         )
         operation_row.addWidget(legend)
         self.serial_filter = QLineEdit()
@@ -497,7 +498,7 @@ class FleetwideElasticSearchWidget(QWidget):
         filter_row.addWidget(self.customer_filter)
         filter_row.addWidget(refresh_btn)
         self.status_label = QLabel("Choose a parent folder to load fleet systems.")
-        self.status_label.setStyleSheet("color: #9aa6b2;")
+        self.status_label.setStyleSheet(theme.FLEETWIDE_MUTED)
         self.card_container = QWidget()
         self.card_layout = QGridLayout(self.card_container)
         self.card_layout.setContentsMargins(4, 4, 4, 4)
@@ -744,7 +745,7 @@ class FleetwideElasticSearchWidget(QWidget):
                 message = "No systems match the current filters."
             empty = QLabel(message)
             empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet("color: #9aa6b2; padding: 30px;")
+            empty.setStyleSheet(theme.FLEETWIDE_EMPTY)
             self.card_layout.addWidget(empty, 0, 0, 1, column_count)
         self.card_layout.setColumnStretch(0, 1)
         self.card_layout.setColumnStretch(1, 1 if column_count == 2 else 0)

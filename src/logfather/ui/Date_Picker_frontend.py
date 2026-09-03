@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel, QCalendarWidget, QMessageBox, QHBoxLayout, QScrollArea, QGridLayout, QButtonGroup,
     QSizePolicy
 )
+from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
     Settings,
@@ -167,14 +168,7 @@ class DatePicker(QWidget):
         sim_btn.setCheckable(True)
         sim_btn.setMinimumWidth(90)
         sim_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        sim_btn.setStyleSheet(
-            "QPushButton { padding: 2px 6px; } "
-            "QPushButton:checked { "
-            "  background-color: #ffe7ba; "
-            "  border: 1px solid #ffb84d; "
-            "  color: #5a2a00; "
-            "}"
-        )
+        sim_btn.setStyleSheet(theme.SIM_BUTTON)
         sim_btn.clicked.connect(self.use_sim_mode)
         self.pikpak_group.addButton(sim_btn)
         self.pikpak_buttons["__SIM__"] = sim_btn
@@ -200,12 +194,7 @@ class DatePicker(QWidget):
             header_btn = QPushButton(f"{marker} {customer_name}")
             header_btn.setCursor(Qt.PointingHandCursor)
             header_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            header_btn.setStyleSheet(
-                "QPushButton { "
-                "text-align: left; padding: 6px 8px; color: #d7dde2; font-weight: bold; "
-                "background: #202a31; border: 1px solid #31414d; } "
-                "QPushButton:hover { background: #25313a; }"
-            )
+            header_btn.setStyleSheet(theme.CUSTOMER_HEADER_BUTTON)
             header_btn.clicked.connect(lambda _checked=False, name=customer_name: self.toggle_customer_collapsed(name))
             header_layout.addWidget(header_btn, 1)
             logo_bytes = customer_logo_bytes(self.settings, customer_name)
@@ -237,17 +226,7 @@ class DatePicker(QWidget):
                 btn.setCheckable(True)
                 btn.setMinimumWidth(90)
                 btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-                btn.setStyleSheet(
-                    "QPushButton { "
-                    "  padding: 2px 6px; text-align: left; "
-                    "  background-color: #2b2b2b; color: #f2f4f7; "
-                    "  border: 1px solid #4a4f55; border-right: 0px; "
-                    "  border-top-left-radius: 6px; border-bottom-left-radius: 6px; "
-                    "  border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
-                    "} "
-                    "QPushButton:hover { background-color: #343941; } "
-                    "QPushButton:checked { background-color: #cce5ff; border: 1px solid #5b8def; border-right: 0px; color: #0b1a33; }"
-                )
+                btn.setStyleSheet(theme.SYSTEM_BUTTON)
                 btn.clicked.connect(lambda _checked=False, p=path: self.use_pikpak_folder(p))
                 self.pikpak_group.addButton(btn)
                 self.pikpak_buttons[path.name] = btn
@@ -257,17 +236,7 @@ class DatePicker(QWidget):
                 today_btn.setFixedSize(24, 44)
                 today_btn.setToolTip(f"Load {path.name} for today")
                 today_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-                today_btn.setStyleSheet(
-                    "QPushButton { "
-                    "  padding: 0px; font-weight: bold; "
-                    "  background-color: #3d434a; color: #f2f4f7; "
-                    "  border: 1px solid #4a4f55; border-left: 1px solid #59616a; "
-                    "  border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
-                    "  border-top-right-radius: 6px; border-bottom-right-radius: 6px; "
-                    "} "
-                    "QPushButton:hover { background-color: #4a525b; } "
-                    "QPushButton:pressed { background-color: #5b6470; }"
-                )
+                today_btn.setStyleSheet(theme.TODAY_BUTTON)
                 today_btn.clicked.connect(lambda _checked=False, p=path: self.select_pikpak_folder_and_day(p, date.today()))
                 self._folder_action_buttons.append(today_btn)
 

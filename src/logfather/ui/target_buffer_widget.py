@@ -16,12 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from logfather.data.target_buffer_loader import BufferEvent, PickTarget, get_cam_pos
-
-_COLOR_ADD = "#2ecc71"       # green — item in queue
-_CARD_BG = "#1e2630"
-_CARD_BG_ALT = "#243040"   # odd product_id — slightly lighter
-_CARD_BORDER = "#2c3e50"
-_HEADER_BG = "#111820"
+from logfather.ui import theme
 
 
 def _display_target_id(target: PickTarget) -> str:
@@ -101,11 +96,11 @@ def _make_row(k: str, v: str) -> QHBoxLayout:
     row = QHBoxLayout()
     row.setSpacing(6)
     key_lbl = QLabel(k)
-    key_lbl.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+    key_lbl.setStyleSheet(theme.HINT_LABEL)
     key_lbl.setFixedWidth(90)
     key_lbl.setWordWrap(False)
     val_lbl = QLabel(v)
-    val_lbl.setStyleSheet("color: #ecf0f1; font-size: 10px;")
+    val_lbl.setStyleSheet(theme.VALUE_LABEL)
     val_lbl.setWordWrap(True)
     row.addWidget(key_lbl)
     row.addWidget(val_lbl, 1)
@@ -130,16 +125,16 @@ class _TargetCard(QFrame):
         header = QHBoxLayout()
         pid = _display_target_id(target)
         pid_lbl = QLabel(f"#{pid}" if pid else "—")
-        pid_lbl.setStyleSheet("color: #ecf0f1; font-weight: bold; font-size: 11px;")
+        pid_lbl.setStyleSheet(theme.CARD_TITLE)
         header.addWidget(pid_lbl)
         header.addStretch(1)
 
         self._chevron = QLabel("▶")
-        self._chevron.setStyleSheet("color: #4a6070; font-size: 8px;")
+        self._chevron.setStyleSheet(theme.CHEVRON)
         header.addWidget(self._chevron)
 
         time_lbl = QLabel(target.added_at.astimezone().strftime("%H:%M:%S"))
-        time_lbl.setStyleSheet("color: #7f8c8d; font-size: 10px; margin-left: 4px;")
+        time_lbl.setStyleSheet(theme.CARD_TIME)
         header.addWidget(time_lbl)
 
         layout.addLayout(header)
@@ -150,7 +145,7 @@ class _TargetCard(QFrame):
             for k, v in summary_rows:
                 layout.addLayout(_make_row(k, v))
         else:
-            layout.addWidget(QLabel("(no data)", styleSheet="color:#566573;font-size:10px;font-style:italic;"))
+            layout.addWidget(QLabel("(no data)", styleSheet=theme.EMPTY_NOTE_INLINE))
 
         # Detail section — hidden until expanded
         self._detail = QWidget()
@@ -160,7 +155,7 @@ class _TargetCard(QFrame):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: #2c3e50;")
+        sep.setStyleSheet(theme.SEPARATOR)
         detail_layout.addWidget(sep)
 
         detail_rows = _detail_rows(target.source_doc)
@@ -168,7 +163,7 @@ class _TargetCard(QFrame):
             for k, v in detail_rows:
                 detail_layout.addLayout(_make_row(k, v))
         else:
-            detail_layout.addWidget(QLabel("(no detail data)", styleSheet="color:#566573;font-size:10px;font-style:italic;"))
+            detail_layout.addWidget(QLabel("(no detail data)", styleSheet=theme.EMPTY_NOTE_INLINE))
 
         self._detail.setVisible(False)
         layout.addWidget(self._detail)
@@ -177,24 +172,21 @@ class _TargetCard(QFrame):
         target = self._target
         valid = target.source_doc.get("valid", True)
         if not valid:
-            bg, border = "#2a1a1a", "#5c2020"
+            bg, border = theme.CARD_INVALID_BG, theme.CARD_INVALID_BORDER
         else:
             try:
                 odd = int(_display_target_id(target)) % 2 == 1
             except (TypeError, ValueError):
                 odd = False
-            bg = _CARD_BG_ALT if odd else _CARD_BG
-            border = _CARD_BORDER
+            bg = theme.CARD_BG_ALT if odd else theme.CARD_BG
+            border = theme.CARD_BORDER
             if self._gap_status == "close":
-                border = "#f1c40f"
-                bg = "#3a3314" if odd else "#332d12"
+                border = theme.GAP_CLOSE_BORDER
+                bg = theme.GAP_CLOSE_BG_ODD if odd else theme.GAP_CLOSE_BG_EVEN
             elif self._gap_status == "wide":
-                border = "#4aa3ff"
-                bg = "#152d45" if odd else "#13283d"
-        self.setStyleSheet(
-            f"QFrame {{ background: {bg}; border: 1px solid {border}; "
-            f"border-radius: 4px; margin: 2px 4px; }}"
-        )
+                border = theme.GAP_WIDE_BORDER
+                bg = theme.GAP_WIDE_BG_ODD if odd else theme.GAP_WIDE_BG_EVEN
+        self.setStyleSheet(theme.target_card_style(bg, border))
 
     def set_gap_status(self, gap_status: str) -> None:
         gap_status = str(gap_status or "normal")
@@ -232,10 +224,7 @@ class TargetBufferWidget(QWidget):
 
         # Header
         self._header_lbl = QLabel("Targets")
-        self._header_lbl.setStyleSheet(
-            f"background: {_HEADER_BG}; color: #d7dde2; font-weight: bold; "
-            f"padding: 6px 8px; font-size: 12px;"
-        )
+        self._header_lbl.setStyleSheet(theme.BUFFER_HEADER)
 
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
@@ -247,12 +236,10 @@ class TargetBufferWidget(QWidget):
         self._scroll_area.setWidgetResizable(True)
         self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._scroll_area.setStyleSheet(
-            f"QScrollArea {{ background: #161d25; border: none; }}"
-        )
+        self._scroll_area.setStyleSheet(theme.BUFFER_SCROLL)
 
         self._cards_container = QWidget()
-        self._cards_container.setStyleSheet(f"background: #161d25;")
+        self._cards_container.setStyleSheet(theme.BUFFER_BG)
         self._cards_layout = QVBoxLayout(self._cards_container)
         self._cards_layout.setContentsMargins(0, 4, 0, 4)
         self._cards_layout.setSpacing(0)
@@ -263,16 +250,12 @@ class TargetBufferWidget(QWidget):
         # Empty state label
         self._empty_lbl = QLabel("Buffer empty")
         self._empty_lbl.setAlignment(Qt.AlignCenter)
-        self._empty_lbl.setStyleSheet(
-            "color: #566573; font-size: 11px; font-style: italic; padding: 16px;"
-        )
+        self._empty_lbl.setStyleSheet(theme.EMPTY_STATE)
 
         # No-data label (before any events are loaded)
         self._no_data_lbl = QLabel("No data loaded")
         self._no_data_lbl.setAlignment(Qt.AlignCenter)
-        self._no_data_lbl.setStyleSheet(
-            "color: #3d4f5c; font-size: 11px; font-style: italic; padding: 16px;"
-        )
+        self._no_data_lbl.setStyleSheet(theme.NO_DATA_STATE)
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)

@@ -35,6 +35,7 @@ from logfather.ui.annotated_video_widget import AnnotatedVideoWidget
 from logfather.data.clip_cache import ClipCache
 from logfather.data.ocr_offset_store import OcrOffsetStore
 from logfather.core.time_alignment import TimeAlignment
+from logfather.ui import theme
 from logfather.core.log_events import (
     LOCAL_TIMEZONE,
     MESSAGE_COLUMN,
@@ -407,7 +408,7 @@ class VideoLogViewer(QWidget):
         """The Custom tab: 15 preset buttons + 5 free-text filter blocks."""
         self.custom_filter_blocks: list[tuple[QPushButton, QLineEdit, QLineEdit, QLabel]] = []
         self.custom_filter_hint = QLabel("Empty entries are ignored. Use commas to separate terms.")
-        self.custom_filter_hint.setStyleSheet("color: #888888;")
+        self.custom_filter_hint.setStyleSheet(theme.DIM_LABEL)
 
         self.filter_preset_group: list[QPushButton] = []
         self.active_filter_preset_index: int | None = None
@@ -470,7 +471,7 @@ class VideoLogViewer(QWidget):
             out_edit.textChanged.connect(lambda _text, b=btn: self._on_custom_filter_text_changed(b))
             out_edit.textChanged.connect(self._validate_custom_filter_inputs)
             count_label = QLabel("Matches: -")
-            count_label.setStyleSheet("color: #888888;")
+            count_label.setStyleSheet(theme.DIM_LABEL)
 
             block_layout.addWidget(btn)
             block_layout.addWidget(in_edit)
@@ -520,7 +521,7 @@ class VideoLogViewer(QWidget):
         self.secondary_lock_toggle = QLabel("--Lock--")
         self.secondary_lock_toggle.setAlignment(Qt.AlignCenter)
         self.secondary_lock_toggle.setEnabled(False)
-        self.secondary_lock_toggle.setStyleSheet("color: #888888;")
+        self.secondary_lock_toggle.setStyleSheet(theme.DIM_LABEL)
         self.secondary_lock_toggle.setCursor(Qt.PointingHandCursor)
         self.secondary_lock_toggle.mousePressEvent = self._toggle_secondary_lock
         self.secondary_locked = True
@@ -536,21 +537,21 @@ class VideoLogViewer(QWidget):
         self.info_label.setSegmentStyle(QLCDNumber.Flat)
         self.info_label.display("00:00:00.000")
         self.info_label.setFixedWidth(170)
-        self.info_label.setStyleSheet("QLCDNumber { background-color: #000000; color: #00ff66; }")
+        self.info_label.setStyleSheet(theme.LCD_DISPLAY)
 
         self.calc_label = SegmentDisplay()
         self.calc_label.setDigitCount(12)  # 00:00:00.000
         self.calc_label.setSegmentStyle(QLCDNumber.Flat)
         self.calc_label.display("00:00:00.000")
         self.calc_label.setFixedWidth(170)
-        self.calc_label.setStyleSheet("QLCDNumber { background-color: #000000; color: #00ff66; }")
+        self.calc_label.setStyleSheet(theme.LCD_DISPLAY)
 
         self.frame_label = SegmentDisplay()
         self.frame_label.setDigitCount(8)
         self.frame_label.setSegmentStyle(QLCDNumber.Flat)
         self.frame_label.display("0")
         self.frame_label.setFixedWidth(120)
-        self.frame_label.setStyleSheet("QLCDNumber { background-color: #000000; color: #00ff66; }")
+        self.frame_label.setStyleSheet(theme.LCD_DISPLAY)
 
         self.offset_min = -2.0
         self.offset_max = 2.0
@@ -578,7 +579,7 @@ class VideoLogViewer(QWidget):
         self.secondary_offset_store = OcrOffsetStore(self.cache_root / "ocr_offsets_additional.json")
         self._load_pinned_annotations()
         self.cache_status_label = QLabel("")
-        self.cache_status_label.setStyleSheet("color: #888888;")
+        self.cache_status_label.setStyleSheet(theme.DIM_LABEL)
         self.cache_status_label.setWordWrap(True)
         self.open_cache_btn = QPushButton("Open Cache Folder")
         self.open_cache_btn.clicked.connect(self.open_cache_folder)
@@ -808,7 +809,7 @@ class VideoLogViewer(QWidget):
         QTimer.singleShot(0, self._update_marker_bar_padding)
 
         self.offset_caption = QLabel("Drift")
-        self.offset_caption.setStyleSheet("color: #9aa0a6; font-size: 10px;")
+        self.offset_caption.setStyleSheet(theme.SLIDER_CAPTION)
         self.offset_slider = DriftSlider(Qt.Horizontal)
         self.offset_slider.setRange(
             int(self.offset_min * self._offset_slider_scale),
@@ -820,13 +821,13 @@ class VideoLogViewer(QWidget):
         self.offset_display = QLabel("+0.00s")
         self.offset_display.setMinimumWidth(48)
         self.offset_display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.offset_display.setStyleSheet("color: #d7dde2; font-family: Consolas, monospace; font-size: 10px;")
+        self.offset_display.setStyleSheet(theme.SLIDER_VALUE)
         self.playback_layout.addSpacing(8)
         self.playback_layout.addWidget(self.offset_caption)
         self.playback_layout.addWidget(self.offset_slider)
         self.playback_layout.addWidget(self.offset_display)
         self.close_gap_caption = QLabel("Gap")
-        self.close_gap_caption.setStyleSheet("color: #9aa0a6; font-size: 10px;")
+        self.close_gap_caption.setStyleSheet(theme.SLIDER_CAPTION)
         self.close_gap_slider = DriftSlider(Qt.Horizontal)
         self.close_gap_slider.setRange(
             int(round(self.close_gap_threshold_min * 100.0)),
@@ -838,7 +839,7 @@ class VideoLogViewer(QWidget):
         self.close_gap_display = QLabel("0.50x")
         self.close_gap_display.setMinimumWidth(40)
         self.close_gap_display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.close_gap_display.setStyleSheet("color: #d7dde2; font-family: Consolas, monospace; font-size: 10px;")
+        self.close_gap_display.setStyleSheet(theme.SLIDER_VALUE)
         self.playback_layout.addSpacing(6)
         self.playback_layout.addWidget(self.close_gap_caption)
         self.playback_layout.addWidget(self.close_gap_slider)
@@ -855,16 +856,7 @@ class VideoLogViewer(QWidget):
         self.log_list.setSelectionMode(QAbstractItemView.SingleSelection)
         self.log_list.setUniformItemSizes(True)
         self.log_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.log_list.setStyleSheet("""
-            QListView::item:selected {
-                background-color: #cc2222;
-                color: white;
-            }
-            QListView::item:selected:!active {
-                background-color: #882222;
-                color: white;
-            }
-        """)
+        self.log_list.setStyleSheet(theme.LOG_LIST)
         self.log_list.clicked.connect(self._on_log_item_clicked)
 
         self.sync_start_btn = QPushButton("Sync logs to current video (first log)")
@@ -883,7 +875,7 @@ class VideoLogViewer(QWidget):
         settings_tab = QWidget()
         settings_tab_layout = QVBoxLayout(settings_tab)
         version_label = QLabel(f"Build: {format_version_label()}")
-        version_label.setStyleSheet("color: #9aa0a6;")
+        version_label.setStyleSheet(theme.MUTED_LABEL)
         settings_tab_layout.addWidget(version_label)
         self.settings_panel = SettingsPanel(self.settings, settings_tab)
         settings_tab_layout.addWidget(self.settings_panel)
@@ -940,10 +932,7 @@ class VideoLogViewer(QWidget):
         self._pin_btn.setCheckable(True)
         self._pin_btn.setFixedSize(26, 22)
         self._pin_btn.setToolTip("Pin panel open")
-        self._pin_btn.setStyleSheet(
-            "QPushButton { border: none; background: transparent; font-size: 13px; }"
-            "QPushButton:checked { background: rgba(255,255,255,30); border-radius: 3px; }"
-        )
+        self._pin_btn.setStyleSheet(theme.PIN_BUTTON)
         self._pin_btn.toggled.connect(self._on_pin_toggled)
         self.right_tabs.setCornerWidget(self._pin_btn, Qt.TopRightCorner)
 
@@ -1434,12 +1423,12 @@ class VideoLogViewer(QWidget):
     def _update_sync_button_style(self):
         if hasattr(self, "video_sync_btn"):
             if self._main_sync_done:
-                self.video_sync_btn.setStyleSheet("background-color: #2e7d32; color: white;")
+                self.video_sync_btn.setStyleSheet(theme.SYNC_DONE_BUTTON)
             else:
                 self.video_sync_btn.setStyleSheet("")
         if hasattr(self, "secondary_sync_btn"):
             if self._secondary_sync_done:
-                self.secondary_sync_btn.setStyleSheet("background-color: #2e7d32; color: white;")
+                self.secondary_sync_btn.setStyleSheet(theme.SYNC_DONE_BUTTON)
             else:
                 self.secondary_sync_btn.setStyleSheet("")
 
@@ -2474,7 +2463,7 @@ class VideoLogViewer(QWidget):
                 text = edit.text()
                 has_empty = text.strip().startswith(",") or text.strip().endswith(",") or ",," in text
                 if has_empty:
-                    edit.setStyleSheet("border: 1px solid #cc8800;")
+                    edit.setStyleSheet(theme.INPUT_WARNING_BORDER)
                     edit.setToolTip("Empty entries will be ignored.")
                 else:
                     edit.setStyleSheet("")
@@ -2784,12 +2773,12 @@ class VideoLogViewer(QWidget):
 
     def _update_secondary_lock_style(self):
         if self.secondary_cap is None:
-            self.secondary_lock_toggle.setStyleSheet("color: #888888;")
+            self.secondary_lock_toggle.setStyleSheet(theme.DIM_LABEL)
             return
         if self.secondary_locked:
-            self.secondary_lock_toggle.setStyleSheet("color: #2ecc71;")
+            self.secondary_lock_toggle.setStyleSheet(theme.LOCK_ON_LABEL)
         else:
-            self.secondary_lock_toggle.setStyleSheet("color: #ff4d4f;")
+            self.secondary_lock_toggle.setStyleSheet(theme.LOCK_OFF_LABEL)
 
     def _toggle_secondary_lock(self, _event):
         if self.secondary_cap is None:
@@ -3408,7 +3397,7 @@ class VideoLogViewer(QWidget):
             self._set_color_button_style(self._popout_color_btn, self._annotation_color)
 
     def _set_color_button_style(self, button: QToolButton, color: QColor):
-        button.setStyleSheet(f"background-color: {color.name()};")
+        button.setStyleSheet(theme.solid_button(color.name()))
 
     def _pick_annotation_color(self):
         color = QColorDialog.getColor(self._annotation_color, self, "Select annotation color")

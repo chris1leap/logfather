@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from logfather.core.app_version import load_version_info
+from logfather.ui import theme
 from logfather.paths import REPO_ROOT
 
 GITHUB_REPO_URL = "https://github.com/chris1leap/logfather"
@@ -168,17 +169,7 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("About The Logfather")
         self.resize(1080, 780)
-        self.setStyleSheet(
-            "QDialog { background: #12181f; }"
-            "QLabel { color: #e8eef4; }"
-            "QTabWidget::pane { border: 1px solid #2c3946; background: #12181f; }"
-            "QTabBar::tab { background: #1a222b; color: #9fb0c0; padding: 6px 16px; }"
-            "QTabBar::tab:selected { background: #24435f; color: #e8eef4; }"
-            "QPushButton { background: #24435f; color: #e8eef4; border: 1px solid #5b9bd5;"
-            " border-radius: 4px; padding: 5px 18px; }"
-            "QScrollArea { border: none; background: #12181f; }"
-            "QTextBrowser { background: #12181f; border: none; }"
-        )
+        self.setStyleSheet(theme.ABOUT_PAGE)
 
         header = QHBoxLayout()
         logo_path = _resolve_logo_path()
@@ -192,10 +183,10 @@ class AboutDialog(QDialog):
             header.addWidget(logo)
         title_col = QVBoxLayout()
         title = QLabel("The Logfather")
-        title.setStyleSheet("font-size: 22px; font-weight: bold;")
+        title.setStyleSheet(theme.TITLE_LABEL)
         title_col.addWidget(title)
         subtitle = QLabel("CCTV video + Elastic log viewer")
-        subtitle.setStyleSheet("color: #9fb0c0;")
+        subtitle.setStyleSheet(theme.ABOUT_MUTED)
         title_col.addWidget(subtitle)
         title_col.addWidget(self._build_version_label())
         header.addLayout(title_col)
@@ -231,7 +222,7 @@ class AboutDialog(QDialog):
         label = QLabel(" &nbsp;&middot;&nbsp; ".join(parts))
         label.setTextFormat(Qt.RichText)
         label.setOpenExternalLinks(True)
-        label.setStyleSheet("color: #9fb0c0;")
+        label.setStyleSheet(theme.ABOUT_MUTED)
         return label
 
     def _build_diagram_tab(self) -> QWidget:

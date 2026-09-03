@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 
+from logfather.ui import theme
 from logfather.ui.Date_Picker_frontend import DatePicker
 from logfather.ui.Time_Picker import (
     TimePicker,
@@ -156,7 +157,7 @@ class MainWindow(QWidget):
         self.fleetwide_search_btn.setCheckable(True)
         self.fleetwide_search_btn.toggled.connect(self._on_fleetwide_search_toggled)
         self.current_system_label = QLabel("")
-        self.current_system_label.setStyleSheet("color: #d7dde2; padding-left: 8px;")
+        self.current_system_label.setStyleSheet(theme.TOP_BAR_LABEL)
         self.current_system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.viewer.add_playback_right_widget(self.stop_report_btn)
         self.viewer.add_playback_right_widget(self.time_picker.fit_btn)
@@ -670,19 +671,13 @@ class MainWindow(QWidget):
             None,
             Qt.SplashScreen | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint,
         )
-        popup.setStyleSheet(
-            "QWidget { background-color: #10151a; color: #d7dde2;"
-            " border: 1px solid #4a5560; font-size: 12px; }"
-            "QProgressBar { border: 1px solid #31414d; background: #0f1419;"
-            " height: 12px; text-align: center; }"
-            "QProgressBar::chunk { background-color: #5e9bff; }"
-        )
+        popup.setStyleSheet(theme.SHUTDOWN_POPUP)
         popup_layout = QVBoxLayout(popup)
         popup_layout.setContentsMargins(24, 18, 24, 18)
         popup_title = QLabel("Shutting down...")
-        popup_title.setStyleSheet("border: none; font-weight: bold;")
+        popup_title.setStyleSheet(theme.POPUP_TITLE)
         popup_step = QLabel("")
-        popup_step.setStyleSheet("border: none; color: #9aa0a6;")
+        popup_step.setStyleSheet(theme.POPUP_STEP)
 
         steps = (
             ("Stopping target-overlay worker", self._overlay_controller.shutdown),

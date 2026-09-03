@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from logfather.data.conveyor_calibration import ConveyorCalibration, save_calibration
+from logfather.ui import theme
 from logfather.data.target_buffer_loader import PickTarget
 
 
@@ -225,7 +226,7 @@ class ConveyorCalibrationDialog(QDialog):
             btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
             transport_row.addWidget(btn)
         self._time_lbl = QLabel("--:--:--.---")
-        self._time_lbl.setStyleSheet("font-family: monospace; color: #d7dde2;")
+        self._time_lbl.setStyleSheet(theme.MONO_VALUE_LABEL)
         self._time_lbl.setToolTip("Current playhead time (local)")
         transport_row.addWidget(self._time_lbl)
         left.addLayout(transport_row)
@@ -233,12 +234,12 @@ class ConveyorCalibrationDialog(QDialog):
         hint = QLabel(
             "The preview follows the main viewer — these controls move the viewer's playhead."
         )
-        hint.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+        hint.setStyleSheet(theme.HINT_LABEL)
         hint.setWordWrap(True)
         left.addWidget(hint)
 
         self._mode_lbl = QLabel("Mode: idle")
-        self._mode_lbl.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+        self._mode_lbl.setStyleSheet(theme.HINT_LABEL)
         left.addWidget(self._mode_lbl)
         root.addLayout(left, 3)
 
@@ -270,7 +271,7 @@ class ConveyorCalibrationDialog(QDialog):
         vel_layout.addLayout(mark_row)
 
         self._vel_status_lbl = QLabel("No markers set.")
-        self._vel_status_lbl.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+        self._vel_status_lbl.setStyleSheet(theme.HINT_LABEL)
         self._vel_status_lbl.setWordWrap(True)
         vel_layout.addWidget(self._vel_status_lbl)
 
@@ -278,14 +279,14 @@ class ConveyorCalibrationDialog(QDialog):
 
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
-        self._status_lbl.setStyleSheet("font-size: 10px; color: #7f8c8d;")
+        self._status_lbl.setStyleSheet(theme.HINT_LABEL)
         right.addWidget(self._status_lbl)
 
         right.addStretch(1)
 
         btn_save = QPushButton("Save calibration")
         btn_save.clicked.connect(self._save)
-        btn_save.setStyleSheet("font-weight: bold; padding: 6px;")
+        btn_save.setStyleSheet(theme.PRIMARY_ACTION_BUTTON)
         right.addWidget(btn_save)
 
         root.addLayout(right, 2)

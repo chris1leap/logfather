@@ -39,6 +39,7 @@ from logfather.ui.Time_Picker import (
 from logfather.data.elastic_loader import fetch_overview_event_chunks
 from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
+from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
     Settings,
@@ -450,7 +451,7 @@ class OverviewWidget(QWidget):
         self._range_anim_span_seconds: float | None = None
 
         self.status_label = QLabel("Overview inactive")
-        self.status_label.setStyleSheet("color: #cfcfcf;")
+        self.status_label.setStyleSheet(theme.OVERVIEW_STATUS)
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(lambda: self.refresh(force_full=True))
 
@@ -483,12 +484,12 @@ class OverviewWidget(QWidget):
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.view.setFrameShape(QGraphicsView.NoFrame)
-        self.view.setStyleSheet("background: #11161a; border: 1px solid #28323a;")
+        self.view.setStyleSheet(theme.PANEL_SURFACE)
         self.view.setMouseTracking(True)
         self.view.viewport().setMouseTracking(True)
         self.view.viewport().installEventFilter(self)
         self._preview_label = QLabel(self.view.viewport())
-        self._preview_label.setStyleSheet("background: #0f1419; border: 1px solid #31414d; padding: 4px;")
+        self._preview_label.setStyleSheet(theme.HOVER_PREVIEW)
         self._preview_label.hide()
         self._hover_scene_x: float | None = None
         self._hover_window_start: datetime | None = None
@@ -503,24 +504,16 @@ class OverviewWidget(QWidget):
         self._hover_label_item = None
         self._content_stack = QStackedWidget(self)
         self._loading_page = QWidget(self)
-        self._loading_page.setStyleSheet("background: #11161a; border: 1px solid #28323a;")
+        self._loading_page.setStyleSheet(theme.PANEL_SURFACE)
         loading_layout = QVBoxLayout(self._loading_page)
         loading_layout.setContentsMargins(0, 0, 0, 0)
         loading_layout.setSpacing(0)
         self._loading_video = QVideoWidget(self._loading_page)
-        self._loading_video.setStyleSheet("background: #11161a;")
+        self._loading_video.setStyleSheet(theme.PANEL_BG)
         loading_layout.addWidget(self._loading_video, 1)
         self._loading_label = QLabel("Loading overview...", self._loading_page)
         self._loading_label.setAlignment(Qt.AlignCenter)
-        self._loading_label.setStyleSheet(
-            "background: rgba(9, 13, 17, 180);"
-            "color: #e7edf3;"
-            "padding: 10px 14px;"
-            "border: 1px solid #31414d;"
-            "border-radius: 6px;"
-            "font-size: 14px;"
-            "font-weight: 600;"
-        )
+        self._loading_label.setStyleSheet(theme.LOADING_BADGE)
         self._loading_audio = QAudioOutput(self)
         self._loading_audio.setVolume(0.0)
         self._loading_player = QMediaPlayer(self)

@@ -37,6 +37,7 @@ from logfather.core.timeline_model import (
     local_day_start_utc,
 )
 from logfather.data.elastic_loader import fetch_logs_for_range
+from logfather.ui import theme
 from logfather.data.settings_store import Settings
 
 STOP_THUMB_SIZE = (352, 198)
@@ -101,9 +102,7 @@ class StopReportDialog(QDialog):
         for entry in entries:
             row = QWidget()
             bg_color, border_color = self._entry_colors(entry)
-            row.setStyleSheet(
-                f"background-color: {bg_color.name()}; border: 1px solid {border_color.name()}; border-radius: 6px;"
-            )
+            row.setStyleSheet(theme.report_row_style(bg_color.name(), border_color.name()))
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(4, 4, 4, 4)
             row_layout.setSpacing(10)
@@ -151,17 +150,14 @@ class StopReportDialog(QDialog):
         holder = QWidget()
         holder.setFixedSize(STOP_THUMB_SIZE[0], STOP_THUMB_SIZE[1])
         holder.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        holder.setStyleSheet("background: #000000; border-radius: 8px;")
+        holder.setStyleSheet(theme.MEDIA_HOLDER)
         holder_layout = QVBoxLayout(holder)
         holder_layout.setContentsMargins(10, 10, 10, 10)
         holder_layout.setSpacing(0)
 
         thumb_btn = QPushButton()
         thumb_btn.setFixedSize(self._media_content_size)
-        thumb_btn.setStyleSheet(
-            "QPushButton { border: none; border-radius: 8px; background: transparent; }"
-            "QPushButton:disabled { color: #d9d9d9; background-color: #3a3a3a; }"
-        )
+        thumb_btn.setStyleSheet(theme.THUMB_BUTTON)
         if entry.video_path is None:
             thumb_btn.setText(f"{entry.category}\n{format_local_time(entry.event_time)}")
             thumb_btn.setEnabled(False)
@@ -176,11 +172,11 @@ class StopReportDialog(QDialog):
         key = StopReportDialog._entry_filter_key(entry)
         base = self.palette().color(QPalette.Window)
         if key == "estop":
-            accent = QColor("#c85c5c")
+            accent = QColor(theme.STOP_ACCENT_ESTOP)
         elif key == "caution":
-            accent = QColor("#c98732")
+            accent = QColor(theme.STOP_ACCENT_CAUTION)
         elif key in ("operator", "manual"):
-            accent = QColor("#4b7fc7")
+            accent = QColor(theme.STOP_ACCENT_OPERATOR)
         else:
             accent = self.palette().color(QPalette.Mid)
         bg_color = self._blend_colors(base, accent, 0.22)

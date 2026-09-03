@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from logfather.data.settings_store import Settings, Condition, DEFAULT_COLORS, SystemLayoutEntry
+from logfather.ui import theme
 from logfather.core.app_version import format_version_label
 from logfather.paths import REPO_ROOT, SRC_ROOT
 
@@ -212,7 +213,7 @@ class SystemLayoutPanel(QWidget):
         self.logo_preview = QLabel("No logo selected")
         self.logo_preview.setAlignment(Qt.AlignCenter)
         self.logo_preview.setMinimumHeight(72)
-        self.logo_preview.setStyleSheet("border: 1px solid #3a4650; background: #11161a; color: #9aa0a6;")
+        self.logo_preview.setStyleSheet(theme.LOGO_PREVIEW)
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Customers"))
@@ -480,7 +481,7 @@ class ReadmePanel(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         self.version_label = QLabel(f"Build: {format_version_label()}")
-        self.version_label.setStyleSheet("color: #9aa0a6;")
+        self.version_label.setStyleSheet(theme.MUTED_LABEL)
         layout.addWidget(self.version_label)
         self.readme_view = QPlainTextEdit()
         self.readme_view.setReadOnly(True)
