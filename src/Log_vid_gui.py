@@ -151,7 +151,13 @@ class VideoLogViewer(QWidget):
         self._seq_secondary_next_frame = -1
 
         self.last_qimage: QImage | None = None
-        self.last_frame_rgb: np.ndarray | None = None
+        # Decoded frames are kept as BGR references (cap.read allocates a
+        # fresh buffer per frame and nothing mutates them in place); the RGB
+        # versions the analysis views need are converted lazily and cached.
+        self._cur_frame_bgr: np.ndarray | None = None
+        self._cur_frame_rgb: np.ndarray | None = None
+        self._prev_frame_bgr: np.ndarray | None = None
+        self._prev_frame_rgb: np.ndarray | None = None
         self._last_frame_index: int | None = None
         self.current_video_path: str | None = None
         self.current_video_original_path: Path | None = None
@@ -160,7 +166,6 @@ class VideoLogViewer(QWidget):
         # Frame analysis state (persists across clips for reference frame)
         self.analysis_ref_frame_rgb: np.ndarray | None = None
         self.analysis_ref_frame_index: int | None = None
-        self.analysis_prev_frame_rgb: np.ndarray | None = None
         self.analysis_prev_frame_index: int | None = None
 
         # Secondary video state (AdditionalCCTV)
@@ -1139,9 +1144,11 @@ class VideoLogViewer(QWidget):
         self._request_video_label_update()
 
     def _set_analysis_reference(self):
-        if self.last_frame_rgb is None:
+        rgb = self._current_frame_rgb()
+        if rgb is None:
             return
-        self.analysis_ref_frame_rgb = self.last_frame_rgb.copy()
+        # Safe to hold by reference: frame buffers are never mutated in place.
+        self.analysis_ref_frame_rgb = rgb
         self.analysis_ref_frame_index = int(self.current_frame)
         self._update_analysis_view()
 
@@ -1196,23 +1203,23 @@ class VideoLogViewer(QWidget):
             if self.analysis_ref_frame_index is not None:
                 label += f": {self.analysis_ref_frame_index}"
             return self.analysis_ref_frame_rgb, label
-        if self.analysis_prev_frame_rgb is None:
+        prev_rgb = self._previous_frame_rgb()
+        if prev_rgb is None:
             return None, "No previous frame yet (scrub at least once)."
         label = "Previous frame"
         if self.analysis_prev_frame_index is not None:
             label += f": {self.analysis_prev_frame_index}"
-        return self.analysis_prev_frame_rgb, label
+        return prev_rgb, label
 
     def _compute_analysis_output(self) -> tuple[np.ndarray | None, str]:
         if self.analysis_mode_combo.currentText() == "Off":
             return None, ""
-        if self.last_frame_rgb is None:
+        frame_rgb = self._current_frame_rgb()
+        if frame_rgb is None:
             return None, "Analysis view (no frame)"
         base_rgb, base_info = self._analysis_base_frame()
         if base_rgb is None:
             return None, f"Analysis view ({base_info})"
-
-        frame_rgb = self.last_frame_rgb
         if base_rgb.shape != frame_rgb.shape:
             h, w = frame_rgb.shape[:2]
             base_rgb = cv2.resize(base_rgb, (w, h), interpolation=cv2.INTER_AREA)
@@ -1770,9 +1777,11 @@ class VideoLogViewer(QWidget):
             self.cap = None
         self.current_video_path = None
         self.last_qimage = None
-        self.last_frame_rgb = None
+        self._cur_frame_bgr = None
+        self._cur_frame_rgb = None
+        self._prev_frame_bgr = None
+        self._prev_frame_rgb = None
         self._last_frame_index = None
-        self.analysis_prev_frame_rgb = None
         self.analysis_prev_frame_index = None
         if hasattr(self, "analysis_label"):
             self.analysis_label.setText("Analysis view")
@@ -2983,6 +2992,18 @@ class VideoLogViewer(QWidget):
     # sync_logs_to_current_video_first_log) should remain exactly as they are
     # below this point in your file.
 
+    def _current_frame_rgb(self) -> np.ndarray | None:
+        """RGB view of the current frame, converted on first use per frame.
+        Only the analysis views need RGB; display goes straight from BGR."""
+        if self._cur_frame_rgb is None and self._cur_frame_bgr is not None:
+            self._cur_frame_rgb = cv2.cvtColor(self._cur_frame_bgr, cv2.COLOR_BGR2RGB)
+        return self._cur_frame_rgb
+
+    def _previous_frame_rgb(self) -> np.ndarray | None:
+        if self._prev_frame_rgb is None and self._prev_frame_bgr is not None:
+            self._prev_frame_rgb = cv2.cvtColor(self._prev_frame_bgr, cv2.COLOR_BGR2RGB)
+        return self._prev_frame_rgb
+
     def show_frame(self, frame_index):
         t_total = time.perf_counter()
         if self.cap is None:
@@ -2991,8 +3012,10 @@ class VideoLogViewer(QWidget):
         if not self.video_label.isVisible():
             return
 
-        if self.last_frame_rgb is not None:
-            self.analysis_prev_frame_rgb = self.last_frame_rgb.copy()
+        if self._cur_frame_bgr is not None:
+            # References, not copies: each decoded frame is a fresh buffer.
+            self._prev_frame_bgr = self._cur_frame_bgr
+            self._prev_frame_rgb = self._cur_frame_rgb
             self.analysis_prev_frame_index = self._last_frame_index
 
         if not _position_capture_sequential(
@@ -3012,14 +3035,15 @@ class VideoLogViewer(QWidget):
         if getattr(frame, "ndim", 0) != 3 or frame.shape[0] <= 0 or frame.shape[1] <= 0:
             return
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        if not frame_rgb.flags["C_CONTIGUOUS"]:
-            frame_rgb = frame_rgb.copy()
-        h, w, ch = frame_rgb.shape
-        bytes_per_line = frame_rgb.strides[0]
-        qimg = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
+        if not frame.flags["C_CONTIGUOUS"]:
+            frame = np.ascontiguousarray(frame)
+        h, w, ch = frame.shape
+        bytes_per_line = frame.strides[0]
+        # BGR888 avoids the per-frame cvtColor for display entirely.
+        qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_BGR888).copy()
         self.last_qimage = qimg
-        self.last_frame_rgb = frame_rgb
+        self._cur_frame_bgr = frame
+        self._cur_frame_rgb = None
         self._last_frame_index = int(frame_index)
         t = frame_index / self.fps if self.fps > 0 else 0.0
         self._update_secondary_frame_for_time(t)
@@ -3056,10 +3080,11 @@ class VideoLogViewer(QWidget):
                     and self.analysis_display_combo.currentText() == "Main Overlay"
                 ):
                     out_rgb, _tooltip = self._compute_analysis_output()
-                    if out_rgb is not None and self.last_frame_rgb is not None:
+                    cur_rgb = self._current_frame_rgb()
+                    if out_rgb is not None and cur_rgb is not None:
                         alpha = self.analysis_main_alpha_slider.value() / 100.0
                         try:
-                            blended = cv2.addWeighted(self.last_frame_rgb, 1.0 - alpha, out_rgb, alpha, 0.0)
+                            blended = cv2.addWeighted(cur_rgb, 1.0 - alpha, out_rgb, alpha, 0.0)
                             h, w, ch = blended.shape
                             bytes_per_line = blended.strides[0]
                             frame_to_show = QImage(
@@ -4285,17 +4310,16 @@ class VideoLogViewer(QWidget):
             if dt > 0.5:
                 print(f"[viewer] secondary update took {dt:.2f}s (read fail)", flush=True)
             return
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        if not frame_rgb.flags["C_CONTIGUOUS"]:
-            frame_rgb = frame_rgb.copy()
-        h, w, ch = frame_rgb.shape
-        bytes_per_line = frame_rgb.strides[0]
+        if not frame.flags["C_CONTIGUOUS"]:
+            frame = np.ascontiguousarray(frame)
+        h, w, ch = frame.shape
+        bytes_per_line = frame.strides[0]
         self.secondary_last_qimage = QImage(
-            frame_rgb.data,
+            frame.data,
             w,
             h,
             bytes_per_line,
-            QImage.Format_RGB888,
+            QImage.Format_BGR888,
         ).copy()
         dt = time.perf_counter() - t0
         if dt > 0.5:
