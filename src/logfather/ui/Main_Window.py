@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QToolButton,
     QSizePolicy,
     QPushButton,
-    QCheckBox,
     QLabel,
     QStackedWidget,
     QFileDialog,
@@ -586,11 +585,11 @@ class MainWindow(QWidget):
         print(f"[main] session saved: {root.name} {day.isoformat()} @ {playhead_iso}", flush=True)
 
     def _maybe_resume_last_session(self) -> None:
+        # Always asks; there is deliberately no "remember my choice"
+        # (Chris, 2026-09-03 — a remembered "never" was too easy to
+        # set once and impossible to discover later).
         session = self.settings.last_session
         if not isinstance(session, dict):
-            return
-        mode = str(self.settings.resume_on_startup or "ask")
-        if mode == "never":
             return
         try:
             root = Path(str(session.get("root")))
@@ -606,27 +605,20 @@ class MainWindow(QWidget):
                 target_dt = None
         if not root.exists():
             return
-        if mode != "always":
-            when = (
-                target_dt.astimezone().strftime("%H:%M:%S")
-                if target_dt is not None
-                else "start of day"
-            )
-            box = QMessageBox(self)
-            box.setWindowTitle("Resume session")
-            box.setText(
-                "Resume where you left off?\n\n"
-                f"{root.name} on {day.strftime('%d/%m/%Y')} at {when}"
-            )
-            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            remember = QCheckBox("Remember my choice")
-            box.setCheckBox(remember)
-            accepted = box.exec() == QMessageBox.Yes
-            if remember.isChecked():
-                self.settings.resume_on_startup = "always" if accepted else "never"
-                self.settings.save()
-            if not accepted:
-                return
+        when = (
+            target_dt.astimezone().strftime("%H:%M:%S")
+            if target_dt is not None
+            else "start of day"
+        )
+        box = QMessageBox(self)
+        box.setWindowTitle("Resume session")
+        box.setText(
+            "Resume where you left off?\n\n"
+            f"{root.name} on {day.strftime('%d/%m/%Y')} at {when}"
+        )
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        if box.exec() != QMessageBox.Yes:
+            return
         # Reuse the signal-driven jump: select system+day, open the clip
         # containing the playhead moment, sync and seek once it is open.
         self._open_system_from_overview(root, day, target_dt)

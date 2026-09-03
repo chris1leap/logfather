@@ -612,17 +612,28 @@ class TestSessionResumeSettings:
         path = tmp_path / "settings.json"
         s = Settings.load(path)
         s.last_session = {"root": "Z:/public/PikPak007", "day": "2026-09-01", "playhead": "2026-09-01T08:15:00+00:00"}
-        s.resume_on_startup = "always"
         s.save(path)
         loaded = Settings.load(path)
         assert loaded.last_session == s.last_session
-        assert loaded.resume_on_startup == "always"
 
     def test_defaults(self, tmp_path):
         from logfather.data.settings_store import Settings
         s = Settings.load(tmp_path / "none.json")
         assert s.last_session is None
-        assert s.resume_on_startup == "ask"
+
+    def test_stale_resume_on_startup_key_is_ignored(self, tmp_path):
+        # Settings written before 2026-09-03 may still carry the removed
+        # always/never preference; it must not break loading (startup
+        # always asks now).
+        import json
+        from logfather.data.settings_store import Settings
+        path = tmp_path / "settings.json"
+        Settings.load(path).save(path)
+        data = json.loads(path.read_text())
+        data["resume_on_startup"] = "never"
+        path.write_text(json.dumps(data))
+        loaded = Settings.load(path)
+        assert not hasattr(loaded, "resume_on_startup")
 
     def test_garbage_last_session_dropped(self, tmp_path):
         import json
