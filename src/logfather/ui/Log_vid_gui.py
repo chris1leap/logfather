@@ -66,7 +66,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout,
     QHBoxLayout, QFileDialog, QMessageBox,
     QSlider, QSizePolicy, QListView, QAbstractItemView,
-    QCheckBox, QScrollArea, QProgressDialog, QTabWidget,
+    QCheckBox, QScrollArea, QProgressDialog, QTabWidget, QDialog,
     QLineEdit, QComboBox, QInputDialog, QMenu, QColorDialog,
     QToolButton, QButtonGroup, QStyleOptionSlider, QStyle, QLCDNumber
 )
@@ -595,7 +595,7 @@ class VideoLogViewer(QWidget):
         self.delete_cache_btn = QPushButton("Delete Current Cache Copy")
         self.delete_cache_btn.clicked.connect(self.delete_current_cache_copy)
 
-        # Kept on self: mounted into the Settings tab in _build_right_tabs.
+        # Kept on self: mounted into the settings dialog in _build_right_tabs.
         self._cache_controls_layout = cache_controls_layout = QHBoxLayout()
         cache_controls_layout.addWidget(self.cache_status_label, 1)
         cache_controls_layout.addWidget(self.open_cache_btn)
@@ -917,9 +917,21 @@ class VideoLogViewer(QWidget):
         self.right_tabs.addTab(log_tab, "Logs")
         self.right_tabs.addTab(self.filter_container, "Filters")
         self.right_tabs.addTab(self._custom_tab, "Custom")
-        self.right_tabs.addTab(settings_tab, "Settings")
-        self.right_tabs.addTab(systems_tab, "Systems")
-        self.right_tabs.addTab(ReadmePanel(), "Readme")
+
+        # Settings/Systems/Readme are configuration, not daily use: they
+        # open from the gear button as a dialog instead of living as
+        # permanent tabs (Chris, 2026-09-04). The widgets and their
+        # attributes are unchanged - only their home moved.
+        self._config_tabs = QTabWidget()
+        self._config_tabs.addTab(settings_tab, "Settings")
+        self._config_tabs.addTab(systems_tab, "Systems")
+        self._config_tabs.addTab(ReadmePanel(), "Readme")
+        self._config_dialog = QDialog(self)
+        self._config_dialog.setWindowTitle("Settings")
+        config_layout = QVBoxLayout(self._config_dialog)
+        config_layout.setContentsMargins(8, 8, 8, 8)
+        config_layout.addWidget(self._config_tabs)
+        self._config_dialog.resize(560, 720)
         self._hover_reveal_enabled = True
         self._right_reveal_px = 12
         self._right_tabs_pinned = False
@@ -939,7 +951,23 @@ class VideoLogViewer(QWidget):
         self._pin_btn.setToolTip("Pin panel open")
         self._pin_btn.setStyleSheet(theme.PIN_BUTTON)
         self._pin_btn.toggled.connect(self._on_pin_toggled)
-        self.right_tabs.setCornerWidget(self._pin_btn, Qt.TopRightCorner)
+        self._gear_btn = QPushButton("⚙")
+        self._gear_btn.setFixedSize(26, 22)
+        self._gear_btn.setToolTip("Settings, Systems and Readme")
+        self._gear_btn.setStyleSheet(theme.PIN_BUTTON)
+        self._gear_btn.clicked.connect(self._open_config_dialog)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        corner_layout.setSpacing(2)
+        corner_layout.addWidget(self._gear_btn)
+        corner_layout.addWidget(self._pin_btn)
+        self.right_tabs.setCornerWidget(corner, Qt.TopRightCorner)
+
+    def _open_config_dialog(self):
+        self._config_dialog.show()
+        self._config_dialog.raise_()
+        self._config_dialog.activateWindow()
 
     def _assemble_and_wire(self):
         """Mount everything into the root layout; final wiring that spans
