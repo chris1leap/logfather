@@ -22,7 +22,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QButtonGroup,
-    QDateEdit,
+    QCalendarWidget,
+    QDialog,
+    QDialogButtonBox,
     QGraphicsScene,
     QGraphicsView,
     QGraphicsRectItem,
@@ -260,6 +262,55 @@ class _OverviewThumbItem(QGraphicsRectItem):
             event.accept()
             return
         super().mousePressEvent(event)
+
+
+class _DayRangeDialog(QDialog):
+    """From/To day pickers as plain calendars (Chris, 2026-09-05: one
+    button opens this; simplest possible range selection)."""
+
+    def __init__(self, initial: tuple[date, date], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Show data for days")
+        today = QDate.currentDate()
+        layout = QVBoxLayout(self)
+        cal_row = QHBoxLayout()
+        cal_row.setSpacing(14)
+        self._from_cal = QCalendarWidget()
+        self._to_cal = QCalendarWidget()
+        for cal, label_text, day_value in (
+            (self._from_cal, "From", initial[0]),
+            (self._to_cal, "To", initial[1]),
+        ):
+            cal.setGridVisible(True)
+            cal.setMinimumDate(today.addDays(-60))
+            cal.setMaximumDate(today)
+            cal.setSelectedDate(QDate(day_value.year, day_value.month, day_value.day))
+            column = QVBoxLayout()
+            title = QLabel(label_text)
+            title.setStyleSheet("font-weight: bold;")
+            column.addWidget(title)
+            column.addWidget(cal)
+            cal_row.addLayout(column)
+        # A From after the current To drags To along with it.
+        self._from_cal.clicked.connect(self._on_from_picked)
+        self._from_cal.selectionChanged.connect(self._on_from_changed)
+        layout.addLayout(cal_row)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _on_from_picked(self, qdate: QDate):
+        if self._to_cal.selectedDate() < qdate:
+            self._to_cal.setSelectedDate(qdate)
+
+    def _on_from_changed(self):
+        self._on_from_picked(self._from_cal.selectedDate())
+
+    def selected_range(self) -> tuple[date, date]:
+        d1 = self._from_cal.selectedDate().toPython()
+        d2 = self._to_cal.selectedDate().toPython()
+        return (min(d1, d2), max(d1, d2))
 
 
 class _OverviewCustomerHeaderItem(QGraphicsRectItem):
@@ -588,27 +639,18 @@ class OverviewWidget(QWidget):
             btn.clicked.connect(lambda _checked=False, mode=value: self._set_display_mode(mode))
         self.one_hour_btn.setChecked(True)
 
-        # Day filter: live today, or a chosen day / range of days
-        # (Chris, 2026-09-05).
-        today_qdate = QDate.currentDate()
+        # Day filter: live today, or one button opening a calendar
+        # dialog for a day / span of days (Chris, 2026-09-05).
         self.live_btn = QPushButton("Live")
         self.live_btn.setCheckable(True)
         self.live_btn.setChecked(True)
         self.live_btn.setToolTip("Follow today's data live")
         self.live_btn.clicked.connect(self._on_live_clicked)
-        self.range_from_edit = QDateEdit()
-        self.range_to_edit = QDateEdit()
-        for edit in (self.range_from_edit, self.range_to_edit):
-            edit.setCalendarPopup(True)
-            edit.setDisplayFormat("dd/MM/yyyy")
-            edit.setMinimumDate(today_qdate.addDays(-60))
-            edit.setMaximumDate(today_qdate)
-            edit.setDate(today_qdate)
-        self.show_range_btn = QPushButton("Show range")
-        self.show_range_btn.setToolTip(
-            "Show all data for the chosen day or span of days"
+        self.pick_days_btn = QPushButton("Choose days…")
+        self.pick_days_btn.setToolTip(
+            "Show all data for a chosen day or span of days"
         )
-        self.show_range_btn.clicked.connect(self._on_show_range_clicked)
+        self.pick_days_btn.clicked.connect(self._on_pick_days_clicked)
 
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
@@ -618,10 +660,7 @@ class OverviewWidget(QWidget):
         controls.addWidget(self.all_day_btn)
         controls.addSpacing(18)
         controls.addWidget(self.live_btn)
-        controls.addWidget(self.range_from_edit)
-        controls.addWidget(QLabel("to"))
-        controls.addWidget(self.range_to_edit)
-        controls.addWidget(self.show_range_btn)
+        controls.addWidget(self.pick_days_btn)
         controls.addStretch(1)
         controls.addWidget(self.status_label)
         controls.addWidget(self.refresh_btn)
@@ -772,16 +811,24 @@ class OverviewWidget(QWidget):
         self._last_full_refresh_local = None
         self._historic_loaded_range = None
 
-    def _on_show_range_clicked(self):
-        d1 = self.range_from_edit.date().toPython()
-        d2 = self.range_to_edit.date().toPython()
-        start_day, end_day = min(d1, d2), max(d1, d2)
+    def _on_pick_days_clicked(self):
         today = _local_now().date()
+        initial = self._filter_day_range or (today, today)
+        dialog = _DayRangeDialog(initial, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        start_day, end_day = dialog.selected_range()
         end_day = min(end_day, today)
         start_day = min(start_day, end_day)
         if self._filter_day_range == (start_day, end_day):
             return
         self._filter_day_range = (start_day, end_day)
+        if start_day == end_day:
+            self.pick_days_btn.setText(start_day.strftime("%d/%m/%Y"))
+        else:
+            self.pick_days_btn.setText(
+                f"{start_day:%d/%m} – {end_day:%d/%m/%Y}"
+            )
         self.live_btn.setChecked(False)
         self._reset_loaded_data()
         self.refresh(force_full=True)
@@ -791,6 +838,7 @@ class OverviewWidget(QWidget):
         if self._filter_day_range is None:
             return
         self._filter_day_range = None
+        self.pick_days_btn.setText("Choose days…")
         self._reset_loaded_data()
         self.refresh(force_full=True)
 
