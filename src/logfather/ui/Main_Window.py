@@ -7,6 +7,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
+    QMenu,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -152,14 +154,26 @@ class MainWindow(QWidget):
         self.stop_report_btn.clicked.connect(self.open_stop_report)
         self._stop_report_slot = JobSlot(self)
         self._stop_report_progress = None
+        # One exclusive Viewer/Overview/Fleetwide mode switcher (Chris,
+        # 2026-09-04: only the controls for the current mode on screen).
+        self.viewer_btn = QToolButton()
+        self.viewer_btn.setText("Viewer")
+        self.viewer_btn.setCheckable(True)
+        self.viewer_btn.setChecked(True)
+        self.viewer_btn.setStyleSheet(theme.SEGMENT_LEFT)
         self.overview_btn = QToolButton()
         self.overview_btn.setText("Overview")
         self.overview_btn.setCheckable(True)
-        self.overview_btn.toggled.connect(self._on_overview_toggled)
+        self.overview_btn.setStyleSheet(theme.SEGMENT_MID)
         self.fleetwide_search_btn = QToolButton()
-        self.fleetwide_search_btn.setText("Fleetwide Search")
+        self.fleetwide_search_btn.setText("Fleetwide")
         self.fleetwide_search_btn.setCheckable(True)
-        self.fleetwide_search_btn.toggled.connect(self._on_fleetwide_search_toggled)
+        self.fleetwide_search_btn.setStyleSheet(theme.SEGMENT_RIGHT)
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+        for btn in (self.viewer_btn, self.overview_btn, self.fleetwide_search_btn):
+            self._mode_group.addButton(btn)
+        self._mode_group.buttonToggled.connect(self._on_mode_button_toggled)
         self.current_system_label = QLabel("")
         self.current_system_label.setStyleSheet(theme.TOP_BAR_LABEL)
         self.current_system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -256,8 +270,12 @@ class MainWindow(QWidget):
         root layout; installs the hover-reveal event filters."""
         top_controls = QHBoxLayout()
         top_controls.addWidget(self.left_toggle, 0, Qt.AlignLeft)
-        top_controls.addWidget(self.overview_btn, 0, Qt.AlignLeft)
-        top_controls.addWidget(self.fleetwide_search_btn, 0, Qt.AlignLeft)
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(0)
+        mode_row.addWidget(self.viewer_btn)
+        mode_row.addWidget(self.overview_btn)
+        mode_row.addWidget(self.fleetwide_search_btn)
+        top_controls.addLayout(mode_row)
         top_controls.addWidget(self.current_system_label, 0, Qt.AlignLeft)
         self.calibrate_btn = QToolButton()
         self.calibrate_btn.setText("Calibrate")
@@ -271,16 +289,21 @@ class MainWindow(QWidget):
         self.track_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.track_toggle.toggled.connect(self._overlay_controller.set_tracking_enabled)
 
-        self.about_btn = QToolButton()
-        self.about_btn.setText("About")
-        self.about_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.about_btn.clicked.connect(self._open_about_dialog)
+        # Rarely-used items live behind "⋯" instead of permanent buttons.
+        self.overflow_btn = QToolButton()
+        self.overflow_btn.setText("⋯")
+        self.overflow_btn.setStyleSheet(theme.OVERFLOW_BUTTON)
+        self.overflow_btn.setPopupMode(QToolButton.InstantPopup)
+        self.overflow_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        overflow_menu = QMenu(self.overflow_btn)
+        overflow_menu.addAction("About", self._open_about_dialog)
+        self.overflow_btn.setMenu(overflow_menu)
 
         top_controls.addStretch(1)
         top_controls.addWidget(self.calibrate_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.buffer_toggle, 0, Qt.AlignRight)
-        top_controls.addWidget(self.about_btn, 0, Qt.AlignRight)
+        top_controls.addWidget(self.overflow_btn, 0, Qt.AlignRight)
 
         # Activity bar: a persistent strip at the very bottom showing what
         # the app is waiting on — clip downloads with size and a green
@@ -1261,15 +1284,11 @@ class MainWindow(QWidget):
     def _should_show_overview(self) -> bool:
         return self.overview_btn.isChecked()
 
-    def _on_overview_toggled(self, checked: bool):
-        if checked and self.fleetwide_search_btn.isChecked():
-            self.fleetwide_search_btn.setChecked(False)
-        self._sync_overview_mode()
-
-    def _on_fleetwide_search_toggled(self, checked: bool):
-        if checked and self.overview_btn.isChecked():
-            self.overview_btn.setChecked(False)
-        self._sync_overview_mode()
+    def _on_mode_button_toggled(self, _button, checked: bool):
+        # The exclusive group fires once for the unchecked and once for the
+        # checked button; syncing on the checked edge runs the switch once.
+        if checked:
+            self._sync_overview_mode()
 
     def _sync_overview_mode(self):
         show_overview = self._should_show_overview()
@@ -1281,6 +1300,12 @@ class MainWindow(QWidget):
         else:
             current_page = self.viewer
         self.content_stack.setCurrentWidget(current_page)
+        # Viewer-only tools leave the top bar with the viewer (Chris:
+        # only the controls that matter in the current mode).
+        in_viewer = current_page is self.viewer
+        self.calibrate_btn.setVisible(in_viewer)
+        self.track_toggle.setVisible(in_viewer)
+        self.buffer_toggle.setVisible(in_viewer)
         self.overview_widget.set_parent_dir(self.date_picker.parent_dir)
         self.overview_widget.activate(show_overview)
         self.fleetwide_search_widget.set_parent_dir(self.date_picker.parent_dir)
@@ -1308,7 +1333,7 @@ class MainWindow(QWidget):
     def _open_system_from_overview(self, pikpak_root: Path | None, selected_day: date | None, target_dt: datetime | None = None):
         if not isinstance(pikpak_root, Path) or selected_day is None:
             return
-        self.overview_btn.setChecked(False)
+        self.viewer_btn.setChecked(True)
         if isinstance(target_dt, datetime):
             if target_dt.tzinfo is None:
                 target_dt = target_dt.replace(tzinfo=timezone.utc)

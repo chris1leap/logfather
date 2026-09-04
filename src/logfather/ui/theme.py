@@ -115,6 +115,23 @@ PIN_BUTTON = (
 
 TOP_BAR_LABEL = f"color: {TEXT}; padding-left: 8px;"
 
+# Segmented mode switcher: three joined buttons; the global QToolButton
+# style supplies fills/checked accent, these only join the edges.
+SEGMENT_LEFT = (
+    "QToolButton { border-top-right-radius: 0px; border-bottom-right-radius: 0px; }"
+)
+SEGMENT_MID = "QToolButton { border-radius: 0px; border-left: none; }"
+SEGMENT_RIGHT = (
+    "QToolButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px;"
+    " border-left: none; }"
+)
+
+# "⋯" overflow button: keep it quiet, no menu arrow.
+OVERFLOW_BUTTON = (
+    "QToolButton { font-weight: bold; padding: 3px 10px; }"
+    "QToolButton::menu-indicator { image: none; }"
+)
+
 SHUTDOWN_POPUP = (
     f"QWidget {{ background-color: {BG}; color: {TEXT};"
     f" border: 1px solid {BORDER_LIGHT}; font-size: 12px; }}"
