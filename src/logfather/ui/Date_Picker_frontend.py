@@ -87,12 +87,12 @@ class DatePicker(QWidget):
         # Precompute normal + highlight formats
         self.normal_fmt = self.calendar.weekdayTextFormat(Qt.Monday)
         self.highlight_fmt = QTextCharFormat(self.normal_fmt)
-        self.highlight_fmt.setBackground(QBrush(QColor("#cce5ff")))
-        self.highlight_fmt.setForeground(QBrush(QColor("#0b1a33")))
+        self.highlight_fmt.setBackground(QBrush(QColor(theme.ACCENT_DIM)))
+        self.highlight_fmt.setForeground(QBrush(QColor(theme.TEXT_BRIGHT)))
         self.highlight_fmt.setFontWeight(QFont.Bold)
         self.selected_fmt = QTextCharFormat(self.normal_fmt)
-        self.selected_fmt.setBackground(QBrush(QColor("#b2e5b2")))
-        self.selected_fmt.setForeground(QBrush(QColor("#0b1a33")))
+        self.selected_fmt.setBackground(QBrush(QColor(theme.ACCENT)))
+        self.selected_fmt.setForeground(QBrush(QColor("#081018")))
         self.selected_fmt.setFontWeight(QFont.Bold)
 
     def set_parent_dir(self, path: Path):

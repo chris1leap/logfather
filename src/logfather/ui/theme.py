@@ -130,9 +130,9 @@ POPUP_STEP = f"border: none; color: {TEXT_MUTED};"
 SIM_BUTTON = (
     "QPushButton { padding: 2px 6px; } "
     "QPushButton:checked { "
-    "  background-color: #ffe7ba; "
-    "  border: 1px solid #ffb84d; "
-    "  color: #5a2a00; "
+    f"  background-color: {ACCENT_DIM}; "
+    f"  border: 1px solid {ACCENT_BORDER}; "
+    f"  color: {TEXT_BRIGHT}; "
     "}"
 )
 
@@ -152,7 +152,7 @@ SYSTEM_BUTTON = (
     "  border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
     "} "
     f"QPushButton:hover {{ background-color: {BG_HOVER}; }} "
-    f"QPushButton:checked {{ background-color: #cce5ff; border: 1px solid {ACCENT}; border-right: 0px; color: #0b1a33; }}"
+    f"QPushButton:checked {{ background-color: {ACCENT_DIM}; border: 1px solid {ACCENT}; border-right: 0px; color: {TEXT_BRIGHT}; }}"
 )
 
 TODAY_BUTTON = (
