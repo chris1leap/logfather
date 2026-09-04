@@ -472,6 +472,10 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
 
 class OverviewWidget(QWidget):
     open_requested = Signal(object, object, object)
+    # Same shape as the viewer's: (key, label, done, total) feeding the
+    # main window's bottom activity bar (Chris, 2026-09-05).
+    activity_progress = Signal(str, str, object, object)
+    activity_cleared = Signal(str)
 
     def __init__(
         self,
@@ -1091,6 +1095,7 @@ class OverviewWidget(QWidget):
         ).start()
 
     def _on_loaded(self, payload: dict):
+        self.activity_cleared.emit("overview-load")
         if payload is None:
             return
         self._background_enabled = True
@@ -1103,10 +1108,12 @@ class OverviewWidget(QWidget):
         if not text:
             return
         self.status_label.setText(text)
+        self.activity_progress.emit("overview-load", f"Overview: {text}", None, None)
         if not self._states:
             self._set_loading_visible(True, text)
 
     def _on_failed(self, message: str):
+        self.activity_cleared.emit("overview-load")
         self.status_label.setText(f"Overview refresh failed: {message}")
         if self._states:
             self._set_loading_visible(False)

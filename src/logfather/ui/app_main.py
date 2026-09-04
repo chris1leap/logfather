@@ -96,6 +96,7 @@ def _apply_startup_geometry(win: QWidget, settings) -> None:
     win.setGeometry(clamp_rect_to_screen(rect, avail))
     if maximized:
         win.setWindowState(win.windowState() | Qt.WindowMaximized)
+    return maximized
 
 
 def _nudge_frame_fully_onscreen(win: QWidget) -> None:
@@ -244,12 +245,16 @@ def main():
     win = MainWindow()
     _instance_server = _start_instance_server(win)  # noqa: F841 (kept alive)
     _refresh_desktop_shortcut_name()
-    _apply_startup_geometry(win, win.settings)
-    if splash is not None:
-        win.show()
-        splash.fade_and_finish(win)
+    maximized = _apply_startup_geometry(win, win.settings)
+    # showMaximized as well as the pre-show window state: setting the
+    # state alone before show() intermittently comes up restored on
+    # Windows (Chris, 2026-09-05: "often not fullscreen").
+    if maximized:
+        win.showMaximized()
     else:
         win.show()
+    if splash is not None:
+        splash.fade_and_finish(win)
     QTimer.singleShot(0, lambda: _nudge_frame_fully_onscreen(win))
     sys.exit(app.exec())
 

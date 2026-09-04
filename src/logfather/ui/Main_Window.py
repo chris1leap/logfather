@@ -445,6 +445,8 @@ class MainWindow(QWidget):
         self.viewer.clip_cache.transfer_progress.connect(self._on_clip_transfer_progress)
         self.viewer.clip_cache.transfer_finished.connect(self._on_clip_transfer_finished)
         self.viewer.activity_progress.connect(self._set_activity)
+        self.overview_widget.activity_progress.connect(self._set_activity)
+        self.overview_widget.activity_cleared.connect(self._clear_activity)
         self.viewer.activity_cleared.connect(self._clear_activity)
         self.date_picker.date_selected.connect(self.on_date_selected)
         self.date_picker.system_id_selected.connect(self._set_system_id_override)
@@ -749,14 +751,39 @@ class MainWindow(QWidget):
         if not self.date_picker.rect().contains(pos):
             self._set_date_picker_visible(False, self._horizontal_splitter)
 
+    def _capture_window_geometry(self) -> None:
+        """Write the current geometry + maximized flag onto self.settings.
+        normalGeometry() when maximized, so un-maximizing after a restart
+        returns to a sensible size instead of the full-screen rect."""
+        try:
+            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
+            self.settings.window_geometry = {
+                "x": geo.x(),
+                "y": geo.y(),
+                "w": geo.width(),
+                "h": geo.height(),
+                "maximized": bool(self.isMaximized()),
+            }
+        except Exception:
+            pass
+
     def _save_last_session(self, playhead_override: datetime | None = None) -> None:
         """Remember system/day/playhead so startup can offer to resume.
 
         Saved on every clip open and once a minute (not just at close), so a
-        killed process still resumes close to where the user was."""
+        killed process still resumes close to where the user was — and the
+        window geometry rides along, because a killed process never runs
+        closeEvent (Chris, 2026-09-05: maximized state kept getting lost)."""
+        self._capture_window_geometry()
         root = self.time_picker.current_root
         day = self.time_picker._current_date
         if root is None or day is None:
+            # Nothing to resume (e.g. an overview-only session), but the
+            # geometry must still persist.
+            try:
+                self.settings.save()
+            except Exception:
+                pass
             return
         playhead = (
             playhead_override
@@ -895,17 +922,7 @@ class MainWindow(QWidget):
         # anything written onto the old object before that point is lost.
         # normalGeometry() when maximized, so un-maximizing after a restart
         # returns to a sensible size instead of the full-screen rect.
-        try:
-            geo = self.normalGeometry() if self.isMaximized() else self.geometry()
-            self.settings.window_geometry = {
-                "x": geo.x(),
-                "y": geo.y(),
-                "w": geo.width(),
-                "h": geo.height(),
-                "maximized": bool(self.isMaximized()),
-            }
-        except Exception:
-            pass
+        self._capture_window_geometry()
         self._save_last_session()
         # _save_last_session early-returns without saving when nothing was
         # open; the window geometry must persist regardless.
