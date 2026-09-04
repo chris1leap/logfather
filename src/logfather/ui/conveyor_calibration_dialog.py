@@ -482,12 +482,15 @@ class ConveyorCalibrationDialog(QDialog):
         img = self._canvas._qimage
         if img is not None and not img.isNull():
             w, h = img.width(), img.height()
-            lines.append(f"Start: ({sx * w:.0f}, {sy * h:.0f}) px")
-            lines.append(f"End: ({ex * w:.0f}, {ey * h:.0f}) px")
-            lines.append(f"Distance: {_fmt_sig(math.hypot(dx * w, dy * h))} px")
+            lines.append(f"Start: x: {sx * w:.0f} px, y: {sy * h:.0f} px")
+            lines.append(f"End: x: {ex * w:.0f} px, y: {ey * h:.0f} px")
+            lines.append(
+                f"Distance: x: {abs(dx * w):.0f} px, y: {abs(dy * h):.0f} px "
+                f"(total {_fmt_sig(math.hypot(dx * w, dy * h))} px)"
+            )
         else:
-            lines.append(f"Start: ({sx:.2f}, {sy:.2f}) norm")
-            lines.append(f"End: ({ex:.2f}, {ey:.2f}) norm")
+            lines.append(f"Start: x: {sx:.2f}, y: {sy:.2f} norm")
+            lines.append(f"End: x: {ex:.2f}, y: {ey:.2f} norm")
             lines.append(f"Distance: {_fmt_sig(math.hypot(dx, dy))} norm")
         duration = float(self._cal.tracking_line_duration_sec)
         frames_elapsed = None
