@@ -253,14 +253,37 @@ class ConveyorCalibrationDialog(QDialog):
         self._refresh_overlays()
 
     def _build_ui(self):
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
+        # Outer stack: the canvas/controls columns, then the full-width
+        # scrub timeline, then the transport buttons under it (Chris,
+        # 2026-09-04: timeline above the buttons, spanning the window).
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(8)
+        root = QHBoxLayout()
         root.setSpacing(8)
+        outer.addLayout(root, 1)
 
         left = QVBoxLayout()
         self._canvas = _FrameCanvas()
         self._canvas.clicked_norm.connect(self._on_canvas_click)
         left.addWidget(self._canvas, 1)
+
+        scrub_row = QHBoxLayout()
+        scrub_row.setSpacing(8)
+        self._clip_start_lbl = QLabel("")
+        self._clip_start_lbl.setStyleSheet(theme.MONO_VALUE_LABEL)
+        self._clip_start_lbl.setToolTip("Clip start time")
+        self._clip_end_lbl = QLabel("")
+        self._clip_end_lbl.setStyleSheet(theme.MONO_VALUE_LABEL)
+        self._clip_end_lbl.setToolTip("Clip end time and total frames")
+        self._scrub = _MarkerSlider(Qt.Horizontal)
+        self._scrub.setRange(0, 1000)
+        self._scrub.setToolTip("Scrub the main viewer within the loaded clip")
+        self._scrub.valueChanged.connect(self._on_scrub_changed)
+        scrub_row.addWidget(self._clip_start_lbl)
+        scrub_row.addWidget(self._scrub, 1)
+        scrub_row.addWidget(self._clip_end_lbl)
+        outer.addLayout(scrub_row)
 
         transport_row = QHBoxLayout()
         transport_row.setSpacing(4)
@@ -284,11 +307,6 @@ class ConveyorCalibrationDialog(QDialog):
             btn.setToolTip(tip)
             btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
             transport_row.addWidget(btn)
-        self._scrub = _MarkerSlider(Qt.Horizontal)
-        self._scrub.setRange(0, 1000)
-        self._scrub.setToolTip("Scrub the main viewer within the loaded clip")
-        self._scrub.valueChanged.connect(self._on_scrub_changed)
-        transport_row.addWidget(self._scrub, 1)
         for label, delta, tip in (
             ("+1", 1, "Step the viewer forward 1 frame"),
             ("+10", 10, "Step the viewer forward 10 frames"),
@@ -306,7 +324,8 @@ class ConveyorCalibrationDialog(QDialog):
         self._frame_lbl.setStyleSheet(theme.MONO_VALUE_LABEL)
         self._frame_lbl.setToolTip("Current frame / last frame of the loaded clip")
         transport_row.addWidget(self._frame_lbl)
-        left.addLayout(transport_row)
+        transport_row.insertStretch(6, 1)  # centre gap: buttons left, readouts right
+        outer.addLayout(transport_row)
 
         hint = QLabel(
             "The preview follows the main viewer — these controls move the viewer's playhead."
@@ -489,6 +508,7 @@ class ConveyorCalibrationDialog(QDialog):
         renders the captured positions as frame numbers and times."""
         self._clip_key = clip_key
         self._position_info = position_info
+        self._refresh_clip_range_labels()
         if (
             clip_key
             and self._cal.capture_clip_key == clip_key
@@ -498,6 +518,24 @@ class ConveyorCalibrationDialog(QDialog):
             self._start_fraction = self._cal.capture_start_fraction
             self._end_fraction = self._cal.capture_end_fraction
             self._update_capture_markers()
+
+    def _refresh_clip_range_labels(self):
+        start_text = end_text = ""
+        if self._position_info is not None:
+            try:
+                _first, start_dt = self._position_info(0.0)
+                last_frame, end_dt = self._position_info(1.0)
+                if start_dt is not None:
+                    start_text = start_dt.astimezone().strftime("%H:%M:%S")
+                total = f"{int(last_frame) + 1} frames"
+                if end_dt is not None:
+                    end_text = f"{end_dt.astimezone().strftime('%H:%M:%S')} ({total})"
+                else:
+                    end_text = f"({total})"
+            except Exception:
+                pass
+        self._clip_start_lbl.setText(start_text)
+        self._clip_end_lbl.setText(end_text)
 
     def _jump_to_capture(self, fraction: float | None):
         if fraction is not None:
