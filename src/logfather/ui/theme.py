@@ -217,6 +217,9 @@ def target_card_style(bg: str, border: str) -> str:
 # never present in factory footage, unlike the old orange.
 CAL_TRACK_LINE = "#ff00d9"
 
+# Results block: monospace so the x/y columns line up like a table.
+CAL_RESULTS_TEXT = f"color: {TEXT_FAINT}; font-size: 10px; font-family: Consolas, monospace;"
+
 # ---------------------------------------------------------- activity bar
 
 ACTIVITY_BAR = "background: #10151a; border-top: 1px solid #31414d;"

@@ -413,7 +413,7 @@ class ConveyorCalibrationDialog(QDialog):
         results_layout = QVBoxLayout(results_box)
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
-        self._status_lbl.setStyleSheet(theme.HINT_LABEL)
+        self._status_lbl.setStyleSheet(theme.CAL_RESULTS_TEXT)
         results_layout.addWidget(self._status_lbl)
         btn_save = QPushButton("Save calibration")
         btn_save.clicked.connect(self._save)
@@ -482,11 +482,11 @@ class ConveyorCalibrationDialog(QDialog):
         img = self._canvas._qimage
         if img is not None and not img.isNull():
             w, h = img.width(), img.height()
-            lines.append(f"Start: x: {sx * w:.0f} px, y: {sy * h:.0f} px")
-            lines.append(f"End: x: {ex * w:.0f} px, y: {ey * h:.0f} px")
+            lines.append(f"{'Start:':<10}x: {sx * w:>5.0f} px   y: {sy * h:>5.0f} px")
+            lines.append(f"{'End:':<10}x: {ex * w:>5.0f} px   y: {ey * h:>5.0f} px")
             lines.append(
-                f"Distance: x: {abs(dx * w):.0f} px, y: {abs(dy * h):.0f} px "
-                f"(total {_fmt_sig(math.hypot(dx * w, dy * h))} px)"
+                f"{'Distance:':<10}x: {abs(dx * w):>5.0f} px   y: {abs(dy * h):>5.0f} px"
+                f"   (total {_fmt_sig(math.hypot(dx * w, dy * h))} px)"
             )
         else:
             lines.append(f"Start: x: {sx:.2f}, y: {sy:.2f} norm")
