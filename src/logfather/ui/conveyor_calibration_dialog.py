@@ -344,13 +344,6 @@ class ConveyorCalibrationDialog(QDialog):
         transport_row.addStretch(1)
         outer.addLayout(transport_row)
 
-        hint = QLabel(
-            "The preview follows the main viewer — these controls move the viewer's playhead."
-        )
-        hint.setStyleSheet(theme.HINT_LABEL)
-        hint.setWordWrap(True)
-        left.addWidget(hint)
-
         self._mode_lbl = QLabel("Mode: idle")
         self._mode_lbl.setStyleSheet(theme.HINT_LABEL)
         left.addWidget(self._mode_lbl)
