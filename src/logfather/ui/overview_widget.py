@@ -382,21 +382,40 @@ def _latest_video_thumbnail(
     return image
 
 
+def _fmt_eta(seconds: float) -> str:
+    secs = max(1, int(round(seconds)))
+    if secs < 90:
+        return f"~{secs}s left"
+    minutes, rem = divmod(secs, 60)
+    return f"~{minutes}m {rem:02d}s left"
+
+
 def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False):
     now_local = _local_now()
     day_value = _timeline_day_date(now_local)
     day_start_local = _start_of_day_local(now_local)
+    # Progress narration: numbered stages, what is being worked on, and a
+    # running time estimate from the completed items — the bare counter
+    # read as a hang while each system's day folder was listed on the
+    # WAN share (Chris, 2026-09-05).
+    job.emit_progress("Step 1/3 — listing systems on the CCTV share...")
     system_roots = []
     if parent_dir.exists():
         system_roots = [p for p in parent_dir.iterdir() if p.is_dir()]
     system_roots.sort(key=lambda p: p.name.lower())
     total_systems = len(system_roots)
-    if total_systems:
-        job.emit_progress(f"Scanning systems... 0/{total_systems}")
     systems = []
+    t_scan_start = time.perf_counter()
     for idx, root in enumerate(system_roots, start=1):
         if job.interrupted():
             return None
+        eta = ""
+        if idx > 1:
+            avg = (time.perf_counter() - t_scan_start) / (idx - 1)
+            eta = f" — {_fmt_eta(avg * (total_systems - idx + 1))}"
+        job.emit_progress(
+            f"Step 1/3 — scanning {root.name} ({idx}/{total_systems}){eta}"
+        )
         robot_id = _extract_robot_id(root)
         video_items = _build_video_items(root, day_value)
         systems.append(
@@ -409,7 +428,6 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
                 "thumbnail_image": _latest_video_thumbnail(video_items, cache_root, now_local),
             }
         )
-        job.emit_progress(f"Scanning systems... {idx}/{total_systems}")
     final_systems = []
     for row in systems:
         if job.interrupted():
@@ -441,7 +459,10 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
     fetch_start = day_start_local if covers_full_day else max(day_start_local, since_dt)
     chunk_minutes = 10
     total_chunks = max(1, int(((now_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
-    job.emit_progress(f"Loading Elastic data... 0/{total_chunks} chunks")
+    job.emit_progress(
+        f"Step 2/3 — loading events from Elastic (0/{total_chunks} chunks)"
+    )
+    t_chunks_start = time.perf_counter()
     for chunk_idx, chunk in enumerate(fetch_overview_event_chunks(
         settings,
         system_roots,
@@ -456,8 +477,14 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
             if row is None:
                 continue
             row["events"].extend(list(events or []))
-        job.emit_progress(f"Loading Elastic data... {chunk_idx}/{total_chunks} chunks")
-    job.emit_progress("Rendering overview...")
+        eta = ""
+        if chunk_idx < total_chunks:
+            avg = (time.perf_counter() - t_chunks_start) / chunk_idx
+            eta = f" — {_fmt_eta(avg * (total_chunks - chunk_idx))}"
+        job.emit_progress(
+            f"Step 2/3 — loading events from Elastic ({chunk_idx}/{total_chunks} chunks){eta}"
+        )
+    job.emit_progress("Step 3/3 — rendering overview...")
     return {
         "systems": final_systems,
         "now_local": now_local,
