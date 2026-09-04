@@ -122,7 +122,10 @@ class _FrameCanvas(QLabel):
         self._drag_name: str | None = None
 
     def set_draggable_markers(self, markers: dict[str, tuple[float, float]]) -> None:
-        self._draggable = dict(markers or {})
+        markers = dict(markers or {})
+        if markers != self._draggable:
+            self._draggable = markers
+            self._refresh()  # the white drag-me outlines changed
 
     def _marker_at(self, px: float, py: float) -> str | None:
         x, y, dw, dh = self._image_rect()
@@ -147,20 +150,14 @@ class _FrameCanvas(QLabel):
         return None
 
     def mouseMoveEvent(self, event):
-        px, py = event.position().x(), event.position().y()
-        if self._drag_name is not None:
-            norm = self._norm_at(px, py, clamp=True)
-            if norm is not None:
-                self.marker_dragged.emit(self._drag_name, norm[0], norm[1])
+        if self._drag_name is None:
             return
-        self.setCursor(
-            Qt.OpenHandCursor if self._marker_at(px, py) else Qt.ArrowCursor
-        )
+        norm = self._norm_at(event.position().x(), event.position().y(), clamp=True)
+        if norm is not None:
+            self.marker_dragged.emit(self._drag_name, norm[0], norm[1])
 
     def mouseReleaseEvent(self, event):
-        if self._drag_name is not None:
-            self._drag_name = None
-            self.setCursor(Qt.ArrowCursor)
+        self._drag_name = None
 
     def set_frame(self, img: QImage | None) -> None:
         self._qimage = img
@@ -251,6 +248,13 @@ class _FrameCanvas(QLabel):
                 painter.setBrush(QBrush(QColor("#ffffff")))
                 painter.drawEllipse(marker_pt, 4, 4)
 
+        # White outline = this point is draggable right now (the viewer is
+        # parked on its capture frame).
+        painter.setPen(QPen(QColor("#ffffff"), 2))
+        painter.setBrush(Qt.NoBrush)
+        for _name, (nx, ny) in self._draggable.items():
+            painter.drawEllipse(QPointF(x + nx * dw, y + ny * dh), 9, 9)
+
         painter.end()
         self.setPixmap(canvas)
 
@@ -266,7 +270,6 @@ class _FrameCanvas(QLabel):
         name = self._marker_at(px, py)
         if name is not None:
             self._drag_name = name
-            self.setCursor(Qt.ClosedHandCursor)
             return
         norm = self._norm_at(px, py)
         if norm is not None:
@@ -431,11 +434,11 @@ class ConveyorCalibrationDialog(QDialog):
         vel_layout.addLayout(mark_row)
 
         goto_row = QHBoxLayout()
-        self._btn_go_start = QPushButton("Go to start")
-        self._btn_go_start.setToolTip("Jump the viewer to the frame where the start point was captured")
+        self._btn_go_start = QPushButton("Edit start")
+        self._btn_go_start.setToolTip("Jump to the start point's frame; its circle then becomes draggable for fine edits")
         self._btn_go_start.clicked.connect(lambda: self._jump_to_capture(self._start_fraction))
-        self._btn_go_end = QPushButton("Go to end")
-        self._btn_go_end.setToolTip("Jump the viewer to the frame where the end point was captured")
+        self._btn_go_end = QPushButton("Edit end")
+        self._btn_go_end.setToolTip("Jump to the end point's frame; its circle then becomes draggable for fine edits")
         self._btn_go_end.clicked.connect(lambda: self._jump_to_capture(self._end_fraction))
         for btn in (self._btn_go_start, self._btn_go_end):
             btn.setEnabled(False)
@@ -734,9 +737,9 @@ class ConveyorCalibrationDialog(QDialog):
         info_parts = []
         for btn, name, fraction, tip in (
             (self._btn_go_start, "start", self._start_fraction,
-             "Jump the viewer to the frame where the start point was captured"),
+             "Jump to the start point's frame; its circle then becomes draggable for fine edits"),
             (self._btn_go_end, "end", self._end_fraction,
-             "Jump the viewer to the frame where the end point was captured"),
+             "Jump to the end point's frame; its circle then becomes draggable for fine edits"),
         ):
             known = fraction is not None
             btn.setEnabled(known)
@@ -747,7 +750,7 @@ class ConveyorCalibrationDialog(QDialog):
                     frame, dt = self._position_info(fraction)
                 except Exception:
                     frame = dt = None
-            btn.setText(f"Go to {name} ({frame + 1})" if frame is not None else f"Go to {name}")
+            btn.setText(f"Edit {name} ({frame + 1})" if frame is not None else f"Edit {name}")
             if dt is not None:
                 info_parts.append(
                     f"{name.capitalize()}: {dt.astimezone().strftime('%H:%M:%S.%f')[:-3]}"
