@@ -15,10 +15,10 @@ grouped by component. Dynamic styles are functions.
 # The redesign's target tokens (2026-09-04). New/updated styles use these;
 # the legacy near-duplicates below migrate onto them step by step.
 
-BG_DEEP = "#0e1318"     # wells: input fields, troughs, hover previews
-BG = "#141a21"          # app base / panel surfaces
-BG_RAISED = "#1b232c"   # cards, headers, buttons
-BG_HOVER = "#232d38"    # hover states, alternate rows
+BG_DEEP = "#080b0f"     # wells: input fields, troughs, hover previews
+BG = "#0d1116"          # app base / panel surfaces
+BG_RAISED = "#151b22"   # cards, headers, buttons
+BG_HOVER = "#1e2630"    # hover states, alternate rows
 
 BORDER = "#2e3b47"          # the border colour
 BORDER_LIGHT = "#3d4c5a"    # emphasised edges (focused inputs, handles)
