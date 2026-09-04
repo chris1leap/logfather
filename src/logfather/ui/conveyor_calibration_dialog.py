@@ -401,9 +401,6 @@ class ConveyorCalibrationDialog(QDialog):
         transport_row.addStretch(1)
         outer.addLayout(transport_row)
 
-        self._mode_lbl = QLabel("Mode: idle")
-        self._mode_lbl.setStyleSheet(theme.HINT_LABEL)
-        left.addWidget(self._mode_lbl)
         root.addLayout(left, 3)
 
         right = QVBoxLayout()
@@ -444,11 +441,6 @@ class ConveyorCalibrationDialog(QDialog):
             btn.setEnabled(False)
             goto_row.addWidget(btn)
         vel_layout.addLayout(goto_row)
-
-        self._capture_info_lbl = QLabel("")
-        self._capture_info_lbl.setStyleSheet(theme.HINT_LABEL)
-        self._capture_info_lbl.setWordWrap(True)
-        vel_layout.addWidget(self._capture_info_lbl)
 
         self._vel_status_lbl = QLabel("No markers set.")
         self._vel_status_lbl.setStyleSheet(theme.HINT_LABEL)
@@ -605,9 +597,6 @@ class ConveyorCalibrationDialog(QDialog):
             self._update_capture_markers()
             self._line_capture_mode = None
             self._canvas.set_pending_dot(None)
-            self._mode_lbl.setText(
-                f"Start captured at ({nx:.4f}, {ny:.4f}) on {self._current_time.strftime('%H:%M:%S.%f')[:-3]}."
-            )
             self._vel_status_lbl.setText("Start captured. Scrub to another frame, then capture the end point.")
             self._refresh_overlays()
             return
@@ -620,8 +609,7 @@ class ConveyorCalibrationDialog(QDialog):
             return
         self._line_capture_mode = "start"
         self._canvas.set_pending_dot(None)
-        self._mode_lbl.setText("Click the conveyor reference point at the start frame.")
-        self._vel_status_lbl.setText("Waiting for start-point click.")
+        self._vel_status_lbl.setText("Click the conveyor reference point at the start frame.")
 
     def _capture_line_end(self):
         if self._line_start_capture is None:
@@ -632,8 +620,7 @@ class ConveyorCalibrationDialog(QDialog):
             return
         self._line_capture_mode = "end"
         self._canvas.set_pending_dot(None)
-        self._mode_lbl.setText("Click the same conveyor reference point at the end frame.")
-        self._vel_status_lbl.setText("Waiting for end-point click.")
+        self._vel_status_lbl.setText("Click the same conveyor reference point at the end frame.")
 
     def set_clip_context(self, clip_key: str | None, position_info=None) -> None:
         """Tell the dialog which clip the viewer has open. Restores the
@@ -734,7 +721,6 @@ class ConveyorCalibrationDialog(QDialog):
             "Capture position unknown: the line was captured on a different "
             "clip (or with an older version). Recapture to enable."
         )
-        info_parts = []
         for btn, name, fraction, tip in (
             (self._btn_go_start, "start", self._start_fraction,
              "Jump to the start point's frame; its circle then becomes draggable for fine edits"),
@@ -744,18 +730,13 @@ class ConveyorCalibrationDialog(QDialog):
             known = fraction is not None
             btn.setEnabled(known)
             btn.setToolTip(tip if known else unavailable_hint)
-            frame = dt = None
+            frame = None
             if known and self._position_info is not None:
                 try:
-                    frame, dt = self._position_info(fraction)
+                    frame, _dt = self._position_info(fraction)
                 except Exception:
-                    frame = dt = None
+                    frame = None
             btn.setText(f"Edit {name} ({frame + 1})" if frame is not None else f"Edit {name}")
-            if dt is not None:
-                info_parts.append(
-                    f"{name.capitalize()}: {dt.astimezone().strftime('%H:%M:%S.%f')[:-3]}"
-                )
-        self._capture_info_lbl.setText("   ".join(info_parts))
         self._update_draggable_markers()
 
     def _finish_tracking_line(self, nx: float, ny: float):
@@ -800,10 +781,7 @@ class ConveyorCalibrationDialog(QDialog):
         self._cal.tracking_line_duration_sec = dt
         self._cal.belt_pixels_per_sec = (line_end[0] - line_start[0]) / dt
         vx, vy = self._cal.tracking_velocity_norm_per_sec() or (0.0, 0.0)
-        self._vel_status_lbl.setText(
-            f"Tracking line set: dt={dt:.3f}s, vx={vx:.5f}, vy={vy:.5f} norm/s"
-        )
-        self._mode_lbl.setText("Mode: idle")
+        self._vel_status_lbl.setText("Tracking line set.")
         self._refresh_overlays()
         self._refresh_status()
 
@@ -819,7 +797,6 @@ class ConveyorCalibrationDialog(QDialog):
         self._cal.tracking_line_start_norm = None
         self._cal.tracking_line_end_norm = None
         self._cal.tracking_line_duration_sec = 0.0
-        self._mode_lbl.setText("Mode: idle")
         self._vel_status_lbl.setText("No markers set.")
         self._refresh_overlays()
         self._refresh_status()
@@ -828,4 +805,3 @@ class ConveyorCalibrationDialog(QDialog):
         save_calibration(self._cal)
         self.calibration_saved.emit(self._cal)
         self._refresh_status()
-        self._vel_status_lbl.setText("Saved.")
