@@ -453,6 +453,8 @@ class MainWindow(QWidget):
         self.time_picker.items_changed.connect(self._sync_viewer_sku_overlay)
         self.time_picker.items_changed.connect(self._on_items_changed_for_navigation)
         self.viewer.clip_opened.connect(self._on_clip_opened_for_navigation)
+        self._viewer_tools_available = False
+        self.viewer.clip_opened.connect(self._on_first_clip_opened)
         if ENABLE_DAY_PREFETCH:
             self.time_picker.items_changed.connect(self._prefetch_day_clips)
         self.viewer.current_time_changed.connect(self.time_picker.set_playhead_datetime)
@@ -1303,6 +1305,22 @@ class MainWindow(QWidget):
     def _should_show_overview(self) -> bool:
         return self.overview_btn.isChecked()
 
+    def _update_viewer_tool_visibility(self):
+        """Calibrate/Track/Targets belong to viewer mode WITH a clip
+        loaded (Chris: only the essential buttons at any point). There is
+        no unload event, so once the first clip lands they stay available
+        for the session, still following the mode."""
+        in_viewer = self.content_stack.currentWidget() is self.viewer
+        show = in_viewer and self._viewer_tools_available
+        self.calibrate_btn.setVisible(show)
+        self.track_toggle.setVisible(show)
+        self.buffer_toggle.setVisible(show)
+
+    def _on_first_clip_opened(self, _path) -> None:
+        if not self._viewer_tools_available:
+            self._viewer_tools_available = True
+            self._update_viewer_tool_visibility()
+
     def _on_mode_button_toggled(self, _button, checked: bool):
         # The exclusive group fires once for the unchecked and once for the
         # checked button; syncing on the checked edge runs the switch once.
@@ -1319,12 +1337,7 @@ class MainWindow(QWidget):
         else:
             current_page = self.viewer
         self.content_stack.setCurrentWidget(current_page)
-        # Viewer-only tools leave the top bar with the viewer (Chris:
-        # only the controls that matter in the current mode).
-        in_viewer = current_page is self.viewer
-        self.calibrate_btn.setVisible(in_viewer)
-        self.track_toggle.setVisible(in_viewer)
-        self.buffer_toggle.setVisible(in_viewer)
+        self._update_viewer_tool_visibility()
         self.overview_widget.set_parent_dir(self.date_picker.parent_dir)
         self.overview_widget.activate(show_overview)
         self.fleetwide_search_widget.set_parent_dir(self.date_picker.parent_dir)
