@@ -58,6 +58,16 @@ def resolve_tracking_line(
     )
 
 
+def _fmt_sig(value: float, sig: int = 2) -> str:
+    """Friendly number: 2 significant figures, never scientific notation."""
+    if value == 0 or not math.isfinite(value):
+        return "0"
+    magnitude = math.floor(math.log10(abs(value)))
+    decimals = sig - 1 - magnitude
+    rounded = round(value, decimals)
+    return f"{rounded:.{max(0, decimals)}f}"
+
+
 class _MarkerSlider(QSlider):
     """QSlider that paints the captured start/end positions as vertical
     ticks over the groove (fractions 0.0..1.0)."""
@@ -416,8 +426,13 @@ class ConveyorCalibrationDialog(QDialog):
         root.addLayout(right, 2)
 
     def on_frame(self, img: QImage | None) -> None:
+        first_frame = img is not None and (
+            self._canvas._qimage is None or self._canvas._qimage.isNull()
+        )
         self._canvas.set_frame(img)
         self._refresh_overlays()
+        if first_frame:
+            self._refresh_status()  # pixel positions become computable now
 
     def on_targets(self, targets: list[PickTarget]) -> None:
         _ = targets
@@ -450,20 +465,50 @@ class ConveyorCalibrationDialog(QDialog):
         self.transport_seek_fraction.emit(value / 1000.0)
 
     def _refresh_status(self):
-        lines = [f"Belt speed: {self._cal.belt_pixels_per_sec:.5f} norm-x/s"]
-        if self._cal.has_tracking_line():
-            start = self._cal.tracking_line_start_norm or [0.0, 0.0]
-            end = self._cal.tracking_line_end_norm or [0.0, 0.0]
-            dx = float(end[0]) - float(start[0])
-            dy = float(end[1]) - float(start[1])
-            vx, vy = self._cal.tracking_velocity_norm_per_sec() or (0.0, 0.0)
-            lines.append(f"Velocity: vx={vx:.5f}, vy={vy:.5f} norm/s")
-            lines.append(
-                f"Distance: {math.hypot(dx, dy):.5f} norm (dx={dx:+.5f}, dy={dy:+.5f})"
+        # Result order per Chris (2026-09-04): start px, end px, distance,
+        # frames elapsed, belt speed.
+        if not self._cal.has_tracking_line():
+            self._status_lbl.setText(
+                f"Belt speed: {_fmt_sig(self._cal.belt_pixels_per_sec)} norm-x/s\n"
+                "No tracking line captured yet."
             )
-            lines.append(f"Duration: {self._cal.tracking_line_duration_sec:.3f}s")
+            return
+        start = self._cal.tracking_line_start_norm or [0.0, 0.0]
+        end = self._cal.tracking_line_end_norm or [0.0, 0.0]
+        sx, sy = float(start[0]), float(start[1])
+        ex, ey = float(end[0]), float(end[1])
+        dx, dy = ex - sx, ey - sy
+        lines = []
+        img = self._canvas._qimage
+        if img is not None and not img.isNull():
+            w, h = img.width(), img.height()
+            lines.append(f"Start: ({sx * w:.0f}, {sy * h:.0f}) px")
+            lines.append(f"End: ({ex * w:.0f}, {ey * h:.0f}) px")
+            lines.append(f"Distance: {_fmt_sig(math.hypot(dx * w, dy * h))} px")
         else:
-            lines.append("No tracking line captured yet.")
+            lines.append(f"Start: ({sx:.2f}, {sy:.2f}) norm")
+            lines.append(f"End: ({ex:.2f}, {ey:.2f}) norm")
+            lines.append(f"Distance: {_fmt_sig(math.hypot(dx, dy))} norm")
+        duration = float(self._cal.tracking_line_duration_sec)
+        frames_elapsed = None
+        if (
+            self._position_info is not None
+            and self._start_fraction is not None
+            and self._end_fraction is not None
+        ):
+            try:
+                start_frame, _ = self._position_info(self._start_fraction)
+                end_frame, _ = self._position_info(self._end_fraction)
+                frames_elapsed = abs(int(end_frame) - int(start_frame))
+            except Exception:
+                frames_elapsed = None
+        if frames_elapsed is not None:
+            lines.append(f"Frames elapsed: {frames_elapsed} ({_fmt_sig(duration)}s)")
+        else:
+            lines.append(f"Duration: {_fmt_sig(duration)}s")
+        lines.append(f"Belt speed: {_fmt_sig(self._cal.belt_pixels_per_sec)} norm-x/s")
+        vx, vy = self._cal.tracking_velocity_norm_per_sec() or (0.0, 0.0)
+        lines.append(f"Velocity: vx={_fmt_sig(vx)}, vy={_fmt_sig(vy)} norm/s")
         self._status_lbl.setText("\n".join(lines))
 
     def _refresh_overlays(self):

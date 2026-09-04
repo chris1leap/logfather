@@ -876,3 +876,27 @@ class TestCalibrationCaptureFields:
         assert restored.capture_clip_key is None
         assert restored.capture_start_fraction is None
         assert restored.capture_end_fraction is None
+
+
+class TestFmtSig:
+    """Friendly 2-significant-figure formatting in the calibration results."""
+
+    @staticmethod
+    def _fmt(value, sig=2):
+        from logfather.ui.conveyor_calibration_dialog import _fmt_sig
+        return _fmt_sig(value, sig)
+
+    def test_small_fraction(self):
+        assert self._fmt(-0.18003) == "-0.18"
+
+    def test_sub_hundredth(self):
+        assert self._fmt(0.0012345) == "0.0012"
+
+    def test_over_one(self):
+        assert self._fmt(1.667202) == "1.7"
+
+    def test_large_value_no_scientific(self):
+        assert self._fmt(634.7) == "630"
+
+    def test_zero(self):
+        assert self._fmt(0.0) == "0"
