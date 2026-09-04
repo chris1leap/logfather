@@ -179,6 +179,9 @@ def _start_instance_server(win: QWidget) -> QLocalServer | None:
 
 def main():
     app = QApplication(sys.argv)
+    from logfather.ui.theme import apply_app_theme
+
+    apply_app_theme(app)
     if _activate_running_instance():
         print("[main] already running - switched to the open instance", flush=True)
         return

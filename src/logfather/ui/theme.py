@@ -11,6 +11,24 @@ code needs directly, or that many styles share), then style strings
 grouped by component. Dynamic styles are functions.
 """
 
+# ----------------------------------------------------- canonical palette
+# The redesign's target tokens (2026-09-04). New/updated styles use these;
+# the legacy near-duplicates below migrate onto them step by step.
+
+BG_DEEP = "#0e1318"     # wells: input fields, troughs, hover previews
+BG = "#141a21"          # app base / panel surfaces
+BG_RAISED = "#1b232c"   # cards, headers, buttons
+BG_HOVER = "#232d38"    # hover states, alternate rows
+
+BORDER = "#2e3b47"          # the border colour
+BORDER_LIGHT = "#3d4c5a"    # emphasised edges (focused inputs, handles)
+
+TEXT_BRIGHT = "#ecf0f4"     # titles, selected-state text
+
+ACCENT = "#5e9bff"          # the app accent (links, focus, progress)
+ACCENT_DIM = "#24435f"      # selected/checked fills behind light text
+ACCENT_BORDER = "#3d6288"   # border partnering ACCENT_DIM fills
+
 # ---------------------------------------------------------------- palette
 
 TEXT = "#d7dde2"          # primary light text
@@ -245,3 +263,132 @@ ABOUT_PAGE = (
 ABOUT_MUTED = "color: #9fb0c0;"
 
 LOGO_PREVIEW = f"border: 1px solid #3a4650; background: #11161a; color: {TEXT_MUTED};"
+
+# ------------------------------------------------------- application base
+# Global dark base: Fusion style + palette + this stylesheet, applied once
+# at startup. Before this the app had NO global styling - every unstyled
+# widget (combos, scrollbars, tabs, checkboxes, menus, the calendar) drew
+# in the OS light theme, patched over by per-widget dark styles. Component
+# styles above still win where they set the same properties.
+
+APP_STYLESHEET = f"""
+QToolTip {{
+    background-color: {BG_RAISED}; color: {TEXT};
+    border: 1px solid {BORDER}; padding: 3px 6px;
+}}
+
+QPushButton, QToolButton {{
+    background-color: {BG_RAISED}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 4px;
+    padding: 4px 10px;
+}}
+QToolButton {{ padding: 3px 8px; }}
+QPushButton:hover, QToolButton:hover {{ background-color: {BG_HOVER}; }}
+QPushButton:pressed, QToolButton:pressed {{ background-color: {BG_DEEP}; }}
+QPushButton:checked, QToolButton:checked {{
+    background-color: {ACCENT_DIM}; color: {TEXT_BRIGHT};
+    border-color: {ACCENT_BORDER};
+}}
+QPushButton:disabled, QToolButton:disabled {{
+    color: #6b7681; background-color: {BG}; border-color: {BORDER};
+}}
+
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit {{
+    background-color: {BG_DEEP}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 4px;
+    padding: 2px 6px;
+    selection-background-color: {ACCENT_DIM}; selection-color: {TEXT_BRIGHT};
+}}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+    border-color: {BORDER_LIGHT};
+}}
+QComboBox::drop-down {{ border: none; width: 18px; }}
+QComboBox QAbstractItemView {{
+    background-color: {BG_RAISED}; color: {TEXT};
+    border: 1px solid {BORDER};
+    selection-background-color: {BG_HOVER}; selection-color: {TEXT_BRIGHT};
+}}
+
+QTabWidget::pane {{ border: 1px solid {BORDER}; }}
+QTabBar::tab {{
+    background-color: {BG}; color: {TEXT_MUTED};
+    border: 1px solid {BORDER}; border-bottom: none;
+    border-top-left-radius: 4px; border-top-right-radius: 4px;
+    padding: 5px 12px; margin-right: 1px;
+}}
+QTabBar::tab:hover {{ background-color: {BG_HOVER}; color: {TEXT}; }}
+QTabBar::tab:selected {{ background-color: {BG_RAISED}; color: {TEXT_BRIGHT}; }}
+
+QScrollBar:vertical {{
+    background: transparent; width: 10px; margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {BG_HOVER}; border-radius: 5px; min-height: 24px;
+}}
+QScrollBar::handle:vertical:hover {{ background: {BORDER_LIGHT}; }}
+QScrollBar:horizontal {{
+    background: transparent; height: 10px; margin: 0;
+}}
+QScrollBar::handle:horizontal {{
+    background: {BG_HOVER}; border-radius: 5px; min-width: 24px;
+}}
+QScrollBar::handle:horizontal:hover {{ background: {BORDER_LIGHT}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+
+QMenu {{
+    background-color: {BG_RAISED}; color: {TEXT};
+    border: 1px solid {BORDER};
+}}
+QMenu::item {{ padding: 4px 20px; }}
+QMenu::item:selected {{ background-color: {BG_HOVER}; }}
+
+QGroupBox {{
+    border: 1px solid {BORDER}; border-radius: 4px;
+    margin-top: 8px; padding-top: 4px;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin; left: 8px; padding: 0 3px;
+    color: {TEXT_MUTED};
+}}
+
+QHeaderView::section {{
+    background-color: {BG_RAISED}; color: {TEXT};
+    border: none; border-right: 1px solid {BORDER};
+    border-bottom: 1px solid {BORDER}; padding: 3px 6px;
+}}
+
+QCalendarWidget QWidget#qt_calendar_navigationbar {{ background-color: {BG_RAISED}; }}
+"""
+
+
+def apply_app_theme(app) -> None:
+    """Fusion style + dark palette + base stylesheet, once per process."""
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QStyleFactory
+
+    app.setStyle(QStyleFactory.create("Fusion"))
+
+    pal = QPalette()
+    pal.setColor(QPalette.Window, QColor(BG))
+    pal.setColor(QPalette.WindowText, QColor(TEXT))
+    pal.setColor(QPalette.Base, QColor(BG_DEEP))
+    pal.setColor(QPalette.AlternateBase, QColor(BG_RAISED))
+    pal.setColor(QPalette.Text, QColor(TEXT))
+    pal.setColor(QPalette.Button, QColor(BG_RAISED))
+    pal.setColor(QPalette.ButtonText, QColor(TEXT))
+    pal.setColor(QPalette.BrightText, QColor(TEXT_BRIGHT))
+    pal.setColor(QPalette.Highlight, QColor(ACCENT_DIM))
+    pal.setColor(QPalette.HighlightedText, QColor(TEXT_BRIGHT))
+    pal.setColor(QPalette.Link, QColor(ACCENT))
+    pal.setColor(QPalette.ToolTipBase, QColor(BG_RAISED))
+    pal.setColor(QPalette.ToolTipText, QColor(TEXT))
+    pal.setColor(QPalette.PlaceholderText, QColor(TEXT_FAINT))
+    disabled = QColor("#6b7681")
+    pal.setColor(QPalette.Disabled, QPalette.Text, disabled)
+    pal.setColor(QPalette.Disabled, QPalette.WindowText, disabled)
+    pal.setColor(QPalette.Disabled, QPalette.ButtonText, disabled)
+    pal.setColor(QPalette.Disabled, QPalette.Highlight, QColor(BORDER))
+    app.setPalette(pal)
+
+    app.setStyleSheet(APP_STYLESHEET)
