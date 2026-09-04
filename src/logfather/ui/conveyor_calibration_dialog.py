@@ -418,29 +418,20 @@ class ConveyorCalibrationDialog(QDialog):
             wordWrap=True,
         ))
 
+        # One button per point: Capture until a position exists, then it
+        # morphs into Edit (jump to the frame, drag the circle). Clear Line
+        # reverts both (Chris, 2026-09-04).
         mark_row = QHBoxLayout()
         self._btn_mark_a = QPushButton("Capture Start")
-        self._btn_mark_a.clicked.connect(self._capture_line_start)
+        self._btn_mark_a.clicked.connect(self._on_start_button)
         mark_row.addWidget(self._btn_mark_a)
         self._btn_mark_b = QPushButton("Capture End")
-        self._btn_mark_b.clicked.connect(self._capture_line_end)
+        self._btn_mark_b.clicked.connect(self._on_end_button)
         mark_row.addWidget(self._btn_mark_b)
         self._btn_clear_line = QPushButton("Clear Line")
         self._btn_clear_line.clicked.connect(self._clear_tracking_line)
         mark_row.addWidget(self._btn_clear_line)
         vel_layout.addLayout(mark_row)
-
-        goto_row = QHBoxLayout()
-        self._btn_go_start = QPushButton("Edit start")
-        self._btn_go_start.setToolTip("Jump to the start point's frame; its circle then becomes draggable for fine edits")
-        self._btn_go_start.clicked.connect(lambda: self._jump_to_capture(self._start_fraction))
-        self._btn_go_end = QPushButton("Edit end")
-        self._btn_go_end.setToolTip("Jump to the end point's frame; its circle then becomes draggable for fine edits")
-        self._btn_go_end.clicked.connect(lambda: self._jump_to_capture(self._end_fraction))
-        for btn in (self._btn_go_start, self._btn_go_end):
-            btn.setEnabled(False)
-            goto_row.addWidget(btn)
-        vel_layout.addLayout(goto_row)
 
         self._vel_status_lbl = QLabel("No markers set.")
         self._vel_status_lbl.setStyleSheet(theme.HINT_LABEL)
@@ -603,6 +594,18 @@ class ConveyorCalibrationDialog(QDialog):
         if self._line_capture_mode == "end":
             self._finish_tracking_line(nx, ny)
 
+    def _on_start_button(self):
+        if self._start_fraction is not None:
+            self._jump_to_capture(self._start_fraction)
+        else:
+            self._capture_line_start()
+
+    def _on_end_button(self):
+        if self._end_fraction is not None:
+            self._jump_to_capture(self._end_fraction)
+        else:
+            self._capture_line_end()
+
     def _capture_line_start(self):
         if self._current_time is None:
             QMessageBox.information(self, "No time", "No playhead time available.")
@@ -717,26 +720,28 @@ class ConveyorCalibrationDialog(QDialog):
     def _update_capture_markers(self):
         markers = [f for f in (self._start_fraction, self._end_fraction) if f is not None]
         self._scrub.set_markers(markers)
-        unavailable_hint = (
-            "Capture position unknown: the line was captured on a different "
-            "clip (or with an older version). Recapture to enable."
-        )
-        for btn, name, fraction, tip in (
-            (self._btn_go_start, "start", self._start_fraction,
-             "Jump to the start point's frame; its circle then becomes draggable for fine edits"),
-            (self._btn_go_end, "end", self._end_fraction,
-             "Jump to the end point's frame; its circle then becomes draggable for fine edits"),
+        for btn, name, fraction in (
+            (self._btn_mark_a, "start", self._start_fraction),
+            (self._btn_mark_b, "end", self._end_fraction),
         ):
-            known = fraction is not None
-            btn.setEnabled(known)
-            btn.setToolTip(tip if known else unavailable_hint)
+            if fraction is None:
+                btn.setText(f"Capture {name.capitalize()}")
+                btn.setToolTip(
+                    f"Arm the {name}-point capture, then click the conveyor "
+                    "reference point on the image"
+                )
+                continue
             frame = None
-            if known and self._position_info is not None:
+            if self._position_info is not None:
                 try:
                     frame, _dt = self._position_info(fraction)
                 except Exception:
                     frame = None
             btn.setText(f"Edit {name} ({frame + 1})" if frame is not None else f"Edit {name}")
+            btn.setToolTip(
+                f"Jump to the {name} point's frame; its circle then becomes "
+                "draggable for fine edits"
+            )
         self._update_draggable_markers()
 
     def _finish_tracking_line(self, nx: float, ny: float):
