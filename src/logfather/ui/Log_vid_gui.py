@@ -794,13 +794,12 @@ class VideoLogViewer(QWidget):
         self.event_marker_bar = EventMarkerBar()
         self.timeline_marker_bar = EventMarkerBar()
         self.timeline_marker_bar.set_triangle_red_markers(True)
-        # LCD readouts only; the sync buttons moved into the sync strip.
+        # Clock + frame LCDs only; the sync buttons and the calc LCD (the
+        # computed log time, a sync-time concern) live in the sync strip.
         lock_row = QHBoxLayout()
         lock_row.addWidget(self.info_label)
         lock_row.addSpacing(8)
         lock_row.addWidget(self.frame_label)
-        lock_row.addSpacing(8)
-        lock_row.addWidget(self.calc_label)
         lock_row.addStretch(1)
         middle_layout.addLayout(lock_row)
         video_row = QHBoxLayout()
@@ -850,6 +849,8 @@ class VideoLogViewer(QWidget):
         sync_strip_layout = QHBoxLayout(self._sync_strip)
         sync_strip_layout.setContentsMargins(0, 0, 0, 0)
         sync_strip_layout.addWidget(self.video_sync_btn)
+        sync_strip_layout.addSpacing(8)
+        sync_strip_layout.addWidget(self.calc_label)
         sync_strip_layout.addSpacing(8)
         sync_strip_layout.addWidget(self.offset_caption)
         sync_strip_layout.addWidget(self.offset_slider)
