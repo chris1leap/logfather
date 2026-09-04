@@ -503,7 +503,7 @@ class VideoLogViewer(QWidget):
         self.video_label.customContextMenuRequested.connect(self._copy_main_frame_to_clipboard)
         self.video_label.installEventFilter(self)
         self.video_sync_btn = QPushButton("Sync Time")
-        self.video_sync_btn.setFixedWidth(110)
+        self.video_sync_btn.setFixedWidth(135)
         self.video_sync_btn.setEnabled(False)
         self.video_sync_btn.clicked.connect(self.open_ocr_roi_tool)
         self._main_sync_done = False
@@ -519,7 +519,7 @@ class VideoLogViewer(QWidget):
         self.secondary_video_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.secondary_video_label.customContextMenuRequested.connect(self._copy_secondary_frame_to_clipboard)
         self.secondary_sync_btn = QPushButton("Sync Time")
-        self.secondary_sync_btn.setFixedWidth(110)
+        self.secondary_sync_btn.setFixedWidth(135)
         self.secondary_sync_btn.setEnabled(False)
         self.secondary_sync_btn.clicked.connect(self.open_secondary_ocr_tool)
         self._secondary_sync_done = False
@@ -968,7 +968,7 @@ class VideoLogViewer(QWidget):
         self._right_reveal_px = 12
         self._right_tabs_pinned = False
         self._right_tabs_expanded = True
-        self._right_tabs_target_width = 510
+        self._right_tabs_target_width = 600
         self.right_tabs.setMouseTracking(True)
         self.right_tabs.setMinimumWidth(0)
         self.right_tabs.setMaximumWidth(self._right_tabs_target_width)
@@ -979,12 +979,12 @@ class VideoLogViewer(QWidget):
 
         self._pin_btn = QPushButton("📌")
         self._pin_btn.setCheckable(True)
-        self._pin_btn.setFixedSize(26, 22)
+        self._pin_btn.setFixedSize(32, 28)
         self._pin_btn.setToolTip("Pin panel open")
         self._pin_btn.setStyleSheet(theme.PIN_BUTTON)
         self._pin_btn.toggled.connect(self._on_pin_toggled)
         self._gear_btn = QPushButton("⚙")
-        self._gear_btn.setFixedSize(26, 22)
+        self._gear_btn.setFixedSize(32, 28)
         self._gear_btn.setToolTip("Settings, Systems and Readme")
         self._gear_btn.setStyleSheet(theme.PIN_BUTTON)
         self._gear_btn.clicked.connect(self._open_config_dialog)

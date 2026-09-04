@@ -76,7 +76,7 @@ class DatePicker(QWidget):
         self._selection_from_click = False
         self.calendar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.calendar.setMinimumHeight(200)
-        self.calendar.setMaximumHeight(260)
+        self.calendar.setMaximumHeight(330)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(6, 6, 6, 6)

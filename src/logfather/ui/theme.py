@@ -30,6 +30,8 @@ ACCENT = "#5e9bff"          # the app accent (links, focus, progress)
 ACCENT_DIM = "#24435f"      # selected/checked fills behind light text
 ACCENT_BORDER = "#3d6288"   # border partnering ACCENT_DIM fills
 
+FONT_SCALE = 1.3            # applied to the app default font at startup
+
 # ---------------------------------------------------------------- palette
 
 TEXT = "#d7dde2"          # primary light text
@@ -71,16 +73,16 @@ GAP_WIDE_BG_EVEN = "#13283d"
 
 MUTED_LABEL = f"color: {TEXT_MUTED};"
 DIM_LABEL = f"color: {TEXT_DIM};"
-HINT_LABEL = f"color: {TEXT_FAINT}; font-size: 10px;"
-TITLE_LABEL = "font-size: 22px; font-weight: bold;"
+HINT_LABEL = f"color: {TEXT_FAINT}; font-size: 13px;"
+TITLE_LABEL = "font-size: 28px; font-weight: bold;"
 ERROR_LABEL = "color: #ff8a80;"
 PRIMARY_ACTION_BUTTON = "font-weight: bold; padding: 6px;"
 MONO_VALUE_LABEL = f"font-family: monospace; color: {TEXT};"
 
 LCD_DISPLAY = f"QLCDNumber {{ background-color: #000000; color: {LCD_GREEN}; }}"
 
-SLIDER_CAPTION = f"color: {TEXT_MUTED}; font-size: 10px;"
-SLIDER_VALUE = f"color: {TEXT}; font-family: Consolas, monospace; font-size: 10px;"
+SLIDER_CAPTION = f"color: {TEXT_MUTED}; font-size: 13px;"
+SLIDER_VALUE = f"color: {TEXT}; font-family: Consolas, monospace; font-size: 13px;"
 
 SYNC_DONE_BUTTON = f"background-color: {SUCCESS}; color: white;"
 LOCK_ON_LABEL = f"color: {SUCCESS_BRIGHT};"
@@ -107,7 +109,7 @@ LOG_LIST = """
 """
 
 PIN_BUTTON = (
-    "QPushButton { border: none; background: transparent; font-size: 13px; }"
+    "QPushButton { border: none; background: transparent; font-size: 17px; }"
     "QPushButton:checked { background: rgba(255,255,255,30); border-radius: 3px; }"
 )
 
@@ -128,13 +130,13 @@ SEGMENT_RIGHT = (
 
 # "⋯" overflow button: keep it quiet, no menu arrow.
 OVERFLOW_BUTTON = (
-    "QToolButton { font-weight: bold; padding: 3px 10px; }"
+    "QToolButton { font-weight: bold; padding: 4px 13px; }"
     "QToolButton::menu-indicator { image: none; }"
 )
 
 SHUTDOWN_POPUP = (
     f"QWidget {{ background-color: {BG}; color: {TEXT};"
-    f" border: 1px solid {BORDER_LIGHT}; font-size: 12px; }}"
+    f" border: 1px solid {BORDER_LIGHT}; font-size: 16px; }}"
     f"QProgressBar {{ border: 1px solid {BORDER}; background: {BG_DEEP};"
     " height: 12px; text-align: center; }"
     f"QProgressBar::chunk {{ background-color: {ACCENT}; }}"
@@ -196,7 +198,7 @@ LOADING_BADGE = (
     "padding: 10px 14px;"
     f"border: 1px solid {BORDER};"
     "border-radius: 6px;"
-    "font-size: 14px;"
+    "font-size: 18px;"
     "font-weight: 600;"
 )
 
@@ -223,17 +225,17 @@ def report_row_style(bg_name: str, border_name: str) -> str:
 
 # ---------------------------------------------------------- target buffer
 
-VALUE_LABEL = f"color: {TEXT_BRIGHT}; font-size: 10px;"
-CARD_TITLE = f"color: {TEXT_BRIGHT}; font-weight: bold; font-size: 11px;"
-CARD_TIME = f"color: {TEXT_FAINT}; font-size: 10px; margin-left: 4px;"
-CHEVRON = f"color: {BORDER_LIGHT}; font-size: 8px;"
+VALUE_LABEL = f"color: {TEXT_BRIGHT}; font-size: 13px;"
+CARD_TITLE = f"color: {TEXT_BRIGHT}; font-weight: bold; font-size: 14px;"
+CARD_TIME = f"color: {TEXT_FAINT}; font-size: 13px; margin-left: 4px;"
+CHEVRON = f"color: {BORDER_LIGHT}; font-size: 10px;"
 SEPARATOR = f"color: {CARD_BORDER};"
-EMPTY_NOTE_INLINE = "color:#566573;font-size:10px;font-style:italic;"
-EMPTY_STATE = "color: #566573; font-size: 11px; font-style: italic; padding: 16px;"
-NO_DATA_STATE = "color: #3d4f5c; font-size: 11px; font-style: italic; padding: 16px;"
+EMPTY_NOTE_INLINE = "color:#566573;font-size:13px;font-style:italic;"
+EMPTY_STATE = "color: #566573; font-size: 14px; font-style: italic; padding: 16px;"
+NO_DATA_STATE = "color: #3d4f5c; font-size: 14px; font-style: italic; padding: 16px;"
 BUFFER_HEADER = (
     f"background: {HEADER_BG}; color: {TEXT}; font-weight: bold; "
-    "padding: 6px 8px; font-size: 12px;"
+    "padding: 6px 8px; font-size: 16px;"
 )
 BUFFER_SCROLL = f"QScrollArea {{ background: {BG}; border: none; }}"
 BUFFER_BG = f"background: {BG};"
@@ -254,12 +256,12 @@ def target_card_style(bg: str, border: str) -> str:
 CAL_TRACK_LINE = "#ff00d9"
 
 # Results block: monospace so the x/y columns line up like a table.
-CAL_RESULTS_TEXT = f"color: {TEXT_FAINT}; font-size: 10px; font-family: Consolas, monospace;"
+CAL_RESULTS_TEXT = f"color: {TEXT_FAINT}; font-size: 13px; font-family: Consolas, monospace;"
 
 # ---------------------------------------------------------- activity bar
 
 ACTIVITY_BAR = f"background: {BG}; border-top: 1px solid {BORDER};"
-ACTIVITY_BAR_TEXT = f"color: {TEXT_MUTED}; font-size: 11px; border: none; background: transparent;"
+ACTIVITY_BAR_TEXT = f"color: {TEXT_MUTED}; font-size: 14px; border: none; background: transparent;"
 ACTIVITY_PROGRESS = (
     f"QProgressBar {{ border: 1px solid {BORDER}; background: {BG_DEEP}; }}"
     f"QProgressBar::chunk {{ background-color: {SUCCESS_BRIGHT}; }}"
@@ -298,9 +300,9 @@ QToolTip {{
 QPushButton, QToolButton {{
     background-color: {BG_RAISED}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 4px;
-    padding: 4px 10px;
+    padding: 6px 13px;
 }}
-QToolButton {{ padding: 3px 8px; }}
+QToolButton {{ padding: 4px 10px; }}
 QPushButton:hover, QToolButton:hover {{ background-color: {BG_HOVER}; }}
 QPushButton:pressed, QToolButton:pressed {{ background-color: {BG_DEEP}; }}
 QPushButton:checked, QToolButton:checked {{
@@ -332,7 +334,7 @@ QTabBar::tab {{
     background-color: {BG}; color: {TEXT_MUTED};
     border: 1px solid {BORDER}; border-bottom: none;
     border-top-left-radius: 4px; border-top-right-radius: 4px;
-    padding: 5px 12px; margin-right: 1px;
+    padding: 7px 15px; margin-right: 1px;
 }}
 QTabBar::tab:hover {{ background-color: {BG_HOVER}; color: {TEXT}; }}
 QTabBar::tab:selected {{ background-color: {BG_RAISED}; color: {TEXT_BRIGHT}; }}
@@ -386,6 +388,13 @@ def apply_app_theme(app) -> None:
     from PySide6.QtWidgets import QStyleFactory
 
     app.setStyle(QStyleFactory.create("Fusion"))
+
+    # ~30% larger type app-wide (Chris, 2026-09-05). Scaling the default
+    # font covers every widget and graphics-scene text that doesn't set
+    # its own size; the explicit px sizes above are pre-scaled to match.
+    font = app.font()
+    font.setPointSizeF(font.pointSizeF() * FONT_SCALE)
+    app.setFont(font)
 
     pal = QPalette()
     pal.setColor(QPalette.Window, QColor(BG))

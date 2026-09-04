@@ -185,7 +185,7 @@ class MainWindow(QWidget):
         self._timeline_min_height = TIMELINE_MIN_HEIGHT
         self._timeline_max_height = TIMELINE_MAX_HEIGHT
         self._timeline_expanded = False
-        self.date_picker.setMaximumWidth(320)
+        self.date_picker.setMaximumWidth(380)
 
         # Pick-target buffer panel
         self.buffer_widget = TargetBufferWidget()
@@ -236,7 +236,7 @@ class MainWindow(QWidget):
         horizontal_splitter.setStretchFactor(1, 8)
         horizontal_splitter.setStretchFactor(2, 0)
         self._horizontal_splitter = horizontal_splitter
-        self._left_panel_target_width = 320
+        self._left_panel_target_width = 380
         self._left_panel_visible = True
         self._left_panel_anim = QVariantAnimation(self)
         self._left_panel_anim.setDuration(170)
@@ -314,7 +314,7 @@ class MainWindow(QWidget):
         # rate behind the time-remaining estimate.
         self._activity_rate_anchors: dict[str, tuple[float, int]] = {}
         self._activity_bar = QWidget()
-        self._activity_bar.setFixedHeight(28)
+        self._activity_bar.setFixedHeight(34)
         self._activity_bar.setStyleSheet(theme.ACTIVITY_BAR)
         # Text on top, a slim full-width progress bar underneath (Chris).
         activity_layout = QVBoxLayout(self._activity_bar)
