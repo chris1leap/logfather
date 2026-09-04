@@ -5,13 +5,13 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
 import cv2
 
-from PySide6.QtCore import QEvent, QThread, Qt, Signal, QTimer, QRectF, QVariantAnimation, QEasingCurve, QUrl
+from PySide6.QtCore import QDate, QEvent, QThread, Qt, Signal, QTimer, QRectF, QVariantAnimation, QEasingCurve, QUrl
 from PySide6.QtGui import QColor, QBrush, QPen, QFont, QFontMetrics, QImage, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QButtonGroup,
+    QDateEdit,
     QGraphicsScene,
     QGraphicsView,
     QGraphicsRectItem,
@@ -105,6 +106,12 @@ def _local_now() -> datetime:
 
 def _start_of_day_local(now_local: datetime) -> datetime:
     return now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _start_of_day(day_value: date) -> datetime:
+    """Local-aware midnight for an arbitrary calendar day (DST-correct:
+    the naive combine is interpreted as local system time)."""
+    return datetime.combine(day_value, dt_time.min).astimezone()
 
 
 def _timeline_day_date(now_local: datetime) -> date:
@@ -324,7 +331,10 @@ class _OverviewTimelineClickItem(QGraphicsRectItem):
         ratio = (click_x - rect.left()) / rect.width()
         total_seconds = max(1.0, (self._window_end - self._window_start).total_seconds())
         clicked_ts = self._window_start + timedelta(seconds=ratio * total_seconds)
-        self._widget.open_requested.emit(self._state.root, self._day_value, ensure_utc(clicked_ts))
+        # The clicked moment names the day: in a multi-day range the
+        # window spans several days and _day_value is only the last one.
+        clicked_day = clicked_ts.astimezone().date()
+        self._widget.open_requested.emit(self._state.root, clicked_day, ensure_utc(clicked_ts))
         event.accept()
 
 
@@ -390,10 +400,24 @@ def _fmt_eta(seconds: float) -> str:
     return f"~{minutes}m {rem:02d}s left"
 
 
-def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False):
+def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False, day_range: tuple[date, date] | None = None):
     now_local = _local_now()
-    day_value = _timeline_day_date(now_local)
-    day_start_local = _start_of_day_local(now_local)
+    if day_range is not None:
+        # Historic day/range mode (Chris, 2026-09-05): fixed span, no
+        # incremental fetch, replaces whatever was loaded before.
+        range_start_day, range_end_day = day_range
+        day_value = range_end_day
+        day_start_local = _start_of_day(range_start_day)
+        fetch_end_local = min(now_local, _start_of_day(range_end_day) + timedelta(days=1))
+        day_list = [
+            range_start_day + timedelta(days=offset)
+            for offset in range((range_end_day - range_start_day).days + 1)
+        ]
+    else:
+        day_value = _timeline_day_date(now_local)
+        day_start_local = _start_of_day_local(now_local)
+        fetch_end_local = now_local
+        day_list = [day_value]
     # Progress narration: numbered stages, what is being worked on, and a
     # running time estimate from the completed items — the bare counter
     # read as a hang while each system's day folder was listed on the
@@ -413,11 +437,14 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         if idx > 1:
             avg = (time.perf_counter() - t_scan_start) / (idx - 1)
             eta = f" — {_fmt_eta(avg * (total_systems - idx + 1))}"
+        day_note = f" × {len(day_list)} days" if len(day_list) > 1 else ""
         job.emit_progress(
-            f"Step 1/3 — scanning {root.name} ({idx}/{total_systems}){eta}"
+            f"Step 1/3 — scanning {root.name} ({idx}/{total_systems}{day_note}){eta}"
         )
         robot_id = _extract_robot_id(root)
-        video_items = _build_video_items(root, day_value)
+        video_items = []
+        for day_entry in day_list:
+            video_items.extend(_build_video_items(root, day_entry))
         systems.append(
             {
                 "name": root.name,
@@ -458,7 +485,12 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
     covers_full_day = full_refresh or since_dt is None
     fetch_start = day_start_local if covers_full_day else max(day_start_local, since_dt)
     chunk_minutes = 10
-    total_chunks = max(1, int(((now_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
+    if day_range is not None:
+        # Multi-day spans keep the chunk count reasonable (~48 max) so a
+        # week-long fetch is not 1000 requests.
+        span_minutes = max(1, int((fetch_end_local - fetch_start).total_seconds() // 60))
+        chunk_minutes = max(10, ((span_minutes // 48) // 10 + 1) * 10)
+    total_chunks = max(1, int(((fetch_end_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
     job.emit_progress(
         f"Step 2/3 — loading events from Elastic (0/{total_chunks} chunks)"
     )
@@ -467,7 +499,7 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         settings,
         system_roots,
         fetch_start,
-        now_local,
+        fetch_end_local,
         chunk_minutes=chunk_minutes,
     ), start=1):
         if job.interrupted():
@@ -492,7 +524,11 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         # A full-day fetch counts as a full refresh even when it started
         # as a cache-seeded load that found no cache file.
         "full_refresh": covers_full_day,
-        "replace": False,
+        # Historic loads replace whatever mode was loaded before.
+        "replace": day_range is not None,
+        # Events older than this are trimmed at merge (range start, or
+        # today's midnight in live mode).
+        "cutoff_utc": day_start_local.astimezone(timezone.utc),
         "final": True,
     }
 
@@ -524,6 +560,11 @@ class OverviewWidget(QWidget):
         self._last_full_refresh_local: datetime | None = None
         self._active = False
         self._background_enabled = False
+        # Day-range filter (Chris, 2026-09-05): None = live today; a
+        # (start_day, end_day) pair shows that span's data, immutable —
+        # loaded once, no incremental refresh, no now/updated markers.
+        self._filter_day_range: tuple[date, date] | None = None
+        self._historic_loaded_range: tuple[date, date] | None = None
         self._overview_slot = JobSlot(self)
         self._collapsed_customers: set[str] = set()
         self._range_anim_now_local: datetime | None = None
@@ -548,12 +589,40 @@ class OverviewWidget(QWidget):
             btn.clicked.connect(lambda _checked=False, mode=value: self._set_display_mode(mode))
         self.one_hour_btn.setChecked(True)
 
+        # Day filter: live today, or a chosen day / range of days
+        # (Chris, 2026-09-05).
+        today_qdate = QDate.currentDate()
+        self.live_btn = QPushButton("Live")
+        self.live_btn.setCheckable(True)
+        self.live_btn.setChecked(True)
+        self.live_btn.setToolTip("Follow today's data live")
+        self.live_btn.clicked.connect(self._on_live_clicked)
+        self.range_from_edit = QDateEdit()
+        self.range_to_edit = QDateEdit()
+        for edit in (self.range_from_edit, self.range_to_edit):
+            edit.setCalendarPopup(True)
+            edit.setDisplayFormat("dd/MM/yyyy")
+            edit.setMinimumDate(today_qdate.addDays(-60))
+            edit.setMaximumDate(today_qdate)
+            edit.setDate(today_qdate)
+        self.show_range_btn = QPushButton("Show range")
+        self.show_range_btn.setToolTip(
+            "Show all data for the chosen day or span of days"
+        )
+        self.show_range_btn.clicked.connect(self._on_show_range_clicked)
+
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
-        controls.addWidget(QLabel("Overview"))
+        controls.addWidget(QLabel("Zoom"))
         controls.addWidget(self.one_hour_btn)
         controls.addWidget(self.five_hour_btn)
         controls.addWidget(self.all_day_btn)
+        controls.addSpacing(18)
+        controls.addWidget(self.live_btn)
+        controls.addWidget(self.range_from_edit)
+        controls.addWidget(QLabel("to"))
+        controls.addWidget(self.range_to_edit)
+        controls.addWidget(self.show_range_btn)
         controls.addStretch(1)
         controls.addWidget(self.status_label)
         controls.addWidget(self.refresh_btn)
@@ -696,12 +765,71 @@ class OverviewWidget(QWidget):
             self._stop_loading_video()
             self._maybe_persist_events_cache(_local_now(), force=True)
 
+    def _reset_loaded_data(self):
+        self._states.clear()
+        self._summary_cache.clear()
+        self._latest_event_ts = None
+        self._last_refreshed_local = None
+        self._last_full_refresh_local = None
+        self._historic_loaded_range = None
+
+    def _on_show_range_clicked(self):
+        d1 = self.range_from_edit.date().toPython()
+        d2 = self.range_to_edit.date().toPython()
+        start_day, end_day = min(d1, d2), max(d1, d2)
+        today = _local_now().date()
+        end_day = min(end_day, today)
+        start_day = min(start_day, end_day)
+        if self._filter_day_range == (start_day, end_day):
+            return
+        self._filter_day_range = (start_day, end_day)
+        self.live_btn.setChecked(False)
+        self._reset_loaded_data()
+        self.refresh(force_full=True)
+
+    def _on_live_clicked(self):
+        self.live_btn.setChecked(True)
+        if self._filter_day_range is None:
+            return
+        self._filter_day_range = None
+        self._reset_loaded_data()
+        self.refresh(force_full=True)
+
     def refresh(self, force_full: bool = False):
         if self.parent_dir is None:
             if self._active:
                 self._schedule_redraw()
             return
         if not self._active and not self._background_enabled:
+            return
+        day_range = self._filter_day_range
+        if day_range is not None:
+            # Historic range: immutable data, loaded once per selection;
+            # the manual Refresh button (force_full) re-fetches it.
+            if self._overview_slot.is_running():
+                return
+            if not force_full and self._historic_loaded_range == day_range:
+                return
+            label = (
+                day_range[0].strftime("%d/%m/%Y")
+                if day_range[0] == day_range[1]
+                else f"{day_range[0]:%d/%m/%Y} – {day_range[1]:%d/%m/%Y}"
+            )
+            self.status_label.setText(f"Loading {label}...")
+            if not self._states:
+                self._set_loading_visible(True, f"Loading {label}...")
+            settings = self.settings
+            parent_dir = self.parent_dir
+            cache_root = self.cache_root
+            self._historic_loaded_range = day_range
+            self._overview_slot.start(
+                lambda job: _run_overview_load(
+                    job, settings, parent_dir, cache_root, True, None, False, day_range
+                ),
+                on_result=self._on_loaded,
+                on_error=self._on_failed,
+                on_progress=self._on_load_progress,
+            )
             return
         now_local = _local_now()
         if self._last_day and self._last_day != now_local.date():
@@ -910,6 +1038,7 @@ class OverviewWidget(QWidget):
             or self._hover_window_start is None
             or self._hover_window_end is None
             or self._last_refreshed_local is None
+            or self._filter_day_range is not None
         ):
             for item in (line, label):
                 if item is not None:
@@ -942,7 +1071,13 @@ class OverviewWidget(QWidget):
         label.setVisible(True)
 
     def _update_now_label(self):
-        """Update the persistent HH:MM:SS marker in place between rebuilds."""
+        """Update the persistent HH:MM:SS marker in place between rebuilds.
+        Hidden in historic range mode - "now" is off the timeline there."""
+        if self._filter_day_range is not None:
+            item = self._live_scene_item(self._now_label_item)
+            if item is not None:
+                item.setVisible(False)
+            return
         if (
             self._hover_timeline_width <= 0
             or self._hover_window_start is None
@@ -1072,7 +1207,9 @@ class OverviewWidget(QWidget):
                     state.events.append(evt)
                     seen.add(evt_key)
             state.events.sort(key=lambda item: ensure_utc(item.get("ts")) if isinstance(item.get("ts"), datetime) else datetime.min.replace(tzinfo=timezone.utc))
-            cutoff = _start_of_day_local(now_local).astimezone(timezone.utc)
+            cutoff = payload.get("cutoff_utc")
+            if not isinstance(cutoff, datetime):
+                cutoff = _start_of_day_local(now_local).astimezone(timezone.utc)
             state.events = [
                 evt for evt in state.events
                 if isinstance(evt.get("ts"), datetime) and ensure_utc(evt["ts"]) >= cutoff
@@ -1100,7 +1237,10 @@ class OverviewWidget(QWidget):
 
     def _maybe_persist_events_cache(self, now_local: datetime, force: bool = False):
         """Write today's merged events to disk, throttled; the JSON dump
-        and file write run on a daemon thread off the UI."""
+        and file write run on a daemon thread off the UI. Live mode only:
+        a historic range must never masquerade as today's cache."""
+        if self._filter_day_range is not None:
+            return
         if self._last_day != now_local.date():
             return
         now_mono = time.monotonic()
@@ -1172,27 +1312,38 @@ class OverviewWidget(QWidget):
 
     def _visible_window(self) -> tuple[datetime, datetime] | None:
         now_local = self._range_anim_now_local or _local_now()
-        day_start_local = _start_of_day_local(now_local)
+        # Live mode anchors the window end at "now" within today; a
+        # historic range anchors it at the range end (or now, when the
+        # range includes today).
+        if self._filter_day_range is not None:
+            start_day, end_day = self._filter_day_range
+            window_floor = _start_of_day(start_day)
+            window_end = min(now_local, _start_of_day(end_day) + timedelta(days=1))
+            if window_end <= window_floor:
+                window_end = window_floor + timedelta(minutes=1)
+        else:
+            window_floor = _start_of_day_local(now_local)
+            window_end = now_local
         if self._range_anim_span_seconds is not None:
             span_delta = timedelta(seconds=max(60.0, self._range_anim_span_seconds))
-            start_local = max(day_start_local, now_local - span_delta)
+            start_local = max(window_floor, window_end - span_delta)
         elif self._display_mode == "1h":
-            start_local = max(day_start_local, now_local - timedelta(hours=1))
+            start_local = max(window_floor, window_end - timedelta(hours=1))
         elif self._display_mode == "all":
-            # All Day zooms to the day's actual data, not to midnight:
-            # first event/clip minus 30 min of lead-in, clamped to the
-            # day (Chris, 2026-09-05). No data yet -> whole day.
-            start_local = day_start_local
+            # "All" zooms to the actual data, not to midnight: first
+            # event/clip minus 30 min of lead-in, clamped to the span
+            # (Chris, 2026-09-05). No data yet -> the whole span.
+            start_local = window_floor
             earliest = self._earliest_data_utc()
             if earliest is not None:
                 padded = earliest.astimezone() - timedelta(minutes=30)
                 start_local = max(
-                    day_start_local,
-                    min(padded, now_local - timedelta(minutes=1)),
+                    window_floor,
+                    min(padded, window_end - timedelta(minutes=1)),
                 )
         else:
-            start_local = max(day_start_local, now_local - timedelta(hours=5))
-        return start_local.astimezone(timezone.utc), now_local.astimezone(timezone.utc)
+            start_local = max(window_floor, window_end - timedelta(hours=5))
+        return start_local.astimezone(timezone.utc), window_end.astimezone(timezone.utc)
 
     def _summary_for(self, state: OverviewSystemState, data_cutoff_utc: datetime) -> dict:
         """Cached _summarize_system: the redraw timer fires every second but
@@ -1576,9 +1727,16 @@ class OverviewWidget(QWidget):
         elif total_minutes <= 5 * 60:
             minor_step_min = 15
             major_step_min = 60
-        else:
+        elif total_minutes <= 24 * 60:
             minor_step_min = 30
             major_step_min = 120
+        elif total_minutes <= 3 * 24 * 60:
+            minor_step_min = 120
+            major_step_min = 360
+        else:
+            minor_step_min = 360
+            major_step_min = 1440
+        multi_day = total_minutes > 24 * 60
 
         tick = window_start.replace(second=0, microsecond=0)
         remainder = tick.minute % minor_step_min
@@ -1598,7 +1756,8 @@ class OverviewWidget(QWidget):
             line = self.scene.addLine(x, grid_top, x, grid_bottom, pen)
             line.setZValue(1.5)
             if is_major:
-                label = self.scene.addText(tick.astimezone().strftime("%H:%M"))
+                tick_fmt = "%d/%m %H:%M" if multi_day else "%H:%M"
+                label = self.scene.addText(tick.astimezone().strftime(tick_fmt))
                 label.setDefaultTextColor(QColor("#8ea2b2"))
                 label.setPos(x + 2, 4)
                 label.setZValue(10)
@@ -1669,7 +1828,12 @@ class OverviewWidget(QWidget):
             lane.setZValue(1)
             self.scene.addItem(lane)
 
-            data_cutoff_utc = ensure_utc(self._last_refreshed_local or now_local)
+            # Historic ranges summarise up to the range end, not "now" -
+            # otherwise the final state reads as lasting days.
+            if self._filter_day_range is not None:
+                data_cutoff_utc = window_end
+            else:
+                data_cutoff_utc = ensure_utc(self._last_refreshed_local or now_local)
             summary = self._summary_for(state, data_cutoff_utc)
             lane.setToolTip(self._row_tooltip(state, summary))
 

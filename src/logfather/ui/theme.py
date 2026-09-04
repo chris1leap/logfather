@@ -313,7 +313,7 @@ QPushButton:disabled, QToolButton:disabled {{
     color: {TEXT_DISABLED}; background-color: {BG}; border-color: {BORDER};
 }}
 
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit {{
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateEdit, QTextEdit, QPlainTextEdit {{
     background-color: {BG_DEEP}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 4px;
     padding: 2px 6px;
