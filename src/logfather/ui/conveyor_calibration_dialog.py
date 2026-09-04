@@ -11,8 +11,18 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
-from PySide6.QtCore import Qt, QPointF, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap, QBrush
+from PySide6.QtCore import Qt, QPointF, QRectF, QSize, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QIcon,
+    QImage,
+    QPainter,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -30,6 +40,35 @@ from PySide6.QtWidgets import (
 from logfather.data.conveyor_calibration import ConveyorCalibration, save_calibration
 from logfather.ui import theme
 from logfather.data.target_buffer_loader import PickTarget
+
+
+def _white_media_icon(kind: str, size: int = 28) -> QIcon:
+    """Play/pause glyphs drawn in the theme's light ink: the QStyle
+    standard media icons render dark and vanish on the dark buttons
+    (Chris, 2026-09-05)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    s = float(size)
+    if kind == "play":
+        painter.drawPolygon(
+            QPolygonF(
+                [
+                    QPointF(s * 0.30, s * 0.18),
+                    QPointF(s * 0.30, s * 0.82),
+                    QPointF(s * 0.82, s * 0.50),
+                ]
+            )
+        )
+    else:
+        bar_w = s * 0.18
+        painter.drawRect(QRectF(s * 0.26, s * 0.18, bar_w, s * 0.64))
+        painter.drawRect(QRectF(s * 0.56, s * 0.18, bar_w, s * 0.64))
+    painter.end()
+    return QIcon(pm)
 
 
 def resolve_tracking_line(
@@ -355,26 +394,33 @@ class ConveyorCalibrationDialog(QDialog):
 
         transport_row = QHBoxLayout()
         transport_row.setSpacing(4)
+        # Transport sizes: 50% up from the previous 44/36-wide row
+        # (Chris, 2026-09-05).
+        step_size = QSize(66, 44)
+        media_size = QSize(54, 44)
+        icon_size = QSize(28, 28)
         for label, delta, tip in (
             ("−10", -10, "Step the viewer back 10 frames"),
             ("−1", -1, "Step the viewer back 1 frame"),
         ):
             btn = QPushButton(label)
-            btn.setFixedWidth(44)
+            btn.setFixedSize(step_size)
             btn.setToolTip(tip)
             btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
             transport_row.addWidget(btn)
-        # Standard media icons rather than words; -10, -1, play, pause,
-        # +1, +10 order (Chris, 2026-09-04).
+        # Media icons drawn in light ink; -10, -1, play, pause, +1, +10
+        # order (Chris, 2026-09-04; white + bigger 2026-09-05).
         self._btn_play = QPushButton()
-        self._btn_play.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
-        self._btn_play.setFixedWidth(36)
+        self._btn_play.setIcon(_white_media_icon("play"))
+        self._btn_play.setIconSize(icon_size)
+        self._btn_play.setFixedSize(media_size)
         self._btn_play.setToolTip("Play the main viewer")
         self._btn_play.clicked.connect(lambda _checked=False: self.transport_play.emit())
         transport_row.addWidget(self._btn_play)
         btn_pause = QPushButton()
-        btn_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
-        btn_pause.setFixedWidth(36)
+        btn_pause.setIcon(_white_media_icon("pause"))
+        btn_pause.setIconSize(icon_size)
+        btn_pause.setFixedSize(media_size)
         btn_pause.setToolTip("Pause the main viewer")
         btn_pause.clicked.connect(lambda _checked=False: self.transport_pause.emit())
         transport_row.addWidget(btn_pause)
@@ -383,7 +429,7 @@ class ConveyorCalibrationDialog(QDialog):
             ("+10", 10, "Step the viewer forward 10 frames"),
         ):
             btn = QPushButton(label)
-            btn.setFixedWidth(44)
+            btn.setFixedSize(step_size)
             btn.setToolTip(tip)
             btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
             transport_row.addWidget(btn)
@@ -649,14 +695,13 @@ class ConveyorCalibrationDialog(QDialog):
         if self._position_info is not None:
             try:
                 _first, start_dt = self._position_info(0.0)
-                last_frame, end_dt = self._position_info(1.0)
+                _last_frame, end_dt = self._position_info(1.0)
                 if start_dt is not None:
                     start_text = start_dt.astimezone().strftime("%H:%M:%S")
-                total = f"{int(last_frame) + 1} frames"
+                # No frame-count summary here (Chris, 2026-09-05); the
+                # transport row's frame readout already carries the total.
                 if end_dt is not None:
-                    end_text = f"{end_dt.astimezone().strftime('%H:%M:%S')} ({total})"
-                else:
-                    end_text = f"({total})"
+                    end_text = end_dt.astimezone().strftime("%H:%M:%S")
             except Exception:
                 pass
         self._clip_start_lbl.setText(start_text)
