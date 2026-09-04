@@ -603,12 +603,17 @@ class VideoLogViewer(QWidget):
         cache_controls_layout.addWidget(self.clear_elastic_cache_btn)
         cache_controls_layout.addWidget(self.clear_cache_btn)
 
+        # The playback bar keeps only always-useful transport controls;
+        # sync and overlay tools live in strips these toggles reveal
+        # (Chris, 2026-09-04: only the essential buttons on screen).
+        self.sync_tools_btn = QPushButton("Sync")
+        self.sync_tools_btn.setCheckable(True)
+        self.overlay_tools_btn = QPushButton("Overlays")
+        self.overlay_tools_btn.setCheckable(True)
         self.playback_layout = QHBoxLayout()
         self.playback_layout.addWidget(self.play_pause_btn)
-        self.playback_layout.addWidget(self.annotate_btn)
-        self.playback_layout.addWidget(self.tray_view_btn)
-        self.playback_layout.addWidget(self.analysis_main_alpha_label)
-        self.playback_layout.addWidget(self.analysis_main_alpha_slider)
+        self.playback_layout.addWidget(self.sync_tools_btn)
+        self.playback_layout.addWidget(self.overlay_tools_btn)
         # Additional CCTV loads via timeline selection.
         self.playback_layout.addStretch(1)
 
@@ -789,18 +794,14 @@ class VideoLogViewer(QWidget):
         self.event_marker_bar = EventMarkerBar()
         self.timeline_marker_bar = EventMarkerBar()
         self.timeline_marker_bar.set_triangle_red_markers(True)
+        # LCD readouts only; the sync buttons moved into the sync strip.
         lock_row = QHBoxLayout()
-        lock_row.addWidget(self.video_sync_btn)
-        lock_row.addSpacing(8)
         lock_row.addWidget(self.info_label)
         lock_row.addSpacing(8)
         lock_row.addWidget(self.frame_label)
         lock_row.addSpacing(8)
         lock_row.addWidget(self.calc_label)
         lock_row.addStretch(1)
-        lock_row.addWidget(self.secondary_lock_toggle)
-        lock_row.addSpacing(8)
-        lock_row.addWidget(self.secondary_sync_btn)
         middle_layout.addLayout(lock_row)
         video_row = QHBoxLayout()
         video_row.addWidget(self.video_label, 1)
@@ -827,10 +828,6 @@ class VideoLogViewer(QWidget):
         self.offset_display.setMinimumWidth(48)
         self.offset_display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.offset_display.setStyleSheet(theme.SLIDER_VALUE)
-        self.playback_layout.addSpacing(8)
-        self.playback_layout.addWidget(self.offset_caption)
-        self.playback_layout.addWidget(self.offset_slider)
-        self.playback_layout.addWidget(self.offset_display)
         self.close_gap_caption = QLabel("Gap")
         self.close_gap_caption.setStyleSheet(theme.SLIDER_CAPTION)
         self.close_gap_slider = DriftSlider(Qt.Horizontal)
@@ -845,11 +842,45 @@ class VideoLogViewer(QWidget):
         self.close_gap_display.setMinimumWidth(40)
         self.close_gap_display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.close_gap_display.setStyleSheet(theme.SLIDER_VALUE)
-        self.playback_layout.addSpacing(6)
-        self.playback_layout.addWidget(self.close_gap_caption)
-        self.playback_layout.addWidget(self.close_gap_slider)
-        self.playback_layout.addWidget(self.close_gap_display)
         self._update_close_gap_threshold_display()
+
+        # Sync strip: everything for aligning video and log time, revealed
+        # by the playback bar's Sync toggle.
+        self._sync_strip = QWidget()
+        sync_strip_layout = QHBoxLayout(self._sync_strip)
+        sync_strip_layout.setContentsMargins(0, 0, 0, 0)
+        sync_strip_layout.addWidget(self.video_sync_btn)
+        sync_strip_layout.addSpacing(8)
+        sync_strip_layout.addWidget(self.offset_caption)
+        sync_strip_layout.addWidget(self.offset_slider)
+        sync_strip_layout.addWidget(self.offset_display)
+        sync_strip_layout.addSpacing(6)
+        sync_strip_layout.addWidget(self.close_gap_caption)
+        sync_strip_layout.addWidget(self.close_gap_slider)
+        sync_strip_layout.addWidget(self.close_gap_display)
+        sync_strip_layout.addStretch(1)
+        sync_strip_layout.addWidget(self.secondary_lock_toggle)
+        sync_strip_layout.addSpacing(8)
+        sync_strip_layout.addWidget(self.secondary_sync_btn)
+        self._sync_strip.setVisible(False)
+        middle_layout.addWidget(self._sync_strip)
+
+        # Overlay strip: annotation and tray-view tools, revealed by the
+        # Overlays toggle.
+        self._overlay_strip = QWidget()
+        overlay_strip_layout = QHBoxLayout(self._overlay_strip)
+        overlay_strip_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_strip_layout.addWidget(self.annotate_btn)
+        overlay_strip_layout.addWidget(self.tray_view_btn)
+        overlay_strip_layout.addSpacing(8)
+        overlay_strip_layout.addWidget(self.analysis_main_alpha_label)
+        overlay_strip_layout.addWidget(self.analysis_main_alpha_slider)
+        overlay_strip_layout.addStretch(1)
+        self._overlay_strip.setVisible(False)
+        middle_layout.addWidget(self._overlay_strip)
+
+        self.sync_tools_btn.toggled.connect(self._sync_strip.setVisible)
+        self.overlay_tools_btn.toggled.connect(self._overlay_strip.setVisible)
 
     def _build_right_tabs(self):
         """The collapsible right panel: Logs / Filters / Custom / Settings /
