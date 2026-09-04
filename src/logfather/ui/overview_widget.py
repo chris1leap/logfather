@@ -1123,6 +1123,26 @@ class OverviewWidget(QWidget):
     def _stop_load_thread(self):
         self._overview_slot.retire()
 
+    def _earliest_data_utc(self) -> datetime | None:
+        """Earliest event or video-clip start across all systems (UTC).
+        Both per-state lists are kept sorted, so only the heads matter."""
+        earliest: datetime | None = None
+        for state in self._states.values():
+            candidates = []
+            if state.events:
+                ts = state.events[0].get("ts")
+                if isinstance(ts, datetime):
+                    candidates.append(ensure_utc(ts))
+            for item in state.video_items:
+                start = getattr(item, "start", None)
+                if isinstance(start, datetime):
+                    candidates.append(ensure_utc(start))
+                break
+            for ts in candidates:
+                if earliest is None or ts < earliest:
+                    earliest = ts
+        return earliest
+
     def _visible_window(self) -> tuple[datetime, datetime] | None:
         now_local = self._range_anim_now_local or _local_now()
         day_start_local = _start_of_day_local(now_local)
@@ -1132,7 +1152,17 @@ class OverviewWidget(QWidget):
         elif self._display_mode == "1h":
             start_local = max(day_start_local, now_local - timedelta(hours=1))
         elif self._display_mode == "all":
+            # All Day zooms to the day's actual data, not to midnight:
+            # first event/clip minus 30 min of lead-in, clamped to the
+            # day (Chris, 2026-09-05). No data yet -> whole day.
             start_local = day_start_local
+            earliest = self._earliest_data_utc()
+            if earliest is not None:
+                padded = earliest.astimezone() - timedelta(minutes=30)
+                start_local = max(
+                    day_start_local,
+                    min(padded, now_local - timedelta(minutes=1)),
+                )
         else:
             start_local = max(day_start_local, now_local - timedelta(hours=5))
         return start_local.astimezone(timezone.utc), now_local.astimezone(timezone.utc)
