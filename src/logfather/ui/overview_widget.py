@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -39,6 +41,10 @@ from logfather.data.elastic_loader import fetch_overview_event_chunks
 from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
 from logfather.data.day_listing_cache import load_day_files_cached
+from logfather.data.overview_event_cache import (
+    load_overview_events,
+    save_overview_events,
+)
 from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
@@ -54,6 +60,9 @@ OVERVIEW_REFRESH_MS = 60_000
 OVERVIEW_REDRAW_MS = 1_000
 OVERVIEW_FULL_RESYNC_MINUTES = 30
 OVERVIEW_INCREMENTAL_OVERLAP = timedelta(minutes=2)
+# Disk saves of the merged events are throttled to this interval; at most
+# this much tail is refetched after an app restart.
+OVERVIEW_CACHE_SAVE_MIN_SECONDS = 60.0
 OVERVIEW_RANGE_ANIM_MS = 220
 OVERVIEW_LOADING_VIDEO = "Logfather animated splash screen Argus II.mp4"
 
@@ -352,7 +361,7 @@ def _latest_video_thumbnail(
     return image
 
 
-def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None):
+def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False):
     now_local = _local_now()
     day_value = _timeline_day_date(now_local)
     day_start_local = _start_of_day_local(now_local)
@@ -380,7 +389,6 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
             }
         )
         job.emit_progress(f"Scanning systems... {idx}/{total_systems}")
-    fetch_start = day_start_local if full_refresh or since_dt is None else max(day_start_local, since_dt)
     final_systems = []
     for row in systems:
         if job.interrupted():
@@ -393,6 +401,23 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         robot_id = row.get("robot_id")
         if isinstance(robot_id, str) and robot_id:
             row_by_robot[robot_id] = row
+
+    # Fresh session: seed from the on-disk cache of today's events and
+    # only fetch the tail since the newest cached event (Chris,
+    # 2026-09-04). No cache -> the fetch below covers the whole day and
+    # the payload is flagged full_refresh so the resync clock is stamped.
+    if use_disk_cache and not full_refresh and since_dt is None:
+        cached = load_overview_events(day_value)
+        if cached is not None:
+            cached_events, cache_latest_ts = cached
+            for robot_id, events in cached_events.items():
+                row = row_by_robot.get(robot_id)
+                if row is not None:
+                    row["events"] = list(events)
+            if cache_latest_ts is not None:
+                since_dt = cache_latest_ts - OVERVIEW_INCREMENTAL_OVERLAP
+    covers_full_day = full_refresh or since_dt is None
+    fetch_start = day_start_local if covers_full_day else max(day_start_local, since_dt)
     chunk_minutes = 10
     total_chunks = max(1, int(((now_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
     job.emit_progress(f"Loading Elastic data... 0/{total_chunks} chunks")
@@ -416,7 +441,9 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         "systems": final_systems,
         "now_local": now_local,
         "day_value": day_value,
-        "full_refresh": full_refresh,
+        # A full-day fetch counts as a full refresh even when it started
+        # as a cache-seeded load that found no cache file.
+        "full_refresh": covers_full_day,
         "replace": False,
         "final": True,
     }
@@ -555,6 +582,7 @@ class OverviewWidget(QWidget):
         self._redraw_soon.setInterval(0)
         self._redraw_soon.timeout.connect(self._redraw)
         self._summary_cache: dict[str, tuple[int, datetime, dict]] = {}
+        self._last_cache_save_mono = 0.0
         self._now_label_item = None
         self._last_drawn_window: tuple[datetime, datetime] | None = None
         self._range_anim = QVariantAnimation(self)
@@ -598,11 +626,16 @@ class OverviewWidget(QWidget):
         if active:
             self._refresh_timer.start()
             self._redraw_timer.start()
-            self.refresh(force_full=True)
+            # Plain refresh: the first of a session seeds from the disk
+            # cache, later activations fetch incrementally from memory.
+            # force_full here made every mode switch refetch the whole
+            # day for the fleet; the periodic resync covers drift.
+            self.refresh()
         else:
             self._redraw_timer.stop()
             self.hide_thumbnail_preview()
             self._stop_loading_video()
+            self._maybe_persist_events_cache(_local_now(), force=True)
 
     def refresh(self, force_full: bool = False):
         if self.parent_dir is None:
@@ -617,8 +650,13 @@ class OverviewWidget(QWidget):
             self._states.clear()
             self._summary_cache.clear()
             self._latest_event_ts = None
-        full_refresh = force_full or self._last_refreshed_local is None
-        if not full_refresh and self._last_full_refresh_local is not None:
+        # First load of a session seeds from the on-disk event cache
+        # instead of forcing a full-day fetch; the worker falls back to
+        # the full day when no cache file exists.
+        first_load = self._last_refreshed_local is None
+        use_disk_cache = first_load and not force_full
+        full_refresh = force_full
+        if not full_refresh and not first_load and self._last_full_refresh_local is not None:
             full_refresh = (now_local - self._last_full_refresh_local) >= timedelta(minutes=OVERVIEW_FULL_RESYNC_MINUTES)
         since_dt = None
         if not full_refresh and self._latest_event_ts is not None:
@@ -634,7 +672,7 @@ class OverviewWidget(QWidget):
         parent_dir = self.parent_dir
         cache_root = self.cache_root
         self._overview_slot.start(
-            lambda job: _run_overview_load(job, settings, parent_dir, cache_root, full_refresh, since_dt),
+            lambda job: _run_overview_load(job, settings, parent_dir, cache_root, full_refresh, since_dt, use_disk_cache),
             on_result=self._on_loaded,
             on_error=self._on_failed,
             on_progress=self._on_load_progress,
@@ -935,7 +973,35 @@ class OverviewWidget(QWidget):
         if is_final:
             self._latest_event_ts = latest_ts
             self._set_loading_visible(False)
+            # Cache-seeded sessions never stamp a full refresh; anchor the
+            # periodic resync clock at first final merge so it still fires.
+            if self._last_full_refresh_local is None:
+                self._last_full_refresh_local = now_local
+            self._maybe_persist_events_cache(now_local)
         self._schedule_redraw()
+
+    def _maybe_persist_events_cache(self, now_local: datetime, force: bool = False):
+        """Write today's merged events to disk, throttled; the JSON dump
+        and file write run on a daemon thread off the UI."""
+        if self._last_day != now_local.date():
+            return
+        now_mono = time.monotonic()
+        if not force and (now_mono - self._last_cache_save_mono) < OVERVIEW_CACHE_SAVE_MIN_SECONDS:
+            return
+        events_by_robot: dict[str, list[dict]] = {}
+        for state in self._states.values():
+            if state.robot_id and state.events:
+                # Shallow snapshot: event dicts are never mutated after the
+                # merge, only the per-state list is.
+                events_by_robot[state.robot_id] = [dict(evt) for evt in state.events]
+        if not events_by_robot:
+            return
+        self._last_cache_save_mono = now_mono
+        threading.Thread(
+            target=save_overview_events,
+            args=(self._last_day, events_by_robot),
+            daemon=True,
+        ).start()
 
     def _on_loaded(self, payload: dict):
         if payload is None:
