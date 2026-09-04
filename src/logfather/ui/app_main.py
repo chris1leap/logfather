@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
 from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
 from logfather.ui import theme
-from logfather.core.app_version import format_version_label
+from logfather.core.app_version import format_version_label, load_version_info
 
 SPLASH_IMAGE_FILENAME = "Logfather Argus II.jpg"
 
@@ -134,6 +134,54 @@ def clamp_rect_to_screen(rect, avail):
     return QRect(x, y, w, h)
 
 
+def _desktop_dir():
+    """The user's Desktop, honouring OneDrive folder redirection."""
+    import os
+    import winreg
+    from pathlib import Path
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+        ) as key:
+            raw, _kind = winreg.QueryValueEx(key, "Desktop")
+        return Path(os.path.expandvars(str(raw)))
+    except Exception:
+        return Path.home() / "Desktop"
+
+
+def _refresh_desktop_shortcut_name() -> None:
+    """Rename the desktop shortcut to carry the running version, e.g.
+    "Logfather (v0.133)" (Chris, 2026-09-04). The dev shortcut always
+    launches the current checkout and the version bumps per commit, so
+    the name is refreshed on every startup rather than stamped once.
+    Matches the original "The Logfather" name and any previously
+    version-stamped name; never overwrites an existing file."""
+    try:
+        version = str(load_version_info().get("version") or "")
+        if not version or version == "dev":
+            return
+        desktop = _desktop_dir()
+        if not desktop.is_dir():
+            return
+        target = desktop / f"Logfather (v{version}).lnk"
+        for link in desktop.glob("*.lnk"):
+            stem = link.stem
+            if stem != "The Logfather" and not (
+                stem.startswith("Logfather (v") and stem.endswith(")")
+            ):
+                continue
+            if link == target:
+                return
+            if not target.exists():
+                link.rename(target)
+                print(f"[main] desktop shortcut renamed to {target.name}", flush=True)
+            return
+    except Exception:
+        pass
+
+
 # Single-instance guard: two instances autosave the same settings file and
 # clobber each other, so a second launch just fronts the running one
 # (Chris, 2026-09-03). The name is shared by dev runs and installed builds
@@ -195,6 +243,7 @@ def main():
 
     win = MainWindow()
     _instance_server = _start_instance_server(win)  # noqa: F841 (kept alive)
+    _refresh_desktop_shortcut_name()
     _apply_startup_geometry(win, win.settings)
     if splash is not None:
         win.show()
