@@ -11,6 +11,10 @@ from PySide6.QtWidgets import (
     QSizePolicy
 )
 from logfather.ui import theme
+from logfather.data.ui_state_store import (
+    customer_collapsed_map,
+    set_customer_collapsed,
+)
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
     Settings,
@@ -130,11 +134,15 @@ class DatePicker(QWidget):
                     known_customers = set()
         else:
             known_customers = {str(name or "").strip() for name in customers if str(name or "").strip()}
-        defaults = {name for name in known_customers if customer_starts_collapsed(self.settings, name)}
-        if reset:
-            self._collapsed_customers = defaults
-        else:
-            self._collapsed_customers |= defaults
+        # The user's own collapse choices (persisted per Windows user in
+        # ui_state_store) win over the configured start-collapsed default;
+        # toggles write through, so recomputing the whole set is safe.
+        stored = customer_collapsed_map()
+        self._collapsed_customers = {
+            name
+            for name in known_customers
+            if stored.get(name, customer_starts_collapsed(self.settings, name))
+        }
 
     def populate_pikpak_buttons(self):
         while self.pikpak_layout.count():
@@ -284,6 +292,7 @@ class DatePicker(QWidget):
             self._collapsed_customers.discard(key)
         else:
             self._collapsed_customers.add(key)
+        set_customer_collapsed(key, key in self._collapsed_customers)
         self.populate_pikpak_buttons()
 
     def use_sim_mode(self):

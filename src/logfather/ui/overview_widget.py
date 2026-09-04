@@ -45,6 +45,10 @@ from logfather.data.overview_event_cache import (
     load_overview_events,
     save_overview_events,
 )
+from logfather.data.ui_state_store import (
+    customer_collapsed_map,
+    set_customer_collapsed,
+)
 from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
@@ -633,11 +637,14 @@ class OverviewWidget(QWidget):
             known_customers = {display_customer_name(self.settings, state.name) for state in self._states.values()}
         else:
             known_customers = {str(name or "").strip() for name in customers if str(name or "").strip()}
-        defaults = {name for name in known_customers if customer_starts_collapsed(self.settings, name)}
-        if reset:
-            self._collapsed_customers = defaults
-        else:
-            self._collapsed_customers |= defaults
+        # Same rule as the date picker: the user's persisted collapse
+        # choices win over the configured start-collapsed default.
+        stored = customer_collapsed_map()
+        self._collapsed_customers = {
+            name
+            for name in known_customers
+            if stored.get(name, customer_starts_collapsed(self.settings, name))
+        }
 
     def activate(self, active: bool):
         active = bool(active)
@@ -1400,6 +1407,7 @@ class OverviewWidget(QWidget):
             self._collapsed_customers.discard(key)
         else:
             self._collapsed_customers.add(key)
+        set_customer_collapsed(key, key in self._collapsed_customers)
         self._schedule_redraw()
 
     def _redraw(self):
