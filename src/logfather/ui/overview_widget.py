@@ -533,6 +533,10 @@ class OverviewWidget(QWidget):
         # on every scroll so the column titles and time labels stay
         # visible while the system list scrolls (Chris, 2026-09-04).
         self._sticky_header_items: list = []
+        # Blue last-update marker: full-height line + sticky time label
+        # (Chris, 2026-09-04). Persistent like the now-label.
+        self._last_update_line_item = None
+        self._last_update_label_item = None
         self.view.verticalScrollBar().valueChanged.connect(self._reposition_sticky_header)
         self._content_stack = QStackedWidget(self)
         self._loading_page = QWidget(self)
@@ -828,6 +832,59 @@ class OverviewWidget(QWidget):
         for item, base_y in self._sticky_header_items:
             item.setY(base_y + offset)
         self._update_now_label()
+        self._update_last_update_marker()
+
+    def _live_scene_item(self, item):
+        """The item if it still belongs to a scene, else None (the scene
+        rebuild clears everything; Qt frees cleared items)."""
+        if item is None:
+            return None
+        try:
+            return item if item.scene() is not None else None
+        except RuntimeError:
+            return None
+
+    def _update_last_update_marker(self):
+        """Blue full-height line at the time the data was last refreshed,
+        with an 'updated HH:MM:SS' label on the sticky header's second
+        row (Chris, 2026-09-04). Persistent items, updated in place."""
+        line = self._live_scene_item(self._last_update_line_item)
+        label = self._live_scene_item(self._last_update_label_item)
+        if (
+            self._hover_timeline_width <= 0
+            or self._hover_window_start is None
+            or self._hover_window_end is None
+            or self._last_refreshed_local is None
+        ):
+            for item in (line, label):
+                if item is not None:
+                    item.setVisible(False)
+            return
+        updated_utc = ensure_utc(self._last_refreshed_local)
+        total_seconds = max(1.0, (self._hover_window_end - self._hover_window_start).total_seconds())
+        ratio = (updated_utc - self._hover_window_start).total_seconds() / total_seconds
+        timeline_x = self._hover_timeline_x
+        timeline_width = self._hover_timeline_width
+        x = timeline_x + max(0.0, min(1.0, ratio)) * timeline_width
+        if line is None:
+            pen = QPen(QColor(theme.ACCENT))
+            pen.setWidth(1)
+            line = self.scene.addLine(0, 0, 0, 0, pen)
+            line.setZValue(2.6)
+        self._last_update_line_item = line
+        line.setLine(x, self._hover_grid_top, x, self._hover_grid_bottom)
+        line.setVisible(True)
+        if label is None:
+            label = self.scene.addText("")
+            label.setDefaultTextColor(QColor(theme.ACCENT))
+            label.setZValue(10)
+        self._last_update_label_item = label
+        label.setPlainText(f"updated {self._last_refreshed_local:%H:%M:%S}")
+        label.setPos(
+            min(max(timeline_x, x - 40), timeline_x + timeline_width - 110),
+            20 + self._sticky_offset(),
+        )
+        label.setVisible(True)
 
     def _update_now_label(self):
         """Update the persistent HH:MM:SS marker in place between rebuilds."""
@@ -1366,7 +1423,9 @@ class OverviewWidget(QWidget):
         viewport_height = max(320, self.view.viewport().height() or 500)
         left_pad = 128
         right_pad = 190
-        top_pad = 30
+        # Two sticky header rows: column titles / time ticks / now-clock
+        # on the first, the blue last-update label on the second.
+        top_pad = 46
         bottom_pad = 18
         row_height = OVERVIEW_ROW_HEIGHT
         header_height = 36
@@ -1397,7 +1456,7 @@ class OverviewWidget(QWidget):
         # Sticky header band: opaque, above rows/grid, below its labels.
         self._sticky_header_items = []
         band = self.scene.addRect(
-            QRectF(0, 0, scene_width, 26), QPen(Qt.NoPen), QBrush(QColor(theme.BG))
+            QRectF(0, 0, scene_width, top_pad - 6), QPen(Qt.NoPen), QBrush(QColor(theme.BG))
         )
         band.setZValue(8)
         self._sticky_header_items.append((band, 0.0))
