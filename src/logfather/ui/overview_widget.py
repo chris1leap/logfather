@@ -502,6 +502,11 @@ class OverviewWidget(QWidget):
         # rebuilds so mouse-moves never trigger a full redraw.
         self._hover_line_item = None
         self._hover_label_item = None
+        # Sticky header: (item, base_y) pairs shifted to the viewport top
+        # on every scroll so the column titles and time labels stay
+        # visible while the system list scrolls (Chris, 2026-09-04).
+        self._sticky_header_items: list = []
+        self.view.verticalScrollBar().valueChanged.connect(self._reposition_sticky_header)
         self._content_stack = QStackedWidget(self)
         self._loading_page = QWidget(self)
         self._loading_page.setStyleSheet(theme.PANEL_SURFACE)
@@ -776,6 +781,16 @@ class OverviewWidget(QWidget):
         shift_px = max(shift_px, abs((new_start - old_start).total_seconds()) * px_per_second)
         return shift_px >= 0.5
 
+    def _sticky_offset(self) -> float:
+        """Scene-y of the viewport top; 0 until the view scrolls."""
+        return max(0.0, self.view.mapToScene(0, 0).y())
+
+    def _reposition_sticky_header(self, _value=None):
+        offset = self._sticky_offset()
+        for item, base_y in self._sticky_header_items:
+            item.setY(base_y + offset)
+        self._update_now_label()
+
     def _update_now_label(self):
         """Update the persistent HH:MM:SS marker in place between rebuilds."""
         if (
@@ -800,10 +815,13 @@ class OverviewWidget(QWidget):
         if item is None:
             item = self.scene.addText("")
             item.setDefaultTextColor(QColor("#ffe08a"))
-            item.setZValue(3)
+            item.setZValue(10)
         self._now_label_item = item
         item.setPlainText(now_local.strftime("%H:%M:%S"))
-        item.setPos(min(max(timeline_x, x - 20), timeline_x + timeline_width - 64), 4)
+        item.setPos(
+            min(max(timeline_x, x - 20), timeline_x + timeline_width - 64),
+            4 + self._sticky_offset(),
+        )
 
     def _on_range_anim_value_changed(self, value):
         try:
@@ -1310,14 +1328,25 @@ class OverviewWidget(QWidget):
 
         title_font = QFont()
         title_font.setBold(True)
+        # Sticky header band: opaque, above rows/grid, below its labels.
+        self._sticky_header_items = []
+        band = self.scene.addRect(
+            QRectF(0, 0, scene_width, 26), QPen(Qt.NoPen), QBrush(QColor(theme.BG))
+        )
+        band.setZValue(8)
+        self._sticky_header_items.append((band, 0.0))
         header = self.scene.addText("System")
         header.setFont(title_font)
         header.setDefaultTextColor(QColor("#d7dde2"))
         header.setPos(8, 4)
+        header.setZValue(10)
+        self._sticky_header_items.append((header, 4.0))
         status_header = self.scene.addText("State / SKU")
         status_header.setFont(title_font)
         status_header.setDefaultTextColor(QColor("#d7dde2"))
         status_header.setPos(scene_width - right_pad + 8, 4)
+        status_header.setZValue(10)
+        self._sticky_header_items.append((status_header, 4.0))
 
         total_seconds = max(60.0, (window_end - window_start).total_seconds())
         total_minutes = max(1, int(total_seconds // 60))
@@ -1352,10 +1381,13 @@ class OverviewWidget(QWidget):
                 label = self.scene.addText(tick.astimezone().strftime("%H:%M"))
                 label.setDefaultTextColor(QColor("#8ea2b2"))
                 label.setPos(x + 2, 4)
-                label.setZValue(2)
+                label.setZValue(10)
+                self._sticky_header_items.append((label, 4.0))
             tick += timedelta(minutes=minor_step_min)
 
-        self._update_now_label()
+        # Applies the current scroll offset to the fresh sticky items and
+        # refreshes the now-label in one go.
+        self._reposition_sticky_header()
         # The scene was cleared above; hover items are lazily recreated.
         self._update_hover_indicator()
         self._last_drawn_window = (window_start, window_end)
