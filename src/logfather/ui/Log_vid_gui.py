@@ -3065,9 +3065,27 @@ class VideoLogViewer(QWidget):
             # (readout frozen, later back-steps skipping frames). Stay on
             # the last frame that displayed, and stop playback there.
             last_shown = getattr(self, "_last_frame_index", None)
+            self.pause()
             if last_shown is not None:
                 self.current_frame = int(last_shown)
-            self.pause()
+                # A failure near the advertised end is the file's real last
+                # frame (clips are cut mid-GOP and the container rounds the
+                # duration up). Adopt the discovered end so the frame
+                # readouts and seek maths agree with reality.
+                if 0 < self.frame_count and frame_index >= self.frame_count - 60:
+                    real_count = int(last_shown) + 1
+                    if real_count < self.frame_count:
+                        print(
+                            f"[viewer] end of stream at frame {last_shown}: "
+                            f"frame_count {self.frame_count} -> {real_count}",
+                            flush=True,
+                        )
+                        self.frame_count = real_count
+                        self.seek_slider.blockSignals(True)
+                        self.seek_slider.setRange(0, self.frame_count - 1)
+                        self.seek_slider.blockSignals(False)
+                        # Re-show the real last frame so readouts refresh.
+                        self.show_frame(self.current_frame)
             return
         self._seq_cap = self.cap
         self._seq_next_frame = frame_index + 1
