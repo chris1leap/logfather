@@ -936,7 +936,13 @@ class OverviewWidget(QWidget):
             item.setDefaultTextColor(QColor("#ffe08a"))
             item.setZValue(10)
         self._now_label_item = item
-        item.setPlainText(now_local.strftime("%H:%M:%S"))
+        # Opaque background: the clock slides across the tick labels on
+        # the same header row; without it the two texts merge into a
+        # jumble (Chris, 2026-09-05 screenshot).
+        item.setHtml(
+            f'<span style="background-color:{theme.BG}; color:#ffe08a;">'
+            f"{now_local.strftime('%H:%M:%S')}</span>"
+        )
         item.setPos(
             min(max(timeline_x, x - 20), timeline_x + timeline_width - 64),
             4 + self._sticky_offset(),
