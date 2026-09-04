@@ -8,6 +8,7 @@ Line-based workflow only:
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt, QPointF, Signal
@@ -396,17 +397,21 @@ class ConveyorCalibrationDialog(QDialog):
 
         right.addWidget(vel_box)
 
+        # Results: the derived belt speed / distance numbers and the save
+        # button, separate from the capture workflow (Chris, 2026-09-04).
+        results_box = QGroupBox("Results")
+        results_layout = QVBoxLayout(results_box)
         self._status_lbl = QLabel("")
         self._status_lbl.setWordWrap(True)
         self._status_lbl.setStyleSheet(theme.HINT_LABEL)
-        right.addWidget(self._status_lbl)
-
-        right.addStretch(1)
-
+        results_layout.addWidget(self._status_lbl)
         btn_save = QPushButton("Save calibration")
         btn_save.clicked.connect(self._save)
         btn_save.setStyleSheet(theme.PRIMARY_ACTION_BUTTON)
-        right.addWidget(btn_save)
+        results_layout.addWidget(btn_save)
+        right.addWidget(results_box)
+
+        right.addStretch(1)
 
         root.addLayout(right, 2)
 
@@ -445,14 +450,21 @@ class ConveyorCalibrationDialog(QDialog):
         self.transport_seek_fraction.emit(value / 1000.0)
 
     def _refresh_status(self):
-        parts = [f"Belt: {self._cal.belt_pixels_per_sec:.5f} norm-x/s"]
+        lines = [f"Belt speed: {self._cal.belt_pixels_per_sec:.5f} norm-x/s"]
         if self._cal.has_tracking_line():
+            start = self._cal.tracking_line_start_norm or [0.0, 0.0]
+            end = self._cal.tracking_line_end_norm or [0.0, 0.0]
+            dx = float(end[0]) - float(start[0])
+            dy = float(end[1]) - float(start[1])
             vx, vy = self._cal.tracking_velocity_norm_per_sec() or (0.0, 0.0)
-            parts.append(f"Track line: vx={vx:.5f}, vy={vy:.5f} norm/s")
-            parts.append(f"Duration: {self._cal.tracking_line_duration_sec:.3f}s")
+            lines.append(f"Velocity: vx={vx:.5f}, vy={vy:.5f} norm/s")
+            lines.append(
+                f"Distance: {math.hypot(dx, dy):.5f} norm (dx={dx:+.5f}, dy={dy:+.5f})"
+            )
+            lines.append(f"Duration: {self._cal.tracking_line_duration_sec:.3f}s")
         else:
-            parts.append("No tracking line captured yet.")
-        self._status_lbl.setText("  ".join(parts))
+            lines.append("No tracking line captured yet.")
+        self._status_lbl.setText("\n".join(lines))
 
     def _refresh_overlays(self):
         line = None
