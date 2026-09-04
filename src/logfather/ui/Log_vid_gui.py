@@ -134,6 +134,7 @@ class VideoLogViewer(QWidget):
     # (key, label, done_bytes, total_bytes) — done/total None for busy stages.
     activity_progress = Signal(str, str, object, object)
     activity_cleared = Signal(str)
+    playing_changed = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -2704,12 +2705,14 @@ class VideoLogViewer(QWidget):
             self.play_pause_btn.setText("Pause")
             interval_ms = int(1000 / self.fps) if self.fps > 0 else 40
             self.timer.start(interval_ms)
+            self.playing_changed.emit(True)
 
     def pause(self):
         if self.playing:
             self.playing = False
             self.play_pause_btn.setText("Play")
             self.timer.stop()
+            self.playing_changed.emit(False)
 
     def _handle_scroll_wheel(self, delta_steps: int):
         modifiers = QApplication.keyboardModifiers()
@@ -3056,6 +3059,15 @@ class VideoLogViewer(QWidget):
             print(f"[viewer] frame read took {read_dt:.2f}s", flush=True)
         if not ret or frame is None:
             self._seq_cap = None
+            # The metadata frame_count often exceeds the frames that can
+            # actually be decoded; without this, stepping past the real end
+            # silently drifts current_frame beyond the last shown frame
+            # (readout frozen, later back-steps skipping frames). Stay on
+            # the last frame that displayed, and stop playback there.
+            last_shown = getattr(self, "_last_frame_index", None)
+            if last_shown is not None:
+                self.current_frame = int(last_shown)
+            self.pause()
             return
         self._seq_cap = self.cap
         self._seq_next_frame = frame_index + 1

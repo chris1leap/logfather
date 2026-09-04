@@ -253,6 +253,8 @@ class TargetOverlayController(QObject):
         dialog.transport_pause.connect(self._viewer.pause)
         dialog.transport_jump_fraction.connect(self._on_cal_transport_jump)
         dialog.set_clip_context(self._current_clip_key(), self._cal_position_info)
+        self._viewer.playing_changed.connect(self._feed_cal_dialog_playing)
+        dialog.on_playing_state(bool(self._viewer.playing))
 
         # Live frame updates. Connected unconditionally: previously this only
         # connected when a frame existed at open time, so a dialog opened
@@ -356,9 +358,17 @@ class TargetOverlayController(QObject):
         if self._last_playhead_dt:
             self._push_conveyor_overlays(self._last_playhead_dt)
 
+    def _feed_cal_dialog_playing(self, playing: bool) -> None:
+        if self._cal_dialog is not None:
+            self._cal_dialog.on_playing_state(playing)
+
     def _on_cal_dialog_closed(self) -> None:
         try:
             self._viewer.current_time_changed.disconnect(self._feed_cal_dialog_frame)
+        except Exception:
+            pass
+        try:
+            self._viewer.playing_changed.disconnect(self._feed_cal_dialog_playing)
         except Exception:
             pass
         self._cal_dialog = None

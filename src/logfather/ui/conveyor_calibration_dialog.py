@@ -287,17 +287,6 @@ class ConveyorCalibrationDialog(QDialog):
 
         transport_row = QHBoxLayout()
         transport_row.setSpacing(4)
-        # Standard media icons rather than words (Chris, 2026-09-04).
-        for icon, signal, tip in (
-            (QStyle.SP_MediaPlay, self.transport_play, "Play the main viewer"),
-            (QStyle.SP_MediaPause, self.transport_pause, "Pause the main viewer"),
-        ):
-            btn = QPushButton()
-            btn.setIcon(self.style().standardIcon(icon))
-            btn.setFixedWidth(36)
-            btn.setToolTip(tip)
-            btn.clicked.connect(lambda _checked=False, s=signal: s.emit())
-            transport_row.addWidget(btn)
         for label, delta, tip in (
             ("−10", -10, "Step the viewer back 10 frames"),
             ("−1", -1, "Step the viewer back 1 frame"),
@@ -307,6 +296,20 @@ class ConveyorCalibrationDialog(QDialog):
             btn.setToolTip(tip)
             btn.clicked.connect(lambda _checked=False, d=delta: self.transport_step.emit(d))
             transport_row.addWidget(btn)
+        # Standard media icons rather than words; -10, -1, play, pause,
+        # +1, +10 order (Chris, 2026-09-04).
+        self._btn_play = QPushButton()
+        self._btn_play.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        self._btn_play.setFixedWidth(36)
+        self._btn_play.setToolTip("Play the main viewer")
+        self._btn_play.clicked.connect(lambda _checked=False: self.transport_play.emit())
+        transport_row.addWidget(self._btn_play)
+        btn_pause = QPushButton()
+        btn_pause.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        btn_pause.setFixedWidth(36)
+        btn_pause.setToolTip("Pause the main viewer")
+        btn_pause.clicked.connect(lambda _checked=False: self.transport_pause.emit())
+        transport_row.addWidget(btn_pause)
         for label, delta, tip in (
             ("+1", 1, "Step the viewer forward 1 frame"),
             ("+10", 10, "Step the viewer forward 10 frames"),
@@ -324,7 +327,10 @@ class ConveyorCalibrationDialog(QDialog):
         self._frame_lbl.setStyleSheet(theme.MONO_VALUE_LABEL)
         self._frame_lbl.setToolTip("Current frame / last frame of the loaded clip")
         transport_row.addWidget(self._frame_lbl)
-        transport_row.insertStretch(6, 1)  # centre gap: buttons left, readouts right
+        # Centre the whole transport cluster under the full-width timeline.
+        transport_row.insertStretch(0, 1)
+        transport_row.insertSpacing(7, 16)  # gap between buttons and readouts
+        transport_row.addStretch(1)
         outer.addLayout(transport_row)
 
         hint = QLabel(
@@ -416,11 +422,16 @@ class ConveyorCalibrationDialog(QDialog):
         self._time_lbl.setText(self._current_time.astimezone().strftime("%H:%M:%S.%f")[:-3])
         self._refresh_overlays()
 
+    def on_playing_state(self, playing: bool) -> None:
+        self._btn_play.setStyleSheet(theme.SYNC_DONE_BUTTON if playing else "")
+
     def on_clip_position(self, fraction: float, frame: int | None = None, frame_count: int | None = None) -> None:
         """Reflect the viewer's position on the scrub slider (0.0..1.0)."""
         self._last_position_fraction = max(0.0, min(1.0, float(fraction)))
         if frame is not None and frame_count:
-            self._frame_lbl.setText(f"Current frame: {int(frame)} / {max(0, int(frame_count) - 1)}")
+            # 1-based for display: the first frame is 1, the last is the
+            # total frame count (Chris, 2026-09-04).
+            self._frame_lbl.setText(f"Current frame: {int(frame) + 1} / {int(frame_count)}")
         if self._scrub.isSliderDown():
             return  # the user is dragging; don't fight them
         value = int(round(max(0.0, min(1.0, fraction)) * 1000))
@@ -564,7 +575,7 @@ class ConveyorCalibrationDialog(QDialog):
                     frame, dt = self._position_info(fraction)
                 except Exception:
                     frame = dt = None
-            btn.setText(f"Go to {name} ({frame})" if frame is not None else f"Go to {name}")
+            btn.setText(f"Go to {name} ({frame + 1})" if frame is not None else f"Go to {name}")
             if dt is not None:
                 info_parts.append(
                     f"{name.capitalize()}: {dt.astimezone().strftime('%H:%M:%S.%f')[:-3]}"
