@@ -277,35 +277,66 @@ class _DayRangeDialog(QDialog):
         cal_row.setSpacing(14)
         self._from_cal = QCalendarWidget()
         self._to_cal = QCalendarWidget()
-        for cal, label_text, day_value in (
-            (self._from_cal, "From", initial[0]),
-            (self._to_cal, "To", initial[1]),
+        self._from_value = QLabel("")
+        self._to_value = QLabel("")
+        for cal, value_label, label_text, day_value in (
+            (self._from_cal, self._from_value, "From", initial[0]),
+            (self._to_cal, self._to_value, "To", initial[1]),
         ):
             cal.setGridVisible(True)
+            # Future days are greyed out and unclickable, and the month
+            # navigation cannot pass the current month (maximumDate).
             cal.setMinimumDate(today.addDays(-60))
             cal.setMaximumDate(today)
             cal.setSelectedDate(QDate(day_value.year, day_value.month, day_value.day))
             column = QVBoxLayout()
+            title_row = QHBoxLayout()
             title = QLabel(label_text)
             title.setStyleSheet("font-weight: bold;")
-            column.addWidget(title)
+            value_label.setStyleSheet(f"color: {theme.ACCENT};")
+            title_row.addWidget(title)
+            title_row.addWidget(value_label)
+            title_row.addStretch(1)
+            column.addLayout(title_row)
             column.addWidget(cal)
             cal_row.addLayout(column)
         # A From after the current To drags To along with it.
         self._from_cal.clicked.connect(self._on_from_picked)
         self._from_cal.selectionChanged.connect(self._on_from_changed)
+        self._to_cal.selectionChanged.connect(self._refresh_labels)
         layout.addLayout(cal_row)
+        bottom_row = QHBoxLayout()
+        self._total_label = QLabel("")
+        self._total_label.setStyleSheet("font-weight: bold;")
+        bottom_row.addWidget(self._total_label)
+        bottom_row.addStretch(1)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        bottom_row.addWidget(buttons)
+        layout.addLayout(bottom_row)
+        self._refresh_labels()
 
     def _on_from_picked(self, qdate: QDate):
         if self._to_cal.selectedDate() < qdate:
             self._to_cal.setSelectedDate(qdate)
+        self._refresh_labels()
 
     def _on_from_changed(self):
         self._on_from_picked(self._from_cal.selectedDate())
+
+    def _refresh_labels(self):
+        self._from_value.setText(
+            self._from_cal.selectedDate().toPython().strftime("%d/%m/%Y")
+        )
+        self._to_value.setText(
+            self._to_cal.selectedDate().toPython().strftime("%d/%m/%Y")
+        )
+        d1, d2 = self.selected_range()
+        total = (d2 - d1).days + 1
+        self._total_label.setText(
+            f"Total: {total} day" + ("s" if total != 1 else "")
+        )
 
     def selected_range(self) -> tuple[date, date]:
         d1 = self._from_cal.selectedDate().toPython()
