@@ -100,16 +100,67 @@ class _MarkerSlider(QSlider):
 
 class _FrameCanvas(QLabel):
     clicked_norm = Signal(float, float)
+    # ("start" | "end", nx, ny) — emitted continuously while a marker is
+    # dragged, final position included.
+    marker_dragged = Signal(str, float, float)
+
+    _DRAG_HIT_RADIUS_PX = 12
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(320, 240)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setAlignment(Qt.AlignCenter)
+        self.setMouseTracking(True)  # hover cursor over draggable markers
         self._qimage: QImage | None = None
         self._pending_dot: tuple[float, float] | None = None
         self._motion_line: tuple[tuple[float, float], tuple[float, float]] | None = None
         self._motion_marker: tuple[float, float] | None = None
+        # Markers the dialog currently allows dragging (viewer parked on
+        # that marker's frame): name -> normalized position for hit tests.
+        self._draggable: dict[str, tuple[float, float]] = {}
+        self._drag_name: str | None = None
+
+    def set_draggable_markers(self, markers: dict[str, tuple[float, float]]) -> None:
+        self._draggable = dict(markers or {})
+
+    def _marker_at(self, px: float, py: float) -> str | None:
+        x, y, dw, dh = self._image_rect()
+        if dw <= 0 or dh <= 0:
+            return None
+        for name, (nx, ny) in self._draggable.items():
+            mx, my = x + nx * dw, y + ny * dh
+            if (px - mx) ** 2 + (py - my) ** 2 <= self._DRAG_HIT_RADIUS_PX ** 2:
+                return name
+        return None
+
+    def _norm_at(self, px: float, py: float, clamp: bool = False) -> tuple[float, float] | None:
+        x, y, dw, dh = self._image_rect()
+        if dw <= 0 or dh <= 0:
+            return None
+        nx = (px - x) / dw
+        ny = (py - y) / dh
+        if clamp:
+            return max(0.0, min(1.0, nx)), max(0.0, min(1.0, ny))
+        if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
+            return nx, ny
+        return None
+
+    def mouseMoveEvent(self, event):
+        px, py = event.position().x(), event.position().y()
+        if self._drag_name is not None:
+            norm = self._norm_at(px, py, clamp=True)
+            if norm is not None:
+                self.marker_dragged.emit(self._drag_name, norm[0], norm[1])
+            return
+        self.setCursor(
+            Qt.OpenHandCursor if self._marker_at(px, py) else Qt.ArrowCursor
+        )
+
+    def mouseReleaseEvent(self, event):
+        if self._drag_name is not None:
+            self._drag_name = None
+            self.setCursor(Qt.ArrowCursor)
 
     def set_frame(self, img: QImage | None) -> None:
         self._qimage = img
@@ -210,15 +261,16 @@ class _FrameCanvas(QLabel):
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton or self._qimage is None:
             return
-        x, y, dw, dh = self._image_rect()
-        if dw <= 0 or dh <= 0:
-            return
         px = event.position().x()
         py = event.position().y()
-        nx = (px - x) / dw
-        ny = (py - y) / dh
-        if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
-            self.clicked_norm.emit(nx, ny)
+        name = self._marker_at(px, py)
+        if name is not None:
+            self._drag_name = name
+            self.setCursor(Qt.ClosedHandCursor)
+            return
+        norm = self._norm_at(px, py)
+        if norm is not None:
+            self.clicked_norm.emit(norm[0], norm[1])
 
 
 class ConveyorCalibrationDialog(QDialog):
@@ -258,6 +310,7 @@ class ConveyorCalibrationDialog(QDialog):
         self._last_position_fraction: float | None = None
         self._start_fraction: float | None = None
         self._end_fraction: float | None = None
+        self._current_frame_index: int | None = None
 
         self._build_ui()
         self._refresh_status()
@@ -277,6 +330,7 @@ class ConveyorCalibrationDialog(QDialog):
         left = QVBoxLayout()
         self._canvas = _FrameCanvas()
         self._canvas.clicked_norm.connect(self._on_canvas_click)
+        self._canvas.marker_dragged.connect(self._on_marker_dragged)
         left.addWidget(self._canvas, 1)
 
         scrub_row = QHBoxLayout()
@@ -441,6 +495,9 @@ class ConveyorCalibrationDialog(QDialog):
     def on_clip_position(self, fraction: float, frame: int | None = None, frame_count: int | None = None) -> None:
         """Reflect the viewer's position on the scrub slider (0.0..1.0)."""
         self._last_position_fraction = max(0.0, min(1.0, float(fraction)))
+        if frame is not None and int(frame) != self._current_frame_index:
+            self._current_frame_index = int(frame)
+            self._update_draggable_markers()
         if frame is not None and frame_count:
             # 1-based for display: the first frame is 1, the last is the
             # total frame count (Chris, 2026-09-04).
@@ -612,6 +669,57 @@ class ConveyorCalibrationDialog(QDialog):
         self._clip_start_lbl.setText(start_text)
         self._clip_end_lbl.setText(end_text)
 
+    def _frame_for_fraction(self, fraction: float | None) -> int | None:
+        if fraction is None or self._position_info is None:
+            return None
+        try:
+            return int(self._position_info(fraction)[0])
+        except Exception:
+            return None
+
+    def _update_draggable_markers(self):
+        """A marker is fine-editable by dragging only while the viewer is
+        parked on the frame it was captured at."""
+        markers: dict[str, tuple[float, float]] = {}
+        cur = self._current_frame_index
+        if cur is not None:
+            if self._line_start_capture is not None:
+                if self._frame_for_fraction(self._line_start_capture[2]) == cur:
+                    markers["start"] = self._line_start_capture[1]
+            elif self._cal.has_tracking_line():
+                if self._frame_for_fraction(self._start_fraction) == cur:
+                    start = self._cal.tracking_line_start_norm or [0.0, 0.0]
+                    markers["start"] = (float(start[0]), float(start[1]))
+                if self._frame_for_fraction(self._end_fraction) == cur:
+                    end = self._cal.tracking_line_end_norm or [0.0, 0.0]
+                    markers["end"] = (float(end[0]), float(end[1]))
+        self._canvas.set_draggable_markers(markers)
+
+    def _on_marker_dragged(self, name: str, nx: float, ny: float):
+        if name == "start" and self._line_start_capture is not None:
+            capture_dt, _pos, capture_fraction = self._line_start_capture
+            self._line_start_capture = (capture_dt, (nx, ny), capture_fraction)
+            self._refresh_overlays()
+            self._update_draggable_markers()
+            return
+        if not self._cal.has_tracking_line():
+            return
+        if name == "start":
+            self._cal.tracking_line_start_norm = [nx, ny]
+        elif name == "end":
+            self._cal.tracking_line_end_norm = [nx, ny]
+        else:
+            return
+        duration = float(self._cal.tracking_line_duration_sec)
+        if duration > 0:
+            start = self._cal.tracking_line_start_norm or [0.0, 0.0]
+            end = self._cal.tracking_line_end_norm or [0.0, 0.0]
+            self._cal.belt_pixels_per_sec = (float(end[0]) - float(start[0])) / duration
+        self._vel_status_lbl.setText(f"{name.capitalize()} point adjusted — Save to keep.")
+        self._refresh_overlays()
+        self._refresh_status()
+        self._update_draggable_markers()
+
     def _jump_to_capture(self, fraction: float | None):
         if fraction is not None:
             self.transport_jump_fraction.emit(fraction)
@@ -645,6 +753,7 @@ class ConveyorCalibrationDialog(QDialog):
                     f"{name.capitalize()}: {dt.astimezone().strftime('%H:%M:%S.%f')[:-3]}"
                 )
         self._capture_info_lbl.setText("   ".join(info_parts))
+        self._update_draggable_markers()
 
     def _finish_tracking_line(self, nx: float, ny: float):
         if self._line_start_capture is None or self._current_time is None:
