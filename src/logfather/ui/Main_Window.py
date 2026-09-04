@@ -154,24 +154,25 @@ class MainWindow(QWidget):
         self.stop_report_btn.clicked.connect(self.open_stop_report)
         self._stop_report_slot = JobSlot(self)
         self._stop_report_progress = None
-        # One exclusive Viewer/Overview/Fleetwide mode switcher (Chris,
-        # 2026-09-04: only the controls for the current mode on screen).
-        self.viewer_btn = QToolButton()
-        self.viewer_btn.setText("Viewer")
-        self.viewer_btn.setCheckable(True)
-        self.viewer_btn.setChecked(True)
-        self.viewer_btn.setStyleSheet(theme.SEGMENT_LEFT)
+        # One exclusive Overview/Viewer/Fleetwide mode switcher (Chris,
+        # 2026-09-04: only the controls for the current mode on screen;
+        # Overview first and the startup default).
         self.overview_btn = QToolButton()
         self.overview_btn.setText("Overview")
         self.overview_btn.setCheckable(True)
-        self.overview_btn.setStyleSheet(theme.SEGMENT_MID)
+        self.overview_btn.setChecked(True)
+        self.overview_btn.setStyleSheet(theme.SEGMENT_LEFT)
+        self.viewer_btn = QToolButton()
+        self.viewer_btn.setText("Viewer")
+        self.viewer_btn.setCheckable(True)
+        self.viewer_btn.setStyleSheet(theme.SEGMENT_MID)
         self.fleetwide_search_btn = QToolButton()
         self.fleetwide_search_btn.setText("Fleetwide")
         self.fleetwide_search_btn.setCheckable(True)
         self.fleetwide_search_btn.setStyleSheet(theme.SEGMENT_RIGHT)
         self._mode_group = QButtonGroup(self)
         self._mode_group.setExclusive(True)
-        for btn in (self.viewer_btn, self.overview_btn, self.fleetwide_search_btn):
+        for btn in (self.overview_btn, self.viewer_btn, self.fleetwide_search_btn):
             self._mode_group.addButton(btn)
         self._mode_group.buttonToggled.connect(self._on_mode_button_toggled)
         self.current_system_label = QLabel("")
@@ -272,8 +273,8 @@ class MainWindow(QWidget):
         top_controls.addWidget(self.left_toggle, 0, Qt.AlignLeft)
         mode_row = QHBoxLayout()
         mode_row.setSpacing(0)
-        mode_row.addWidget(self.viewer_btn)
         mode_row.addWidget(self.overview_btn)
+        mode_row.addWidget(self.viewer_btn)
         mode_row.addWidget(self.fleetwide_search_btn)
         top_controls.addLayout(mode_row)
         top_controls.addWidget(self.current_system_label, 0, Qt.AlignLeft)
