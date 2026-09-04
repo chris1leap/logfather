@@ -1315,6 +1315,10 @@ class MainWindow(QWidget):
         self.calibrate_btn.setVisible(show)
         self.track_toggle.setVisible(show)
         self.buffer_toggle.setVisible(show)
+        # The Customer/Line/System label describes the viewer's selection;
+        # in the fleet-wide modes it is wrong, not just redundant (Chris,
+        # 2026-09-05: overview showed one system's name).
+        self.current_system_label.setVisible(in_viewer)
 
     def _on_first_clip_opened(self, _path) -> None:
         if not self._viewer_tools_available:
