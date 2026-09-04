@@ -16,6 +16,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
 from logfather.ui.app_assets import resolve_asset_path as _resolve_asset_path
+from logfather.ui import theme
 from logfather.core.app_version import format_version_label
 
 SPLASH_IMAGE_FILENAME = "Logfather Argus II.jpg"
@@ -179,9 +180,7 @@ def _start_instance_server(win: QWidget) -> QLocalServer | None:
 
 def main():
     app = QApplication(sys.argv)
-    from logfather.ui.theme import apply_app_theme
-
-    apply_app_theme(app)
+    theme.apply_app_theme(app)
     if _activate_running_instance():
         print("[main] already running - switched to the open instance", flush=True)
         return
@@ -220,10 +219,10 @@ def _build_splash_image() -> QSplashScreen | None:
             Qt.SmoothTransformation,
         )
         framed = QPixmap(scaled.width() + 4, scaled.height() + 4)
-        framed.fill(QColor("#10151a"))
+        framed.fill(QColor(theme.BG))
         painter = QPainter(framed)
         painter.drawPixmap(2, 2, scaled)
-        pen = QPen(QColor("#4a5560"))
+        pen = QPen(QColor(theme.BORDER_LIGHT))
         pen.setWidth(2)
         painter.setPen(pen)
         painter.drawRect(1, 1, framed.width() - 3, framed.height() - 3)

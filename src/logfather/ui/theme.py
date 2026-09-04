@@ -24,6 +24,7 @@ BORDER = "#2e3b47"          # the border colour
 BORDER_LIGHT = "#3d4c5a"    # emphasised edges (focused inputs, handles)
 
 TEXT_BRIGHT = "#ecf0f4"     # titles, selected-state text
+TEXT_DISABLED = "#6b7681"   # disabled controls
 
 ACCENT = "#5e9bff"          # the app accent (links, focus, progress)
 ACCENT_DIM = "#24435f"      # selected/checked fills behind light text
@@ -53,10 +54,10 @@ STOP_ACCENT_CAUTION = "#c98732"
 STOP_ACCENT_OPERATOR = "#4b7fc7"
 
 # Target-buffer card palette
-CARD_BG = "#1e2630"
-CARD_BG_ALT = "#243040"    # odd product_id — slightly lighter
-CARD_BORDER = "#2c3e50"
-HEADER_BG = "#111820"
+CARD_BG = BG_RAISED
+CARD_BG_ALT = BG_HOVER     # odd product_id — slightly lighter
+CARD_BORDER = BORDER
+HEADER_BG = BG
 CARD_INVALID_BG = "#2a1a1a"
 CARD_INVALID_BORDER = "#5c2020"
 GAP_CLOSE_BORDER = "#f1c40f"
@@ -115,11 +116,11 @@ PIN_BUTTON = (
 TOP_BAR_LABEL = f"color: {TEXT}; padding-left: 8px;"
 
 SHUTDOWN_POPUP = (
-    f"QWidget {{ background-color: #10151a; color: {TEXT};"
-    " border: 1px solid #4a5560; font-size: 12px; }"
-    "QProgressBar { border: 1px solid #31414d; background: #0f1419;"
+    f"QWidget {{ background-color: {BG}; color: {TEXT};"
+    f" border: 1px solid {BORDER_LIGHT}; font-size: 12px; }}"
+    f"QProgressBar {{ border: 1px solid {BORDER}; background: {BG_DEEP};"
     " height: 12px; text-align: center; }"
-    "QProgressBar::chunk { background-color: #5e9bff; }"
+    f"QProgressBar::chunk {{ background-color: {ACCENT}; }}"
 )
 POPUP_TITLE = "border: none; font-weight: bold;"
 POPUP_STEP = f"border: none; color: {TEXT_MUTED};"
@@ -138,45 +139,45 @@ SIM_BUTTON = (
 CUSTOMER_HEADER_BUTTON = (
     "QPushButton { "
     f"text-align: left; padding: 6px 8px; color: {TEXT}; font-weight: bold; "
-    "background: #202a31; border: 1px solid #31414d; } "
-    "QPushButton:hover { background: #25313a; }"
+    f"background: {BG_RAISED}; border: 1px solid {BORDER}; }} "
+    f"QPushButton:hover {{ background: {BG_HOVER}; }}"
 )
 
 SYSTEM_BUTTON = (
     "QPushButton { "
     "  padding: 2px 6px; text-align: left; "
-    "  background-color: #2b2b2b; color: #f2f4f7; "
-    "  border: 1px solid #4a4f55; border-right: 0px; "
+    f"  background-color: {BG_RAISED}; color: {TEXT_BRIGHT}; "
+    f"  border: 1px solid {BORDER}; border-right: 0px; "
     "  border-top-left-radius: 6px; border-bottom-left-radius: 6px; "
     "  border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
     "} "
-    "QPushButton:hover { background-color: #343941; } "
-    "QPushButton:checked { background-color: #cce5ff; border: 1px solid #5b8def; border-right: 0px; color: #0b1a33; }"
+    f"QPushButton:hover {{ background-color: {BG_HOVER}; }} "
+    f"QPushButton:checked {{ background-color: #cce5ff; border: 1px solid {ACCENT}; border-right: 0px; color: #0b1a33; }}"
 )
 
 TODAY_BUTTON = (
     "QPushButton { "
     "  padding: 0px; font-weight: bold; "
-    "  background-color: #3d434a; color: #f2f4f7; "
-    "  border: 1px solid #4a4f55; border-left: 1px solid #59616a; "
+    f"  background-color: {BG_HOVER}; color: {TEXT_BRIGHT}; "
+    f"  border: 1px solid {BORDER}; border-left: 1px solid {BORDER_LIGHT}; "
     "  border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
     "  border-top-right-radius: 6px; border-bottom-right-radius: 6px; "
     "} "
-    "QPushButton:hover { background-color: #4a525b; } "
-    "QPushButton:pressed { background-color: #5b6470; }"
+    f"QPushButton:hover {{ background-color: {BORDER}; }} "
+    f"QPushButton:pressed {{ background-color: {BORDER_LIGHT}; }}"
 )
 
 # --------------------------------------------------------------- overview
 
-OVERVIEW_STATUS = "color: #cfcfcf;"
-PANEL_SURFACE = "background: #11161a; border: 1px solid #28323a;"
-PANEL_BG = "background: #11161a;"
-HOVER_PREVIEW = "background: #0f1419; border: 1px solid #31414d; padding: 4px;"
+OVERVIEW_STATUS = f"color: {TEXT_MUTED};"
+PANEL_SURFACE = f"background: {BG}; border: 1px solid {BORDER};"
+PANEL_BG = f"background: {BG};"
+HOVER_PREVIEW = f"background: {BG_DEEP}; border: 1px solid {BORDER}; padding: 4px;"
 LOADING_BADGE = (
     "background: rgba(9, 13, 17, 180);"
-    "color: #e7edf3;"
+    f"color: {TEXT_BRIGHT};"
     "padding: 10px 14px;"
-    "border: 1px solid #31414d;"
+    f"border: 1px solid {BORDER};"
     "border-radius: 6px;"
     "font-size: 14px;"
     "font-weight: 600;"
@@ -184,17 +185,17 @@ LOADING_BADGE = (
 
 # -------------------------------------------------------------- fleetwide
 
-FLEETWIDE_CARD = "QFrame#fleetwideSystemCard { background: #1b232b; border: 1px solid #34414c; border-radius: 8px; }"
-FLEETWIDE_MUTED = "color: #9aa6b2;"
-FLEETWIDE_NOTE = "color: #8f9aa3;"
-FLEETWIDE_EMPTY = "color: #9aa6b2; padding: 30px;"
+FLEETWIDE_CARD = f"QFrame#fleetwideSystemCard {{ background: {BG_RAISED}; border: 1px solid {BORDER}; border-radius: 8px; }}"
+FLEETWIDE_MUTED = f"color: {TEXT_MUTED};"
+FLEETWIDE_NOTE = f"color: {TEXT_MUTED};"
+FLEETWIDE_EMPTY = f"color: {TEXT_MUTED}; padding: 30px;"
 
 # ------------------------------------------------------------ stop report
 
 MEDIA_HOLDER = "background: #000000; border-radius: 8px;"
 THUMB_BUTTON = (
     "QPushButton { border: none; border-radius: 8px; background: transparent; }"
-    "QPushButton:disabled { color: #d9d9d9; background-color: #3a3a3a; }"
+    f"QPushButton:disabled {{ color: {TEXT_MUTED}; background-color: {BG_RAISED}; }}"
 )
 
 
@@ -205,10 +206,10 @@ def report_row_style(bg_name: str, border_name: str) -> str:
 
 # ---------------------------------------------------------- target buffer
 
-VALUE_LABEL = "color: #ecf0f1; font-size: 10px;"
-CARD_TITLE = "color: #ecf0f1; font-weight: bold; font-size: 11px;"
+VALUE_LABEL = f"color: {TEXT_BRIGHT}; font-size: 10px;"
+CARD_TITLE = f"color: {TEXT_BRIGHT}; font-weight: bold; font-size: 11px;"
 CARD_TIME = f"color: {TEXT_FAINT}; font-size: 10px; margin-left: 4px;"
-CHEVRON = "color: #4a6070; font-size: 8px;"
+CHEVRON = f"color: {BORDER_LIGHT}; font-size: 8px;"
 SEPARATOR = f"color: {CARD_BORDER};"
 EMPTY_NOTE_INLINE = "color:#566573;font-size:10px;font-style:italic;"
 EMPTY_STATE = "color: #566573; font-size: 11px; font-style: italic; padding: 16px;"
@@ -217,8 +218,8 @@ BUFFER_HEADER = (
     f"background: {HEADER_BG}; color: {TEXT}; font-weight: bold; "
     "padding: 6px 8px; font-size: 12px;"
 )
-BUFFER_SCROLL = "QScrollArea { background: #161d25; border: none; }"
-BUFFER_BG = "background: #161d25;"
+BUFFER_SCROLL = f"QScrollArea {{ background: {BG}; border: none; }}"
+BUFFER_BG = f"background: {BG};"
 
 
 def target_card_style(bg: str, border: str) -> str:
@@ -240,29 +241,29 @@ CAL_RESULTS_TEXT = f"color: {TEXT_FAINT}; font-size: 10px; font-family: Consolas
 
 # ---------------------------------------------------------- activity bar
 
-ACTIVITY_BAR = "background: #10151a; border-top: 1px solid #31414d;"
+ACTIVITY_BAR = f"background: {BG}; border-top: 1px solid {BORDER};"
 ACTIVITY_BAR_TEXT = f"color: {TEXT_MUTED}; font-size: 11px; border: none; background: transparent;"
 ACTIVITY_PROGRESS = (
-    "QProgressBar { border: 1px solid #31414d; background: #0f1419; }"
+    f"QProgressBar {{ border: 1px solid {BORDER}; background: {BG_DEEP}; }}"
     f"QProgressBar::chunk {{ background-color: {SUCCESS_BRIGHT}; }}"
 )
 
 # ------------------------------------------------------- dialogs / pages
 
 ABOUT_PAGE = (
-    "QDialog { background: #12181f; }"
-    "QLabel { color: #e8eef4; }"
-    "QTabWidget::pane { border: 1px solid #2c3946; background: #12181f; }"
-    "QTabBar::tab { background: #1a222b; color: #9fb0c0; padding: 6px 16px; }"
-    "QTabBar::tab:selected { background: #24435f; color: #e8eef4; }"
-    "QPushButton { background: #24435f; color: #e8eef4; border: 1px solid #5b9bd5;"
+    f"QDialog {{ background: {BG}; }}"
+    f"QLabel {{ color: {TEXT}; }}"
+    f"QTabWidget::pane {{ border: 1px solid {BORDER}; background: {BG}; }}"
+    f"QTabBar::tab {{ background: {BG_RAISED}; color: {TEXT_MUTED}; padding: 6px 16px; }}"
+    f"QTabBar::tab:selected {{ background: {ACCENT_DIM}; color: {TEXT_BRIGHT}; }}"
+    f"QPushButton {{ background: {ACCENT_DIM}; color: {TEXT_BRIGHT}; border: 1px solid {ACCENT_BORDER};"
     " border-radius: 4px; padding: 5px 18px; }"
-    "QScrollArea { border: none; background: #12181f; }"
-    "QTextBrowser { background: #12181f; border: none; }"
+    f"QScrollArea {{ border: none; background: {BG}; }}"
+    f"QTextBrowser {{ background: {BG}; border: none; }}"
 )
-ABOUT_MUTED = "color: #9fb0c0;"
+ABOUT_MUTED = f"color: {TEXT_MUTED};"
 
-LOGO_PREVIEW = f"border: 1px solid #3a4650; background: #11161a; color: {TEXT_MUTED};"
+LOGO_PREVIEW = f"border: 1px solid {BORDER}; background: {BG}; color: {TEXT_MUTED};"
 
 # ------------------------------------------------------- application base
 # Global dark base: Fusion style + palette + this stylesheet, applied once
@@ -290,7 +291,7 @@ QPushButton:checked, QToolButton:checked {{
     border-color: {ACCENT_BORDER};
 }}
 QPushButton:disabled, QToolButton:disabled {{
-    color: #6b7681; background-color: {BG}; border-color: {BORDER};
+    color: {TEXT_DISABLED}; background-color: {BG}; border-color: {BORDER};
 }}
 
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit {{
@@ -384,7 +385,7 @@ def apply_app_theme(app) -> None:
     pal.setColor(QPalette.ToolTipBase, QColor(BG_RAISED))
     pal.setColor(QPalette.ToolTipText, QColor(TEXT))
     pal.setColor(QPalette.PlaceholderText, QColor(TEXT_FAINT))
-    disabled = QColor("#6b7681")
+    disabled = QColor(TEXT_DISABLED)
     pal.setColor(QPalette.Disabled, QPalette.Text, disabled)
     pal.setColor(QPalette.Disabled, QPalette.WindowText, disabled)
     pal.setColor(QPalette.Disabled, QPalette.ButtonText, disabled)
