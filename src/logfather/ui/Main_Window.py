@@ -768,9 +768,17 @@ class MainWindow(QWidget):
             "root": str(root),
             "day": day.isoformat(),
             "playhead": playhead_iso,
+            "mode": self._current_mode_name(),
         }
         self.settings.save()
         print(f"[main] session saved: {root.name} {day.isoformat()} @ {playhead_iso}", flush=True)
+
+    def _current_mode_name(self) -> str:
+        if self.overview_btn.isChecked():
+            return "overview"
+        if self.fleetwide_search_btn.isChecked():
+            return "fleetwide"
+        return "viewer"
 
     def _maybe_resume_last_session(self) -> None:
         # Always asks; there is deliberately no "remember my choice"
@@ -810,6 +818,16 @@ class MainWindow(QWidget):
         # Reuse the signal-driven jump: select system+day, open the clip
         # containing the playhead moment, sync and seek once it is open.
         self._open_system_from_overview(root, day, target_dt)
+        # That jump switches to Viewer; restore the screen the session
+        # was actually on — the app stays on Overview unless the saved
+        # session was elsewhere (Chris, 2026-09-04). Sessions saved
+        # before the mode field default to viewer, matching old
+        # behaviour; the clip still loads in the background either way.
+        saved_mode = str(session.get("mode") or "viewer")
+        if saved_mode == "overview":
+            self.overview_btn.setChecked(True)
+        elif saved_mode == "fleetwide":
+            self.fleetwide_search_btn.setChecked(True)
 
     def closeEvent(self, event):
         # Qt delivers close events only to the top-level window: the panels'
