@@ -54,7 +54,6 @@ from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
     Settings,
-    customer_logo_bytes,
     display_customer_name,
     display_line_name,
     customer_starts_collapsed,
@@ -1775,38 +1774,35 @@ class OverviewWidget(QWidget):
         system_row_index = 0
         for row_type, payload in display_rows:
             if row_type == "header":
+                # Customer bar: accent-blue so it stands out from the
+                # rows; name first, then the collapse arrow; no logos
+                # (Chris, 2026-09-05).
                 header_rect = QRectF(4, current_y, scene_width - 8, header_height - 2)
                 header_item = _OverviewCustomerHeaderItem(header_rect, str(payload), self)
                 header_item.setPen(QPen(Qt.NoPen))
-                header_item.setBrush(QBrush(QColor("#202a31")))
+                header_item.setBrush(QBrush(QColor(theme.ACCENT_DIM)))
                 header_item.setZValue(0.2)
                 self.scene.addItem(header_item)
                 collapsed = str(payload) in self._collapsed_customers
+                header_text = self.scene.addText(str(payload))
+                header_text.setDefaultTextColor(QColor(theme.TEXT_BRIGHT))
+                header_text.setPos(10, current_y + 7)
+                header_text.setZValue(2.2)
                 arrow_item = self.scene.addText("▼" if collapsed else "▲")
                 arrow_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
-                arrow_item.setPos(6, current_y + 7)
+                arrow_item.setPos(
+                    10 + header_text.boundingRect().width() + 4, current_y + 7
+                )
                 arrow_item.setZValue(2.2)
                 header_item.set_arrow_item(arrow_item)
-                logo_bytes = customer_logo_bytes(self.settings, str(payload))
-                logo_x = 28
-                if logo_bytes:
-                    logo_image = QImage.fromData(logo_bytes, "PNG")
-                    if not logo_image.isNull():
-                        logo_pixmap = QPixmap.fromImage(logo_image).scaled(52, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        logo_item = self.scene.addPixmap(logo_pixmap)
-                        logo_item.setPos(28, current_y + max(0, (header_height - logo_pixmap.height()) / 2) - 1)
-                        logo_item.setZValue(2.3)
-                        logo_x = 86
-                header_text = self.scene.addText(str(payload))
-                header_text.setDefaultTextColor(QColor("#d7dde2"))
-                header_text.setPos(28 if logo_x == 28 else logo_x, current_y + 7)
-                header_text.setZValue(2.2)
                 current_y += header_height
                 continue
 
             state = payload
             y = current_y
-            row_rect = QRectF(4, y, scene_width - 8, row_height - 2)
+            # Machines sit slightly indented under their customer bar
+            # (Chris, 2026-09-05).
+            row_rect = QRectF(18, y, scene_width - 22, row_height - 2)
             background = QColor("#182028" if system_row_index % 2 == 0 else "#141b22")
             row_item = QGraphicsRectItem(row_rect)
             row_item.setPen(QPen(Qt.NoPen))
@@ -1818,7 +1814,7 @@ class OverviewWidget(QWidget):
             row_label = f"{line_name} | {state.name}" if line_name else state.name
             name_item = self.scene.addText(row_label)
             name_item.setDefaultTextColor(QColor("#dde6ee"))
-            name_item.setPos(8, y + 4)
+            name_item.setPos(22, y + 4)
 
             lane_rect = QRectF(timeline_x, y + 5, timeline_width, row_height - 10)
             lane = QGraphicsRectItem(lane_rect)
