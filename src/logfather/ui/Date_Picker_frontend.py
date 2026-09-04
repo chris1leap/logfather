@@ -190,8 +190,8 @@ class DatePicker(QWidget):
             header_layout = QHBoxLayout(header_row)
             header_layout.setContentsMargins(0, 6, 0, 0)
             header_layout.setSpacing(6)
-            marker = "+" if customer_name in self._collapsed_customers else "-"
-            header_btn = QPushButton(f"{marker} {customer_name}")
+            marker = "▼" if customer_name in self._collapsed_customers else "▲"
+            header_btn = QPushButton(f"{marker}  {customer_name}")
             header_btn.setCursor(Qt.PointingHandCursor)
             header_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             header_btn.setStyleSheet(theme.CUSTOMER_HEADER_BUTTON)

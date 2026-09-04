@@ -157,7 +157,7 @@ CUSTOMER_HEADER_BUTTON = (
     "QPushButton { "
     f"text-align: left; padding: 6px 8px; color: {TEXT}; font-weight: bold; "
     f"background: {BG_RAISED}; border: 1px solid {BORDER}; }} "
-    f"QPushButton:hover {{ background: {BG_HOVER}; }}"
+    f"QPushButton:hover {{ background: {BG_HOVER}; color: {TEXT_BRIGHT}; }}"
 )
 
 SYSTEM_BUTTON = (

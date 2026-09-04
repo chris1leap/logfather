@@ -257,8 +257,25 @@ class _OverviewCustomerHeaderItem(QGraphicsRectItem):
         super().__init__(rect)
         self._customer_name = customer_name
         self._widget = widget
+        self._arrow_item = None
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.PointingHandCursor)
+
+    def set_arrow_item(self, item) -> None:
+        """The ▲/▼ collapse arrow highlighted while this header is
+        hovered (Chris, 2026-09-05). Same scene lifecycle as the header,
+        so the reference can never outlive the item."""
+        self._arrow_item = item
+
+    def hoverEnterEvent(self, event):
+        if self._arrow_item is not None:
+            self._arrow_item.setDefaultTextColor(QColor(theme.ACCENT))
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        if self._arrow_item is not None:
+            self._arrow_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
+        super().hoverLeaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1527,7 +1544,12 @@ class OverviewWidget(QWidget):
                 header_item.setBrush(QBrush(QColor("#202a31")))
                 header_item.setZValue(0.2)
                 self.scene.addItem(header_item)
-                marker = "+" if str(payload) in self._collapsed_customers else "-"
+                collapsed = str(payload) in self._collapsed_customers
+                arrow_item = self.scene.addText("▼" if collapsed else "▲")
+                arrow_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
+                arrow_item.setPos(6, current_y + 7)
+                arrow_item.setZValue(2.2)
+                header_item.set_arrow_item(arrow_item)
                 logo_bytes = customer_logo_bytes(self.settings, str(payload))
                 logo_x = 28
                 if logo_bytes:
@@ -1538,9 +1560,9 @@ class OverviewWidget(QWidget):
                         logo_item.setPos(28, current_y + max(0, (header_height - logo_pixmap.height()) / 2) - 1)
                         logo_item.setZValue(2.3)
                         logo_x = 86
-                header_text = self.scene.addText(f"{marker} {payload}")
+                header_text = self.scene.addText(str(payload))
                 header_text.setDefaultTextColor(QColor("#d7dde2"))
-                header_text.setPos(8 if logo_x == 28 else logo_x, current_y + 7)
+                header_text.setPos(28 if logo_x == 28 else logo_x, current_y + 7)
                 header_text.setZValue(2.2)
                 current_y += header_height
                 continue
