@@ -473,12 +473,15 @@ class ConveyorCalibrationDialog(QDialog):
         dx, dy = ex - sx, ey - sy
         lines = []
         img = self._canvas._qimage
+        dims = None
         if img is not None and not img.isNull():
-            w, h = img.width(), img.height()
-            lines.append(f"{'Start:':<10}x: {sx * w:>5.0f} px   y: {sy * h:>5.0f} px")
-            lines.append(f"{'End:':<10}x: {ex * w:>5.0f} px   y: {ey * h:>5.0f} px")
+            dims = (img.width(), img.height())
+        if dims:
+            w, h = dims
+            lines.append(f"{'Start:':<12}x: {sx * w:>5.0f} px     y: {sy * h:>5.0f} px")
+            lines.append(f"{'End:':<12}x: {ex * w:>5.0f} px     y: {ey * h:>5.0f} px")
             lines.append(
-                f"{'Distance:':<10}x: {abs(dx * w):>5.0f} px   y: {abs(dy * h):>5.0f} px"
+                f"{'Distance:':<12}x: {abs(dx * w):>5.0f} px     y: {abs(dy * h):>5.0f} px"
                 f"   (total {_fmt_sig(math.hypot(dx * w, dy * h))} px)"
             )
         else:
@@ -502,9 +505,17 @@ class ConveyorCalibrationDialog(QDialog):
             lines.append(f"Frames elapsed: {frames_elapsed} ({_fmt_sig(duration)}s)")
         else:
             lines.append(f"Duration: {_fmt_sig(duration)}s")
-        lines.append(f"Belt speed: {_fmt_sig(self._cal.belt_pixels_per_sec)} norm-x/s")
         vx, vy = self._cal.tracking_velocity_norm_per_sec() or (0.0, 0.0)
-        lines.append(f"Velocity: vx={_fmt_sig(vx)}, vy={_fmt_sig(vy)} norm/s")
+        if dims:
+            w, h = dims
+            direction = "right to left" if vx < 0 else "left to right"
+            lines.append(
+                f"{'Belt speed:':<12}x: {vx * w:>5.0f} px/s   y: {vy * h:>5.0f} px/s"
+                f"   (total {_fmt_sig(math.hypot(vx * w, vy * h))} px/s, {direction})"
+            )
+        else:
+            lines.append(f"Belt speed: {_fmt_sig(self._cal.belt_pixels_per_sec)} norm-x/s")
+            lines.append(f"Velocity: vx={_fmt_sig(vx)}, vy={_fmt_sig(vy)} norm/s")
         self._status_lbl.setText("\n".join(lines))
 
     def _refresh_overlays(self):
