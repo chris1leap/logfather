@@ -1208,7 +1208,18 @@ class OverviewWidget(QWidget):
         start_day = min(start_day, end_day)
         if self._filter_day_range == (start_day, end_day):
             return
-        self._filter_day_range = (start_day, end_day)
+        wanted = (start_day, end_day)
+        # Narrowing within what is already loaded only re-frames the
+        # view: the events and clips for those days are in memory
+        # (Chris, 2026-09-05: zooming into part of 30 days reloaded it
+        # all). A reload is still needed when the loaded span skipped
+        # clip listings and the narrower one would show them.
+        loaded = self._historic_loaded_range
+        loaded_days = (loaded[1] - loaded[0]).days + 1 if loaded else 0
+        wanted_days = (end_day - start_day).days + 1
+        clips_missing = loaded_days > OVERVIEW_CLIP_SCAN_MAX_DAYS >= wanted_days
+        reuse = bool(self._states) and self._range_covers(loaded, wanted) and not clips_missing
+        self._filter_day_range = wanted
         if start_day == end_day:
             self.pick_days_btn.setText(start_day.strftime("%d/%m/%Y"))
         else:
@@ -1222,8 +1233,22 @@ class OverviewWidget(QWidget):
         self.all_day_btn.setChecked(True)
         self._set_display_mode("all")
         self._update_zoom_controls()
+        if reuse:
+            self._summary_cache.clear()
+            self.status_label.setText(f"Showing {wanted_days} day{'s' if wanted_days != 1 else ''} of the loaded data")
+            self._schedule_redraw()
+            return
         self._reset_loaded_data()
         self.refresh(force_full=True)
+
+    @staticmethod
+    def _range_covers(loaded, wanted) -> bool:
+        return (
+            loaded is not None
+            and wanted is not None
+            and loaded[0] <= wanted[0]
+            and wanted[1] <= loaded[1]
+        )
 
     def _on_live_clicked(self):
         self.live_btn.setChecked(True)
@@ -1256,7 +1281,7 @@ class OverviewWidget(QWidget):
             # the manual Refresh button (force_full) re-fetches it.
             if self._overview_slot.is_running():
                 return
-            if not force_full and self._historic_loaded_range == day_range:
+            if not force_full and self._range_covers(self._historic_loaded_range, day_range):
                 return
             label = (
                 day_range[0].strftime("%d/%m/%Y")
