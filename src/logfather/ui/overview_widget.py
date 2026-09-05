@@ -1811,7 +1811,16 @@ class OverviewWidget(QWidget):
 
         viewport_width = max(360, self.view.viewport().width() or 360)
         viewport_height = max(320, self.view.viewport().height() or 500)
-        left_pad = 128
+        # Name column fits the widest "Line | System" label plus the 22px
+        # row indent and breathing room; a fixed 128px cut names off once
+        # the type grew (Chris, 2026-09-05).
+        name_metrics = QFontMetrics(QFont())
+        widest_label = 0
+        for st in states:
+            line_name = display_line_name(self.settings, st.name)
+            label = f"{line_name} | {st.name}" if line_name else st.name
+            widest_label = max(widest_label, name_metrics.horizontalAdvance(label))
+        left_pad = max(128, 22 + widest_label + 18)
         right_pad = 190
         # Two sticky header rows: column titles / time ticks / now-clock
         # on the first, the blue last-update label on the second.
