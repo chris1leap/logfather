@@ -647,7 +647,7 @@ class OverviewWidget(QWidget):
 
         # Day filter: live today, or one button opening a calendar
         # dialog for a day / span of days (Chris, 2026-09-05).
-        self.live_btn = QPushButton("Live")
+        self.live_btn = QPushButton("Live (today)")
         self.live_btn.setCheckable(True)
         self.live_btn.setChecked(True)
         self.live_btn.setToolTip("Follow today's data live")

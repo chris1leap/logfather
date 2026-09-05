@@ -46,7 +46,12 @@ Living record of agreed functionality: what is open, and what has shipped
   that system's breakdown by kind (emergency, protective, operator,
   caution) or category (planner, targeting, motion, sensors,
   drives/power, crate change, system). Totals above, a per-system table
-  below (stoppages, errors, most common error). Exact
+  below (stoppages, errors, most common error). Long ranges scroll
+  sideways (one scrollbar for both charts, wheel over a chart too)
+  rather than squeezing onto one screen; scrolling past either end
+  loads seven more days, drawn as hatched "loading" columns until they
+  arrive (Chris). The Live button reads "Live (today)" here and on the
+  Overview. Exact
   Elastic aggregations over both robot-id fields
   (`data/errors_stops.py`, classification tested). The stacked bar chart
   and day-range dialog moved to shared modules (`ui/charts.py`,

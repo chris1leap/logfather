@@ -10,6 +10,7 @@ from typing import Callable
 from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
+    QScrollBar,
     QAbstractItemView,
     QDialog,
     QFrame,
@@ -30,6 +31,7 @@ from logfather.data.errors_stops import (
     ERROR_CATEGORY_ORDER,
     STOP_KIND_ORDER,
     ErrorsStopsData,
+    day_list,
     categorize_error,
     fetch_errors_stops,
     stop_kind,
@@ -39,7 +41,7 @@ from logfather.data.software_history import system_display_name
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
 from logfather.ui.charts import StackedBarChart
-from logfather.ui.day_range_dialog import DayRangeDialog
+from logfather.ui.day_range_dialog import MAX_RANGE_DAYS, DayRangeDialog
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
@@ -78,7 +80,11 @@ class ErrorsStopsWindow(QDialog):
         self._settings_provider = settings_provider
         self._known_systems_provider = known_systems_provider
         self._slot = JobSlot(self)
+        self._extend_slot = JobSlot(self)
         self._data: ErrorsStopsData | None = None
+        self._pending: set[date] = set()
+        self._extending: tuple[date, date] | None = None
+        self._syncing_scroll = False
         self._started = False
         today = datetime.now().date()
         self._day_range: tuple[date, date] = (today - timedelta(days=6), today)
@@ -93,7 +99,8 @@ class ErrorsStopsWindow(QDialog):
             "emergency, protective, operator and caution states; errors are every error or "
             "failure state, grouped by the part of the system that raised it. Hover a bar for "
             "the breakdown. Each day shows one bar per system, so a system with far more "
-            "errors than the rest, or a sudden rise, stands out."
+            "errors than the rest, or a sudden rise, stands out. Scroll the charts sideways; "
+            "scrolling past either end loads more days."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {theme.TEXT_BRIGHT};")
@@ -108,7 +115,7 @@ class ErrorsStopsWindow(QDialog):
         self.filter_btn.clicked.connect(self._open_filter)
         controls.addWidget(self.filter_btn)
         controls.addSpacing(12)
-        self.live_btn = QPushButton("Live")
+        self.live_btn = QPushButton("Live (today)")
         self.live_btn.setCheckable(True)
         self.live_btn.setToolTip("Today only")
         self.live_btn.clicked.connect(self._on_live)
@@ -155,6 +162,15 @@ class ErrorsStopsWindow(QDialog):
         self._errors_chart.set_detail_provider(lambda label, day: self._detail("errors", label, day))
         self._errors_legend = QLabel("")
         layout.addWidget(self._boxed("Errors per day, one bar per system", self._errors_legend, self._errors_chart), 3)
+        # One scrollbar drives both charts; the wheel over either chart
+        # scrolls too, and pushing past an end loads seven more days.
+        self._scrollbar = QScrollBar(Qt.Horizontal)
+        self._scrollbar.setToolTip("Scroll through the days; keep going past the end to load more")
+        self._scrollbar.valueChanged.connect(self._on_scrollbar)
+        layout.addWidget(self._scrollbar)
+        for chart in (self._stops_chart, self._errors_chart):
+            chart.scroll_changed.connect(self._on_chart_scrolled)
+            chart.edge_reached.connect(self._on_edge)
 
         self._table = QTableWidget()
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -310,6 +326,102 @@ class ErrorsStopsWindow(QDialog):
 
     def shutdown(self):
         self._slot.shutdown()
+        self._extend_slot.shutdown()
+
+    # ---- scrolling and extending the range ---------------------------------
+
+    def _on_chart_scrolled(self, offset: int, maximum: int, page: int):
+        if self._syncing_scroll:
+            return
+        self._syncing_scroll = True
+        try:
+            self._scrollbar.setRange(0, maximum)
+            self._scrollbar.setPageStep(max(1, page))
+            self._scrollbar.setSingleStep(max(1, page // 10))
+            self._scrollbar.setValue(offset)
+            self._scrollbar.setVisible(maximum > 0)
+            for chart in (self._stops_chart, self._errors_chart):
+                if chart is not self.sender():
+                    chart.set_offset(offset)
+        finally:
+            self._syncing_scroll = False
+
+    def _on_scrollbar(self, value: int):
+        if self._syncing_scroll:
+            return
+        self._syncing_scroll = True
+        try:
+            for chart in (self._stops_chart, self._errors_chart):
+                chart.set_offset(value)
+        finally:
+            self._syncing_scroll = False
+
+    def _on_edge(self, direction: str):
+        if self._data is None or self._extending is not None or self._slot.is_running():
+            return
+        start, end = self._day_range
+        today = datetime.now().date()
+        if direction == "older":
+            room = MAX_RANGE_DAYS - ((end - start).days + 1)
+            if room <= 0:
+                self._status.setText(f"Range is already {MAX_RANGE_DAYS} days")
+                return
+            chunk_start = start - timedelta(days=min(7, room))
+            chunk = (chunk_start, start - timedelta(days=1))
+        else:
+            if end >= today:
+                return
+            chunk = (end + timedelta(days=1), min(today, end + timedelta(days=7)))
+        self._extending = chunk
+        self._pending = set(day_list(*chunk))
+        self._day_range = (min(start, chunk[0]), max(end, chunk[1]))
+        self._refresh_labels()
+        self._render()
+        if direction == "older":
+            # Keep the days that were on screen where they were.
+            shift = len(self._pending) * self._stops_chart.slot_width()
+            for chart in (self._stops_chart, self._errors_chart):
+                chart.set_offset(chart.offset() + shift)
+        else:
+            for chart in (self._stops_chart, self._errors_chart):
+                chart.scroll_to_end()
+        settings = self._settings_provider()
+        robots = self._selected_robots()
+        self._progress.show()
+        self._status.setText(f"Loading {chunk[0]:%d/%m} – {chunk[1]:%d/%m}...")
+        self._extend_slot.start(
+            lambda job: fetch_errors_stops(settings, chunk[0], chunk[1], robots, progress=job.emit_progress),
+            on_result=self._on_extended,
+            on_error=self._on_extend_error,
+            on_progress=lambda m: self._status.setText(str(m or "")),
+            on_finished=self._on_extend_finished,
+        )
+
+    def _on_extended(self, chunk: ErrorsStopsData):
+        if self._data is None:
+            self._data = chunk
+        else:
+            self._data.merge(chunk)
+        self._pending = set()
+        self._render()
+
+    def _on_extend_error(self, message: str):
+        self._status.setText(f"Failed to load more days: {message}")
+        if self._extending is not None:
+            chunk = self._extending
+            self._pending = set()
+            # Drop the failed chunk from the range again.
+            start, end = self._day_range
+            if chunk[1] < start + timedelta(days=(end - start).days) and chunk[0] == start:
+                self._day_range = (chunk[1] + timedelta(days=1), end)
+            elif chunk[1] == end:
+                self._day_range = (start, chunk[0] - timedelta(days=1))
+            self._refresh_labels()
+            self._render()
+
+    def _on_extend_finished(self):
+        self._extending = None
+        self._progress.hide()
 
     def closeEvent(self, event):
         event.ignore()
@@ -325,12 +437,22 @@ class ErrorsStopsWindow(QDialog):
 
     def _on_result(self, data: ErrorsStopsData):
         self._data = data
-        days = data.days
+        self._pending = set()
+        self._render()
+        for chart in (self._stops_chart, self._errors_chart):
+            chart.scroll_to_end()
+
+    def _render(self):
+        data = self._data
+        if data is None:
+            return
+        days = sorted(set(data.days) | self._pending)
+        loaded_days = data.days
         stops = data.stop_series()
         errors = data.error_series()
         total_stops = sum(sum(v.values()) for v in stops.values())
         total_errors = sum(sum(v.values()) for v in errors.values())
-        n_days = max(1, len(days))
+        n_days = max(1, len(loaded_days))
         self._stops_value.setText(f"{total_stops:,}")
         self._stops_sub.setText(f"{total_stops / n_days:.1f} per day · " + " · ".join(f"{k.lower()} {sum(v.values()):,}" for k, v in stops.items() if sum(v.values())))
         self._errors_value.setText(f"{total_errors:,}")
@@ -345,6 +467,9 @@ class ErrorsStopsWindow(QDialog):
             f'<span style="background-color:{colours[r].name()};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{self._system_label(r)}'
             for r in robots
         )
+        # Enough width for every system's bar to be seen; longer ranges
+        # scroll instead of squeezing (Chris, 2026-09-05).
+        min_slot = max(44.0, len(robots) * 5.0 + 12.0)
         for table, chart, legend_label, empty in (
             ("stops", self._stops_chart, self._stops_legend, "No stoppages in this range"),
             ("errors", self._errors_chart, self._errors_legend, "No errors in this range"),
@@ -354,10 +479,13 @@ class ErrorsStopsWindow(QDialog):
                 (self._system_label(r), colours[r], {d: float(n) for d, n in per_system.get(r, {}).items()})
                 for r in robots
             ]
+            chart.set_min_slot(min_slot)
+            chart.set_pending(self._pending)
             chart.set_data(days, series, fmt, empty_text=empty)
             legend_label.setText(legend)
         self._fill_table(data)
-        self._status.setText(f"{len(days)} day{'s' if len(days) != 1 else ''} · {total_stops:,} stoppages · {total_errors:,} errors")
+        if not self._pending:
+            self._status.setText(f"{len(loaded_days)} day{'s' if len(loaded_days) != 1 else ''} · {total_stops:,} stoppages · {total_errors:,} errors")
 
     def _ordered_robots(self, robots: set[str]) -> list[str]:
         """Display order of the share listing; unknown robots after."""

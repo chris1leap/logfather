@@ -79,3 +79,17 @@ def test_system_series_and_day_states():
     assert data.system_day_states("errors", "35-2300-007", d1) == {"planner_error": 10, "already_stopped_error": 5}
     assert data.system_day_states("errors", "35-2300-007", d2) == {}
     assert data.system_series("stops") == {}
+
+
+def test_merge_takes_new_days_and_replaces_overlaps():
+    d1, d2, d3 = date(2026, 9, 3), date(2026, 9, 4), date(2026, 9, 5)
+    data = ErrorsStopsData(days=[d2, d3])
+    data.errors = {d2: {"35-2300-007": {"planner_error": 1}}, d3: {"35-2300-007": {"planner_error": 2}}}
+    older = ErrorsStopsData(days=[d1, d2])
+    older.errors = {d1: {"35-2300-006": {"error": 4}}, d2: {"35-2300-007": {"planner_error": 9}}}
+    older.stops = {d1: {"35-2300-006": {"caution": 1}}}
+    data.merge(older)
+    assert data.days == [d1, d2, d3]
+    assert data.errors[d2] == {"35-2300-007": {"planner_error": 9}}
+    assert data.errors[d1] == {"35-2300-006": {"error": 4}}
+    assert data.stops == {d1: {"35-2300-006": {"caution": 1}}}

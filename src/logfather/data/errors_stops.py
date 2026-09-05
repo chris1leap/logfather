@@ -109,6 +109,15 @@ class ErrorsStopsData:
             entry["top_error"] = max(states.items(), key=lambda kv: kv[1]) if states else ("", 0)
         return out
 
+    def merge(self, other: "ErrorsStopsData") -> None:
+        """Take another fetch's days into this one (its days replace ours)."""
+        for day in other.days:
+            self.stops.pop(day, None)
+            self.errors.pop(day, None)
+        self.stops.update(other.stops)
+        self.errors.update(other.errors)
+        self.days = sorted(set(self.days) | set(other.days))
+
     def system_series(self, table: str) -> dict[str, dict[date, int]]:
         """robot -> day -> total (stops or errors) for one bar per system."""
         source = self.stops if table == "stops" else self.errors
