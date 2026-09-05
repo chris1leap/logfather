@@ -69,6 +69,11 @@ OVERVIEW_INCREMENTAL_OVERLAP = timedelta(minutes=2)
 # Disk saves of the merged events are throttled to this interval; at most
 # this much tail is refetched after an app restart.
 OVERVIEW_CACHE_SAVE_MIN_SECONDS = 60.0
+# Historic day ranges: how far back the picker goes, and above how many
+# days the per-day clip listings on the WAN share are skipped (a year is
+# ~5000 listings; events alone still tell the story).
+OVERVIEW_MAX_RANGE_DAYS = 365
+OVERVIEW_CLIP_SCAN_MAX_DAYS = 14
 OVERVIEW_RANGE_ANIM_MS = 220
 OVERVIEW_LOADING_VIDEO = "Logfather animated splash screen Argus II.mp4"
 
@@ -274,6 +279,21 @@ class _DayRangeDialog(QDialog):
         self._highlighted: list[QDate] = []
         today = QDate.currentDate()
         layout = QVBoxLayout(self)
+        # Quick presets above the calendars (Chris, 2026-09-05); each is
+        # a span ending today, counted inclusively.
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Quick:"))
+        for label, days in (
+            ("Last 7 days", 7),
+            ("Last month", 30),
+            ("Last 3 months", 90),
+            ("Last year", 365),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _checked=False, n=days: self._apply_preset(n))
+            preset_row.addWidget(btn)
+        preset_row.addStretch(1)
+        layout.addLayout(preset_row)
         cal_row = QHBoxLayout()
         cal_row.setSpacing(14)
         self._from_cal = QCalendarWidget()
@@ -287,7 +307,7 @@ class _DayRangeDialog(QDialog):
             cal.setGridVisible(True)
             # Future days are greyed out and unclickable, and the month
             # navigation cannot pass the current month (maximumDate).
-            cal.setMinimumDate(today.addDays(-60))
+            cal.setMinimumDate(today.addDays(-(OVERVIEW_MAX_RANGE_DAYS - 1)))
             cal.setMaximumDate(today)
             cal.setSelectedDate(QDate(day_value.year, day_value.month, day_value.day))
             # Endpoints (the calendar's own selection) in the bright accent
@@ -322,6 +342,12 @@ class _DayRangeDialog(QDialog):
         buttons.rejected.connect(self.reject)
         bottom_row.addWidget(buttons)
         layout.addLayout(bottom_row)
+        self._refresh_labels()
+
+    def _apply_preset(self, days: int):
+        today = QDate.currentDate()
+        self._to_cal.setSelectedDate(today)
+        self._from_cal.setSelectedDate(today.addDays(-(days - 1)))
         self._refresh_labels()
 
     def _on_from_picked(self, qdate: QDate):
@@ -537,6 +563,7 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
     system_roots.sort(key=lambda p: p.name.lower())
     total_systems = len(system_roots)
     systems = []
+    scan_clips = len(day_list) <= OVERVIEW_CLIP_SCAN_MAX_DAYS
     t_scan_start = time.perf_counter()
     for idx, root in enumerate(system_roots, start=1):
         if job.interrupted():
@@ -545,14 +572,20 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         if idx > 1:
             avg = (time.perf_counter() - t_scan_start) / (idx - 1)
             eta = f" — {_fmt_eta(avg * (total_systems - idx + 1))}"
-        day_note = f" × {len(day_list)} days" if len(day_list) > 1 else ""
-        job.emit_progress(
-            f"Step 1/3 — scanning {root.name} ({idx}/{total_systems}{day_note}){eta}"
-        )
         robot_id = _extract_robot_id(root)
         video_items = []
-        for day_entry in day_list:
-            video_items.extend(_build_video_items(root, day_entry))
+        if scan_clips:
+            day_note = f" × {len(day_list)} days" if len(day_list) > 1 else ""
+            job.emit_progress(
+                f"Step 1/3 — scanning {root.name} ({idx}/{total_systems}{day_note}){eta}"
+            )
+            for day_entry in day_list:
+                video_items.extend(_build_video_items(root, day_entry))
+        else:
+            job.emit_progress(
+                f"Step 1/3 — listing systems ({idx}/{total_systems}); clips skipped "
+                f"for ranges over {OVERVIEW_CLIP_SCAN_MAX_DAYS} days"
+            )
         systems.append(
             {
                 "name": root.name,
@@ -560,7 +593,11 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
                 "robot_id": robot_id,
                 "events": [],
                 "video_items": video_items,
-                "thumbnail_image": _latest_video_thumbnail(video_items, cache_root, now_local),
+                "thumbnail_image": (
+                    _latest_video_thumbnail(video_items, cache_root, now_local)
+                    if video_items
+                    else None
+                ),
             }
         )
     final_systems = []
@@ -597,7 +634,9 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         # Multi-day spans keep the chunk count reasonable (~48 max) so a
         # week-long fetch is not 1000 requests.
         span_minutes = max(1, int((fetch_end_local - fetch_start).total_seconds() // 60))
-        chunk_minutes = max(10, ((span_minutes // 48) // 10 + 1) * 10)
+        # ...but never more than a day per chunk: the paginator caps at
+        # 60 pages x 3000 hits, and a week of fleet events would truncate.
+        chunk_minutes = min(24 * 60, max(10, ((span_minutes // 48) // 10 + 1) * 10))
     total_chunks = max(1, int(((fetch_end_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
     job.emit_progress(
         f"Step 2/3 — loading events from Elastic (0/{total_chunks} chunks)"
@@ -1826,48 +1865,71 @@ class OverviewWidget(QWidget):
 
         total_seconds = max(60.0, (window_end - window_start).total_seconds())
         total_minutes = max(1, int(total_seconds // 60))
+        # Tick scale: minute-stepped up to 3 days, then day-stepped (local
+        # midnights, so DST cannot drift the majors off midnight).
+        minor_step_min = major_step_min = 0
+        minor_days = major_days = 0
         if total_minutes <= 60:
-            minor_step_min = 5
-            major_step_min = 15
+            minor_step_min, major_step_min = 5, 15
         elif total_minutes <= 5 * 60:
-            minor_step_min = 15
-            major_step_min = 60
+            minor_step_min, major_step_min = 15, 60
         elif total_minutes <= 24 * 60:
-            minor_step_min = 30
-            major_step_min = 120
+            minor_step_min, major_step_min = 30, 120
         elif total_minutes <= 3 * 24 * 60:
-            minor_step_min = 120
-            major_step_min = 360
+            minor_step_min, major_step_min = 120, 360
+        elif total_minutes <= 14 * 24 * 60:
+            minor_days, major_days = 1, 1
+        elif total_minutes <= 60 * 24 * 60:
+            minor_days, major_days = 1, 7
         else:
-            minor_step_min = 360
-            major_step_min = 1440
+            minor_days, major_days = 7, 28
         multi_day = total_minutes > 24 * 60
 
-        tick = window_start.replace(second=0, microsecond=0)
-        remainder = tick.minute % minor_step_min
-        if remainder:
-            tick += timedelta(minutes=(minor_step_min - remainder))
         grid_top = top_pad - 10
         grid_bottom = scene_height - bottom_pad
         self._hover_grid_top = grid_top
         self._hover_grid_bottom = grid_bottom
-        while tick <= window_end:
+        ticks: list[tuple[datetime, bool, str]] = []
+        if major_days:
+            ws_local = window_start.astimezone()
+            we_local = window_end.astimezone()
+            day_cursor = ws_local.date()
+            if _start_of_day(day_cursor) < ws_local:
+                day_cursor += timedelta(days=1)
+            day_index = 0
+            while True:
+                tick_local = _start_of_day(day_cursor)
+                if tick_local > we_local:
+                    break
+                if day_index % minor_days == 0:
+                    is_major = day_index % major_days == 0
+                    ticks.append((tick_local, is_major, tick_local.strftime("%d/%m")))
+                day_cursor += timedelta(days=1)
+                day_index += 1
+        else:
+            tick = window_start.replace(second=0, microsecond=0)
+            remainder = tick.minute % minor_step_min
+            if remainder:
+                tick += timedelta(minutes=(minor_step_min - remainder))
+            tick_fmt = "%d/%m %H:%M" if multi_day else "%H:%M"
+            while tick <= window_end:
+                minutes_from_midnight = tick.hour * 60 + tick.minute
+                is_major = (minutes_from_midnight % major_step_min) == 0
+                ticks.append((tick, is_major, tick.astimezone().strftime(tick_fmt)))
+                tick += timedelta(minutes=minor_step_min)
+        for tick, is_major, tick_text in ticks:
             ratio = (tick - window_start).total_seconds() / total_seconds
             x = timeline_x + max(0.0, min(1.0, ratio)) * timeline_width
-            minutes_from_midnight = tick.hour * 60 + tick.minute
-            is_major = (minutes_from_midnight % major_step_min) == 0
             pen = QPen(QColor("#33424d") if is_major else QColor("#25313a"))
-            pen.setWidth(1 if is_major else 1)
+            pen.setWidth(1)
             line = self.scene.addLine(x, grid_top, x, grid_bottom, pen)
             line.setZValue(1.5)
             if is_major:
-                tick_fmt = "%d/%m %H:%M" if multi_day else "%H:%M"
-                label = self.scene.addText(tick.astimezone().strftime(tick_fmt))
+                label = self.scene.addText(tick_text)
                 label.setDefaultTextColor(QColor("#8ea2b2"))
                 label.setPos(x + 2, 4)
                 label.setZValue(10)
                 self._sticky_header_items.append((label, 4.0))
-            tick += timedelta(minutes=minor_step_min)
 
         # Applies the current scroll offset to the fresh sticky items and
         # refreshes the now-label in one go.
@@ -1892,12 +1954,17 @@ class OverviewWidget(QWidget):
                 collapsed = str(payload) in self._collapsed_customers
                 header_text = self.scene.addText(str(payload))
                 header_text.setDefaultTextColor(QColor(theme.TEXT_BRIGHT))
-                header_text.setPos(10, current_y + 7)
+                # Vertically centred in the bar (Chris, 2026-09-05: it sat
+                # low once the type grew).
+                text_y = current_y + max(
+                    0.0, (header_rect.height() - header_text.boundingRect().height()) / 2
+                )
+                header_text.setPos(10, text_y)
                 header_text.setZValue(2.2)
                 arrow_item = self.scene.addText("▼" if collapsed else "▲")
                 arrow_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
                 arrow_item.setPos(
-                    10 + header_text.boundingRect().width() + 4, current_y + 7
+                    10 + header_text.boundingRect().width() + 4, text_y
                 )
                 arrow_item.setZValue(2.2)
                 header_item.set_arrow_item(arrow_item)
