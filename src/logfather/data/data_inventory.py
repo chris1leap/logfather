@@ -63,6 +63,16 @@ class ElasticInventory:
     total_bytes: int | None = None
     bytes_per_doc: float | None = None
     bytes_basis: str = ""
+    # Per-robot sampled average document size: systems differ a lot
+    # (planner payloads vs heartbeats), so a single fleet factor would
+    # just redraw the document chart at another scale.
+    bytes_per_doc_by_robot: dict[str, float] = field(default_factory=dict)
+
+    def bytes_factor(self, robot: str) -> float:
+        value = self.bytes_per_doc_by_robot.get(robot)
+        if value:
+            return float(value)
+        return float(self.bytes_per_doc or 0.0)
 
 
 @dataclass
@@ -133,6 +143,24 @@ def mean_source_bytes(hits: list) -> float | None:
         if isinstance(hit, dict)
     ]
     return (sum(sizes) / len(sizes)) if sizes else None
+
+
+def scale_robot_factors(
+    sampled: dict[str, float], window_docs: dict[str, int], real_bytes_per_doc: float | None
+) -> dict[str, float]:
+    """Per-robot sampled averages, rescaled so their document-weighted
+    mean equals the real store bytes/doc when that is known. Robots
+    without a sample get the (rescaled) mean."""
+    if not sampled:
+        return {}
+    weights = {r: window_docs.get(r, 0) for r in sampled}
+    total_w = sum(weights.values())
+    if total_w > 0:
+        mean = sum(sampled[r] * weights[r] for r in sampled) / total_w
+    else:
+        mean = sum(sampled.values()) / len(sampled)
+    scale = (real_bytes_per_doc / mean) if (real_bytes_per_doc and mean > 0) else 1.0
+    return {r: v * scale for r, v in sampled.items()}
 
 
 def estimate_bytes(clip_count: int, sample_size: int | None) -> int:
@@ -270,23 +298,65 @@ def fetch_elastic_inventory(
                 inventory.bytes_basis = "index store size"
     except Exception:
         pass
-    if inventory.bytes_per_doc is None:
+    # Per-robot document sizes from a random sample of each robot's
+    # documents in the window (one query per robot).
+    sampled: dict[str, float] = {}
+    robots = sorted(inventory.counts)
+    window_docs = {r: sum(per_day.values()) for r, per_day in inventory.counts.items()}
+    for idx, robot in enumerate(robots, start=1):
+        if progress:
+            progress(f"Elastic: sampling document sizes ({idx}/{len(robots)})...")
+        robot_filter = {
+            "bool": {
+                "should": [
+                    {"term": {"leap_robot_id.keyword": robot}},
+                    {"term": {"leap_robot_id": robot}},
+                    {"term": {"system_id.keyword": robot}},
+                    {"term": {"system_id": robot}},
+                ],
+                "minimum_should_match": 1,
+            }
+        }
+        body = {
+            "size": 200,
+            "track_total_hits": False,
+            "query": {
+                "function_score": {
+                    "query": {
+                        "bool": {
+                            "filter": [
+                                robot_filter,
+                                {"range": {"@timestamp": {"gte": start_iso, "lte": now_local.isoformat()}}},
+                            ]
+                        }
+                    },
+                    "random_score": {"seed": 7, "field": "_seq_no"},
+                    "boost_mode": "replace",
+                }
+            },
+        }
         try:
-            sample = _post(
-                {"size": 300, "sort": [{"@timestamp": "desc"}], "track_total_hits": False},
-                timeout=60,
-            )
-            avg = mean_source_bytes(((sample.get("hits") or {}).get("hits") or []))
+            data = _post(body, timeout=60)
+            avg = mean_source_bytes(((data.get("hits") or {}).get("hits") or []))
             if avg:
-                inventory.bytes_per_doc = avg
-                inventory.bytes_basis = (
-                    "estimated from sampled document JSON - the API key lacks the "
-                    "index-stats privilege for real store sizes"
-                )
-                if inventory.total_docs:
-                    inventory.total_bytes = int(inventory.total_docs * avg)
+                sampled[robot] = avg
         except Exception:
-            pass
+            continue
+    real_per_doc = inventory.bytes_per_doc  # set only when index stats were readable
+    inventory.bytes_per_doc_by_robot = scale_robot_factors(sampled, window_docs, real_per_doc)
+    if inventory.bytes_per_doc is None and sampled:
+        total_w = sum(window_docs.get(r, 0) for r in sampled) or len(sampled)
+        inventory.bytes_per_doc = sum(
+            sampled[r] * (window_docs.get(r, 0) if sum(window_docs.values()) else 1) for r in sampled
+        ) / total_w
+        inventory.bytes_basis = (
+            "estimated from sampled document JSON per system - the API key lacks the "
+            "index-stats privilege for real store sizes"
+        )
+        if inventory.total_docs:
+            inventory.total_bytes = int(inventory.total_docs * inventory.bytes_per_doc)
+    elif inventory.bytes_per_doc is not None and sampled:
+        inventory.bytes_basis = "index store size, apportioned per system by sampled document sizes"
     return inventory
 
 

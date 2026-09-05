@@ -23,6 +23,19 @@ def test_sum_cat_indices_skips_malformed_rows():
     assert sum_cat_indices([]) == (0, 0)
 
 
+def test_scale_robot_factors():
+    from logfather.data.data_inventory import scale_robot_factors
+
+    sampled = {"a": 400.0, "b": 800.0}
+    docs = {"a": 300, "b": 100}
+    # No real size known: sampled values pass through unchanged.
+    assert scale_robot_factors(sampled, docs, None) == sampled
+    # Weighted mean is 500; a real 1000 B/doc doubles every factor.
+    scaled = scale_robot_factors(sampled, docs, 1000.0)
+    assert scaled == {"a": 800.0, "b": 1600.0}
+    assert scale_robot_factors({}, docs, 1000.0) == {}
+
+
 def test_mean_source_bytes():
     hits = [{"_source": {"a": 1}}, {"_source": {"a": 1, "bb": "xx"}}, "junk"]
     # {"a":1} is 7 bytes; {"a":1,"bb":"xx"} is 17 bytes.

@@ -473,7 +473,11 @@ class DataInventoryDialog(QDialog):
             f"across {len(inventory.counts)} systems"
         )
         if inventory.bytes_per_doc:
-            window_text += f" ≈ {format_bytes(window_docs * inventory.bytes_per_doc)}"
+            window_bytes = sum(
+                sum(per_day.values()) * inventory.bytes_factor(robot)
+                for robot, per_day in inventory.counts.items()
+            )
+            window_text += f" ≈ {format_bytes(window_bytes)}"
         parts.append(window_text)
         if inventory.bytes_basis:
             parts.append(f"sizes: {inventory.bytes_basis}")
@@ -571,8 +575,8 @@ class DataInventoryDialog(QDialog):
         inv = self._elastic
         if inv is None or (as_bytes and not inv.bytes_per_doc):
             return inventory_days(datetime.now().date(), INVENTORY_DAYS), rows
-        factor = float(inv.bytes_per_doc) if as_bytes else 1.0
         for robot, per_day in inv.counts.items():
+            factor = inv.bytes_factor(robot) if as_bytes else 1.0
             name = self._robot_to_system.get(robot, robot)
             target = rows.setdefault(name, {})
             for day, count in per_day.items():
@@ -631,14 +635,19 @@ class DataInventoryDialog(QDialog):
         inv = self._elastic
         if inv is not None:
             docs = 0
+            est_bytes = 0.0
+            factor_used = 0.0
             for robot, per_day in inv.counts.items():
                 if self._robot_to_system.get(robot, robot) == name:
-                    docs += int(per_day.get(day, 0))
+                    count = int(per_day.get(day, 0))
+                    docs += count
+                    factor_used = inv.bytes_factor(robot)
+                    est_bytes += count * factor_used
             day_total = sum(int(per_day.get(day, 0)) for per_day in inv.counts.values())
             share = f" ({docs / day_total:.0%} of the day)" if day_total and docs else ""
             line = f"Elastic: {format_count(docs)} documents{share}"
-            if inv.bytes_per_doc and docs:
-                line += f" ≈ {format_bytes(docs * inv.bytes_per_doc)}"
+            if est_bytes and docs:
+                line += f" ≈ {format_bytes(est_bytes)} (avg {factor_used:.0f} B/doc)"
             lines.append(line)
         cctv = self._cctv
         if cctv is not None and name in cctv.clips:
