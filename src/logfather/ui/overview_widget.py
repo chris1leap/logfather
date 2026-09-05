@@ -12,7 +12,7 @@ from typing import Callable, Iterable
 import cv2
 
 from PySide6.QtCore import QDate, QEvent, QThread, Qt, Signal, QTimer, QRectF, QVariantAnimation, QEasingCurve, QUrl
-from PySide6.QtGui import QColor, QBrush, QPen, QFont, QFontMetrics, QImage, QPixmap
+from PySide6.QtGui import QColor, QBrush, QPen, QFont, QFontMetrics, QImage, QPalette, QPixmap, QTextCharFormat
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -271,6 +271,7 @@ class _DayRangeDialog(QDialog):
     def __init__(self, initial: tuple[date, date], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Show data for days")
+        self._highlighted: list[QDate] = []
         today = QDate.currentDate()
         layout = QVBoxLayout(self)
         cal_row = QHBoxLayout()
@@ -289,6 +290,12 @@ class _DayRangeDialog(QDialog):
             cal.setMinimumDate(today.addDays(-60))
             cal.setMaximumDate(today)
             cal.setSelectedDate(QDate(day_value.year, day_value.month, day_value.day))
+            # Endpoints (the calendar's own selection) in the bright accent
+            # so they read distinctly from the ACCENT_DIM span fill below.
+            pal = cal.palette()
+            pal.setColor(QPalette.Highlight, QColor(theme.ACCENT))
+            pal.setColor(QPalette.HighlightedText, QColor("#081018"))
+            cal.setPalette(pal)
             column = QVBoxLayout()
             title_row = QHBoxLayout()
             title = QLabel(label_text)
@@ -337,6 +344,26 @@ class _DayRangeDialog(QDialog):
         self._total_label.setText(
             f"Total: {total} day" + ("s" if total != 1 else "")
         )
+        self._refresh_range_highlight(d1, d2)
+
+    def _refresh_range_highlight(self, d1: date, d2: date):
+        """Fill every day of the span in both calendars (Chris,
+        2026-09-05); at most 61 days, so re-painting the lot is cheap."""
+        blank = QTextCharFormat()
+        for cal in (self._from_cal, self._to_cal):
+            for qd in self._highlighted:
+                cal.setDateTextFormat(qd, blank)
+        self._highlighted = []
+        span_fmt = QTextCharFormat()
+        span_fmt.setBackground(QBrush(QColor(theme.ACCENT_DIM)))
+        span_fmt.setForeground(QBrush(QColor(theme.TEXT_BRIGHT)))
+        day = d1
+        while day <= d2:
+            qd = QDate(day.year, day.month, day.day)
+            for cal in (self._from_cal, self._to_cal):
+                cal.setDateTextFormat(qd, span_fmt)
+            self._highlighted.append(qd)
+            day += timedelta(days=1)
 
     def selected_range(self) -> tuple[date, date]:
         d1 = self._from_cal.selectedDate().toPython()
