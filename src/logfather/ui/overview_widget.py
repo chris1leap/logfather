@@ -11,7 +11,7 @@ from typing import Callable, Iterable
 
 import cv2
 
-from PySide6.QtCore import QDate, QEvent, QThread, Qt, Signal, QTimer, QRectF, QVariantAnimation, QEasingCurve, QUrl
+from PySide6.QtCore import QDate, QEvent, QPoint, QSize, QThread, Qt, Signal, QTimer, QRectF, QVariantAnimation, QEasingCurve, QUrl
 from PySide6.QtGui import QColor, QBrush, QPen, QFont, QFontMetrics, QImage, QPalette, QPixmap, QTextCharFormat
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QGraphicsRectItem,
     QStackedWidget,
+    QToolButton,
 )
 
 from logfather.ui.Time_Picker import (
@@ -50,8 +51,13 @@ from logfather.data.overview_event_cache import (
 )
 from logfather.data.ui_state_store import (
     customer_collapsed_map,
+    load_ui_state,
     set_customer_collapsed,
+    update_ui_state,
 )
+from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
+
+_OVERVIEW_HIDDEN_KEY = "overview_hidden_systems"
 from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
@@ -92,6 +98,8 @@ class OverviewSystemState:
     # Bumped on every data merge; keys the per-system summary cache so the
     # event state machine reruns only when the data actually changed.
     events_version: int = 0
+    # False from the skeleton payload until this system's own data lands.
+    loaded: bool = True
 
 
 _THUMBNAIL_CACHE: OrderedDict[str, tuple[int, QImage | None]] = OrderedDict()
@@ -534,7 +542,7 @@ def _fmt_eta(seconds: float) -> str:
     return f"~{minutes}m {rem:02d}s left"
 
 
-def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False, day_range: tuple[date, date] | None = None):
+def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False, day_range: tuple[date, date] | None = None, selected: set[str] | None = None):
     now_local = _local_now()
     if day_range is not None:
         # Historic day/range mode (Chris, 2026-09-05): fixed span, no
@@ -552,71 +560,40 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         day_start_local = _start_of_day_local(now_local)
         fetch_end_local = now_local
         day_list = [day_value]
-    # Progress narration: numbered stages, what is being worked on, and a
-    # running time estimate from the completed items — the bare counter
-    # read as a hang while each system's day folder was listed on the
-    # WAN share (Chris, 2026-09-05).
-    job.emit_progress("Step 1/3 — listing systems on the CCTV share...")
+    cutoff_utc = day_start_local.astimezone(timezone.utc)
+
+    job.emit_progress("Listing systems on the CCTV share...")
     system_roots = []
     if parent_dir.exists():
         system_roots = [p for p in parent_dir.iterdir() if p.is_dir()]
     system_roots.sort(key=lambda p: p.name.lower())
+    if selected is not None:
+        # Machine filter (Chris, 2026-09-05): unselected systems are
+        # neither scanned nor fetched.
+        system_roots = [p for p in system_roots if p.name in selected]
     total_systems = len(system_roots)
-    systems = []
     scan_clips = len(day_list) <= OVERVIEW_CLIP_SCAN_MAX_DAYS
-    t_scan_start = time.perf_counter()
-    for idx, root in enumerate(system_roots, start=1):
-        if job.interrupted():
-            return None
-        eta = ""
-        if idx > 1:
-            avg = (time.perf_counter() - t_scan_start) / (idx - 1)
-            eta = f" — {_fmt_eta(avg * (total_systems - idx + 1))}"
-        robot_id = _extract_robot_id(root)
-        video_items = []
-        if scan_clips:
-            day_note = f" × {len(day_list)} days" if len(day_list) > 1 else ""
-            job.emit_progress(
-                f"Step 1/3 — scanning {root.name} ({idx}/{total_systems}{day_note}){eta}"
-            )
-            for day_entry in day_list:
-                video_items.extend(_build_video_items(root, day_entry))
-        else:
-            job.emit_progress(
-                f"Step 1/3 — listing systems ({idx}/{total_systems}); clips skipped "
-                f"for ranges over {OVERVIEW_CLIP_SCAN_MAX_DAYS} days"
-            )
-        systems.append(
-            {
-                "name": root.name,
-                "root": root,
-                "robot_id": robot_id,
-                "events": [],
-                "video_items": video_items,
-                "thumbnail_image": (
-                    _latest_video_thumbnail(video_items, cache_root, now_local)
-                    if video_items
-                    else None
-                ),
-            }
-        )
-    final_systems = []
-    for row in systems:
-        if job.interrupted():
-            return None
-        updated_row = dict(row)
-        updated_row["events"] = []
-        final_systems.append(updated_row)
-    row_by_robot: dict[str, dict] = {}
-    for row in final_systems:
-        robot_id = row.get("robot_id")
-        if isinstance(robot_id, str) and robot_id:
-            row_by_robot[robot_id] = row
+
+    rows = [
+        {
+            "name": root.name,
+            "root": root,
+            "robot_id": _extract_robot_id(root),
+            "events": [],
+            "video_items": [],
+            "thumbnail_image": None,
+            "loaded": False,
+        }
+        for root in system_roots
+    ]
+    row_by_robot: dict[str, dict] = {
+        row["robot_id"]: row for row in rows if isinstance(row["robot_id"], str) and row["robot_id"]
+    }
 
     # Fresh session: seed from the on-disk cache of today's events and
     # only fetch the tail since the newest cached event (Chris,
-    # 2026-09-04). No cache -> the fetch below covers the whole day and
-    # the payload is flagged full_refresh so the resync clock is stamped.
+    # 2026-09-04). No cache -> the fetch covers the whole window and the
+    # payload is flagged full_refresh so the resync clock is stamped.
     if use_disk_cache and not full_refresh and since_dt is None:
         cached = load_overview_events(day_value)
         if cached is not None:
@@ -629,55 +606,97 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
                 since_dt = cache_latest_ts - OVERVIEW_INCREMENTAL_OVERLAP
     covers_full_day = full_refresh or since_dt is None
     fetch_start = day_start_local if covers_full_day else max(day_start_local, since_dt)
-    chunk_minutes = 10
-    if day_range is not None:
-        # Multi-day spans keep the chunk count reasonable (~48 max) so a
-        # week-long fetch is not 1000 requests.
-        span_minutes = max(1, int((fetch_end_local - fetch_start).total_seconds() // 60))
-        # ...but never more than a day per chunk: the paginator caps at
-        # 60 pages x 3000 hits, and a week of fleet events would truncate.
-        chunk_minutes = min(24 * 60, max(10, ((span_minutes // 48) // 10 + 1) * 10))
-    total_chunks = max(1, int(((fetch_end_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
-    job.emit_progress(
-        f"Step 2/3 — loading events from Elastic (0/{total_chunks} chunks)"
-    )
-    t_chunks_start = time.perf_counter()
-    for chunk_idx, chunk in enumerate(fetch_overview_event_chunks(
-        settings,
-        system_roots,
-        fetch_start,
-        fetch_end_local,
-        chunk_minutes=chunk_minutes,
-    ), start=1):
+    # Progressive population (Chris, 2026-09-05): first loads and full
+    # reloads emit the rows immediately, then each system as it lands.
+    # In-session incremental refreshes keep the quiet fleet-wide tail.
+    progressive = covers_full_day or use_disk_cache
+
+    def payload(systems, final, replace=False, full=False, status=""):
+        return {
+            "systems": systems,
+            "now_local": now_local,
+            "day_value": day_value,
+            "full_refresh": full,
+            "replace": replace,
+            "cutoff_utc": cutoff_utc,
+            "final": final,
+            "status": status,
+        }
+
+    if progressive:
+        job.emit_progress(payload(
+            [dict(row) for row in rows], False, replace=covers_full_day, full=covers_full_day,
+            status=f"Loading {total_systems} systems...",
+        ))
+
+    span_minutes = max(1, int((fetch_end_local - fetch_start).total_seconds() // 60))
+    # One robot's window in one paginated query (a week per chunk at most
+    # so a year-long range cannot hit the paginator's page cap).
+    per_robot_chunk = max(10, min(span_minutes, 7 * 24 * 60))
+    t_scan_start = time.perf_counter()
+    for idx, row in enumerate(rows, start=1):
         if job.interrupted():
             return None
-        for robot_id, events in chunk.items():
-            row = row_by_robot.get(robot_id)
-            if row is None:
-                continue
-            row["events"].extend(list(events or []))
+        root = row["root"]
         eta = ""
-        if chunk_idx < total_chunks:
-            avg = (time.perf_counter() - t_chunks_start) / chunk_idx
-            eta = f" — {_fmt_eta(avg * (total_chunks - chunk_idx))}"
-        job.emit_progress(
-            f"Step 2/3 — loading events from Elastic ({chunk_idx}/{total_chunks} chunks){eta}"
+        if idx > 1:
+            avg = (time.perf_counter() - t_scan_start) / (idx - 1)
+            eta = f" — {_fmt_eta(avg * (total_systems - idx + 1))}"
+        clip_note = "" if scan_clips else f" (clips skipped for ranges over {OVERVIEW_CLIP_SCAN_MAX_DAYS} days)"
+        job.emit_progress(f"Loading {root.name} ({idx}/{total_systems}){clip_note}{eta}")
+        video_items = []
+        if scan_clips:
+            for day_entry in day_list:
+                video_items.extend(_build_video_items(root, day_entry))
+        row["video_items"] = video_items
+        row["thumbnail_image"] = (
+            _latest_video_thumbnail(video_items, cache_root, now_local) if video_items else None
         )
-    job.emit_progress("Step 3/3 — rendering overview...")
-    return {
-        "systems": final_systems,
-        "now_local": now_local,
-        "day_value": day_value,
-        # A full-day fetch counts as a full refresh even when it started
-        # as a cache-seeded load that found no cache file.
-        "full_refresh": covers_full_day,
-        # Historic loads replace whatever mode was loaded before.
-        "replace": day_range is not None,
-        # Events older than this are trimmed at merge (range start, or
-        # today's midnight in live mode).
-        "cutoff_utc": day_start_local.astimezone(timezone.utc),
-        "final": True,
-    }
+        if progressive and covers_full_day and row["robot_id"]:
+            for chunk in fetch_overview_event_chunks(
+                settings, [root], fetch_start, fetch_end_local, chunk_minutes=per_robot_chunk
+            ):
+                if job.interrupted():
+                    return None
+                row["events"].extend(list(chunk.get(row["robot_id"]) or []))
+        if progressive:
+            row["loaded"] = True
+            job.emit_progress(payload(
+                [dict(row)], False, status=f"Loaded {root.name} ({idx}/{total_systems}){eta}"
+            ))
+
+    if not (progressive and covers_full_day):
+        # Fleet-wide tail (in-session incremental, or the cache-seeded
+        # first load): small window, time-chunked across all robots.
+        chunk_minutes = 10
+        if day_range is not None:
+            chunk_minutes = min(24 * 60, max(10, ((span_minutes // 48) // 10 + 1) * 10))
+        total_chunks = max(1, int(((fetch_end_local - fetch_start).total_seconds() + (chunk_minutes * 60) - 1) // (chunk_minutes * 60)))
+        job.emit_progress(f"Loading recent events from Elastic (0/{total_chunks} chunks)")
+        t_chunks_start = time.perf_counter()
+        for chunk_idx, chunk in enumerate(fetch_overview_event_chunks(
+            settings, system_roots, fetch_start, fetch_end_local, chunk_minutes=chunk_minutes,
+        ), start=1):
+            if job.interrupted():
+                return None
+            for robot_id, events in chunk.items():
+                row = row_by_robot.get(robot_id)
+                if row is None:
+                    continue
+                row["events"].extend(list(events or []))
+            eta = ""
+            if chunk_idx < total_chunks:
+                avg = (time.perf_counter() - t_chunks_start) / chunk_idx
+                eta = f" — {_fmt_eta(avg * (total_chunks - chunk_idx))}"
+            job.emit_progress(
+                f"Loading recent events from Elastic ({chunk_idx}/{total_chunks} chunks){eta}"
+            )
+    job.emit_progress("Rendering overview...")
+    for row in rows:
+        row["loaded"] = True
+    # A full-window fetch counts as a full refresh even when it started as
+    # a cache-seeded load that found no cache file.
+    return payload(rows, True, replace=False, full=covers_full_day)
 
 
 class OverviewWidget(QWidget):
@@ -749,8 +768,25 @@ class OverviewWidget(QWidget):
         )
         self.pick_days_btn.clicked.connect(self._on_pick_days_clicked)
 
+        # Machine filter (Chris, 2026-09-05): unticked systems are not
+        # fetched at all. Per-user, remembered.
+        stored_hidden = load_ui_state().get(_OVERVIEW_HIDDEN_KEY)
+        self._hidden_systems: set[str] = (
+            {str(n) for n in stored_hidden if str(n).strip()} if isinstance(stored_hidden, list) else set()
+        )
+        self._filter_dirty = False
+        self.filter_btn = QToolButton()
+        self.filter_btn.setIcon(funnel_icon())
+        self.filter_btn.setIconSize(QSize(18, 18))
+        self.filter_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.filter_btn.setToolTip("Choose which systems to load and show")
+        self.filter_btn.clicked.connect(self._open_filter_popup)
+        self._refresh_filter_label()
+
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
+        controls.addWidget(self.filter_btn)
+        controls.addSpacing(12)
         controls.addWidget(QLabel("Zoom"))
         controls.addWidget(self.one_hour_btn)
         controls.addWidget(self.five_hour_btn)
@@ -900,6 +936,76 @@ class OverviewWidget(QWidget):
             self._stop_loading_video()
             self._maybe_persist_events_cache(_local_now(), force=True)
 
+    # ---- machine filter ---------------------------------------------------
+
+    def _known_system_names(self) -> list[str]:
+        if self.parent_dir is None:
+            return []
+        try:
+            names = [p.name for p in self.parent_dir.iterdir() if p.is_dir()]
+        except OSError:
+            return []
+        return sorted(names, key=lambda n: system_group_sort_key(self.settings, n))
+
+    def _selected_systems(self) -> set[str] | None:
+        """None = everything; else the ticked subset of the share."""
+        if not self._hidden_systems:
+            return None
+        return {n for n in self._known_system_names() if n not in self._hidden_systems}
+
+    def _open_filter_popup(self):
+        groups: list[tuple[str, list[str]]] = []
+        for name in self._known_system_names():
+            customer = str(display_customer_name(self.settings, name) or "")
+            if groups and groups[-1][0] == customer:
+                groups[-1][1].append(name)
+            else:
+                groups.append((customer, [name]))
+        self._filter_dirty = False
+        popup = SystemFilterPopup(
+            groups,
+            self._hidden_systems,
+            on_change=self._on_filter_toggled,
+            on_all=self._on_filter_all,
+            parent=self,
+            on_closed=self._on_filter_closed,
+        )
+        anchor = self.filter_btn.mapToGlobal(QPoint(0, self.filter_btn.height()))
+        popup.move(anchor)
+        popup.show()
+
+    def _on_filter_toggled(self, name: str, visible: bool):
+        if visible:
+            self._hidden_systems.discard(name)
+        else:
+            self._hidden_systems.add(name)
+        self._filter_dirty = True
+        self._persist_filter()
+
+    def _on_filter_all(self, visible: bool):
+        if visible:
+            self._hidden_systems.clear()
+        else:
+            self._hidden_systems.update(self._known_system_names())
+        self._filter_dirty = True
+        self._persist_filter()
+
+    def _persist_filter(self):
+        update_ui_state({_OVERVIEW_HIDDEN_KEY: sorted(self._hidden_systems)})
+        self._refresh_filter_label()
+
+    def _refresh_filter_label(self):
+        count = len(self._hidden_systems)
+        self.filter_btn.setText("Filter" if not count else f"Filter ({count} hidden)")
+
+    def _on_filter_closed(self):
+        # Reload once the popup closes, not per tick: the selection
+        # decides what gets fetched, so it is a fresh load.
+        if self._filter_dirty:
+            self._filter_dirty = False
+            self._reset_loaded_data()
+            self.refresh(force_full=True)
+
     def _reset_loaded_data(self):
         self._states.clear()
         self._summary_cache.clear()
@@ -966,9 +1072,10 @@ class OverviewWidget(QWidget):
             parent_dir = self.parent_dir
             cache_root = self.cache_root
             self._historic_loaded_range = day_range
+            selected = self._selected_systems()
             self._overview_slot.start(
                 lambda job: _run_overview_load(
-                    job, settings, parent_dir, cache_root, True, None, False, day_range
+                    job, settings, parent_dir, cache_root, True, None, False, day_range, selected
                 ),
                 on_result=self._on_loaded,
                 on_error=self._on_failed,
@@ -1002,8 +1109,9 @@ class OverviewWidget(QWidget):
         settings = self.settings
         parent_dir = self.parent_dir
         cache_root = self.cache_root
+        selected = self._selected_systems()
         self._overview_slot.start(
-            lambda job: _run_overview_load(job, settings, parent_dir, cache_root, full_refresh, since_dt, use_disk_cache),
+            lambda job: _run_overview_load(job, settings, parent_dir, cache_root, full_refresh, since_dt, use_disk_cache, None, selected),
             on_result=self._on_loaded,
             on_error=self._on_failed,
             on_progress=self._on_load_progress,
@@ -1334,6 +1442,7 @@ class OverviewWidget(QWidget):
             state.name = str(row.get("name") or root.name)
             state.robot_id = row.get("robot_id")
             state.video_items = list(row.get("video_items") or [])
+            state.loaded = bool(row.get("loaded", True))
             thumb = row.get("thumbnail_image")
             state.thumbnail_image = thumb if isinstance(thumb, QImage) else None
             incoming_events = list(row.get("events") or [])
@@ -1415,7 +1524,17 @@ class OverviewWidget(QWidget):
             self._refresh_timer.start()
         self._merge_payload(payload, is_final=True)
 
-    def _on_load_progress(self, message: str):
+    def _on_load_progress(self, message):
+        if isinstance(message, dict):
+            # Partial payload: merge it so the rows show up (and fill in)
+            # while the rest of the fleet is still loading.
+            status = str(message.get("status") or "").strip()
+            if status:
+                self.status_label.setText(status)
+                self.activity_progress.emit("overview-load", f"Overview: {status}", None, None)
+            self._merge_payload(message, is_final=False)
+            self._set_loading_visible(False)
+            return
         text = str(message or "").strip()
         if not text:
             return
@@ -2121,6 +2240,8 @@ class OverviewWidget(QWidget):
                 line.setZValue(4)
 
             status_text = str(summary.get("status") or "Unknown")
+            if not state.loaded:
+                status_text = "Loading..."
             status_color = {
                 "Running": QColor("#7cc77b"),
                 "Manual": QColor("#f0ad4e"),
