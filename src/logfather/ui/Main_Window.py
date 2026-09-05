@@ -53,6 +53,7 @@ from logfather.ui.stop_report import (
 from logfather.ui.target_overlay_controller import TargetOverlayController
 from logfather.data.settings_store import Settings, display_customer_name, display_line_name
 from logfather.ui.Log_vid_gui import VideoLogViewer
+from logfather.ui.data_inventory_dialog import DataInventoryDialog
 from logfather.ui.overview_widget import OverviewWidget
 from logfather.ui.fleetwide_elastic_search_widget import FleetwideElasticSearchWidget
 from logfather.ui.target_buffer_widget import TargetBufferWidget
@@ -290,6 +291,15 @@ class MainWindow(QWidget):
         self.track_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.track_toggle.toggled.connect(self._overlay_controller.set_tracking_enabled)
 
+        # Data window: fleet data inventory (Chris, 2026-09-05). Not mode
+        # gated - it is about the whole fleet.
+        self.data_btn = QToolButton()
+        self.data_btn.setText("Data")
+        self.data_btn.setToolTip("How much data exists per system, from Elastic and the CCTV share")
+        self.data_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.data_btn.clicked.connect(self._open_data_dialog)
+        self._data_dialog: DataInventoryDialog | None = None
+
         # Rarely-used items live behind "⋯" instead of permanent buttons.
         self.overflow_btn = QToolButton()
         self.overflow_btn.setText("⋯")
@@ -304,6 +314,7 @@ class MainWindow(QWidget):
         top_controls.addWidget(self.calibrate_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.buffer_toggle, 0, Qt.AlignRight)
+        top_controls.addWidget(self.data_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.overflow_btn, 0, Qt.AlignRight)
 
         # Activity bar: a persistent strip at the very bottom showing what
@@ -488,6 +499,22 @@ class MainWindow(QWidget):
             0,
             lambda: self._overlay_controller.set_tracking_enabled(self.track_toggle.isChecked()),
         )
+
+    def _open_data_dialog(self):
+        if self._data_dialog is None:
+            self._data_dialog = DataInventoryDialog(
+                settings_provider=lambda: self.settings,
+                parent_dir_provider=lambda: self.date_picker.parent_dir,
+                parent=self,
+            )
+        self._data_dialog.show()
+        self._data_dialog.raise_()
+        self._data_dialog.activateWindow()
+        self._data_dialog.start_if_needed()
+
+    def _shutdown_data_dialog(self):
+        if self._data_dialog is not None:
+            self._data_dialog.shutdown()
 
     def _open_about_dialog(self):
         from logfather.ui.about_page import AboutDialog
@@ -889,6 +916,7 @@ class MainWindow(QWidget):
             ("Stopping timeline loader", self.time_picker.shutdown_workers),
             ("Stopping overview loader", self.overview_widget.shutdown_workers),
             ("Stopping fleetwide search", self.fleetwide_search_widget.shutdown_workers),
+            ("Stopping data inventory", self._shutdown_data_dialog),
             ("Saving settings, stopping viewer workers", self.viewer.shutdown_workers),
         )
         popup_bar = QProgressBar()
