@@ -568,6 +568,7 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
     if parent_dir.exists():
         system_roots = [p for p in parent_dir.iterdir() if p.is_dir()]
     system_roots.sort(key=lambda p: p.name.lower())
+    all_system_names = [p.name for p in system_roots]
     if selected is not None:
         # Machine filter (Chris, 2026-09-05): unselected systems are
         # neither scanned nor fetched.
@@ -626,6 +627,7 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
             "cutoff_utc": cutoff_utc,
             "final": final,
             "status": status,
+            "all_systems": all_system_names,
         }
 
     if progressive:
@@ -793,6 +795,11 @@ class OverviewWidget(QWidget):
             {str(k): [str(n) for n in v] for k, v in raw_systems.items() if isinstance(v, list)}
             if isinstance(raw_systems, dict) else {}
         )
+        # Names of every system folder on the share, cached from the
+        # loader's listing: the filter popup and the load order must not
+        # list the WAN share on the UI thread (Chris, 2026-09-05: the
+        # Filter button took seconds to open).
+        self._share_system_names: list[str] | None = None
         self._row_bands: list[tuple] = []
         self._drag_candidate = None
         self._dragging = False
@@ -917,6 +924,7 @@ class OverviewWidget(QWidget):
         if self.parent_dir == parent_dir:
             return
         self.parent_dir = parent_dir
+        self._share_system_names = None
         self._sync_collapsed_customers(reset=True)
         if self._active or self._background_enabled:
             self.refresh(force_full=True)
@@ -977,11 +985,13 @@ class OverviewWidget(QWidget):
     def _known_system_names(self) -> list[str]:
         if self.parent_dir is None:
             return []
-        try:
-            names = [p.name for p in self.parent_dir.iterdir() if p.is_dir()]
-        except OSError:
-            return []
-        return sorted(names, key=self._display_sort_key)
+        if self._share_system_names is None:
+            # First call before any load has listed the share: list once.
+            try:
+                self._share_system_names = [p.name for p in self.parent_dir.iterdir() if p.is_dir()]
+            except OSError:
+                return []
+        return sorted(self._share_system_names, key=self._display_sort_key)
 
     # ---- drag and drop ordering -------------------------------------------
 
@@ -1574,6 +1584,9 @@ class OverviewWidget(QWidget):
             self._stop_loading_video()
 
     def _merge_payload(self, payload: dict, is_final: bool):
+        listing = payload.get("all_systems")
+        if isinstance(listing, list) and listing:
+            self._share_system_names = [str(n) for n in listing]
         systems = payload.get("systems", [])
         now_local = payload.get("now_local")
         day_value = payload.get("day_value")
