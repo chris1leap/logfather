@@ -40,11 +40,13 @@ Living record of agreed functionality: what is open, and what has shipped
   actual documents can be read.
 - Errors / Stops window (Chris): top-bar button; the Overview's machine
   filter and Live / Choose days picker (defaults to the last 7 days).
-  Two stacked daily charts - line stoppages by kind (emergency,
-  protective, operator, caution) and errors by category (planner,
-  targeting, motion, sensors, drives/power, crate change, system) -
-  with totals above and a per-system table below (stoppages, errors,
-  most common error); hover a bar for the systems behind it. Exact
+  Two daily charts with one bar per system inside each day (same colour
+  and slot every day), so a system with far more errors, or a sudden
+  rise, stands out (Chris: was stacked by category); hover a bar for
+  that system's breakdown by kind (emergency, protective, operator,
+  caution) or category (planner, targeting, motion, sensors,
+  drives/power, crate change, system). Totals above, a per-system table
+  below (stoppages, errors, most common error). Exact
   Elastic aggregations over both robot-id fields
   (`data/errors_stops.py`, classification tested). The stacked bar chart
   and day-range dialog moved to shared modules (`ui/charts.py`,

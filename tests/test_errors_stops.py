@@ -66,3 +66,16 @@ def test_series_and_summaries():
     assert data.day_breakdown("stops", d2, lambda s: stop_kind(s) == "Caution") == {"35-2300-006": 4}
     assert data.day_breakdown("errors", d1, lambda s: categorize_error(s) == "Planner") == {"35-2300-007": 10}
     assert day_list(d1, d2) == [d1, d2]
+
+
+def test_system_series_and_day_states():
+    d1, d2 = date(2026, 9, 4), date(2026, 9, 5)
+    data = ErrorsStopsData(days=day_list(d1, d2))
+    data.errors = {
+        d1: {"35-2300-007": {"planner_error": 10, "already_stopped_error": 5}},
+        d2: {"35-2300-006": {"air_pressure_reading_error": 7}, "35-2300-007": {}},
+    }
+    assert data.system_series("errors") == {"35-2300-007": {d1: 15}, "35-2300-006": {d2: 7}}
+    assert data.system_day_states("errors", "35-2300-007", d1) == {"planner_error": 10, "already_stopped_error": 5}
+    assert data.system_day_states("errors", "35-2300-007", d2) == {}
+    assert data.system_series("stops") == {}

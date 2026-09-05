@@ -109,6 +109,22 @@ class ErrorsStopsData:
             entry["top_error"] = max(states.items(), key=lambda kv: kv[1]) if states else ("", 0)
         return out
 
+    def system_series(self, table: str) -> dict[str, dict[date, int]]:
+        """robot -> day -> total (stops or errors) for one bar per system."""
+        source = self.stops if table == "stops" else self.errors
+        out: dict[str, dict[date, int]] = {}
+        for day, robots in source.items():
+            for robot, states in robots.items():
+                total = sum(states.values())
+                if total:
+                    out.setdefault(robot, {})[day] = total
+        return out
+
+    def system_day_states(self, table: str, robot: str, day: date) -> dict[str, int]:
+        """state -> count for one system on one day."""
+        source = self.stops if table == "stops" else self.errors
+        return dict(source.get(day, {}).get(robot, {}))
+
     def day_breakdown(self, table: str, day: date, selector: Callable[[str], bool]) -> dict[str, int]:
         """robot -> count for one day, over the states the selector accepts."""
         source = self.stops if table == "stops" else self.errors

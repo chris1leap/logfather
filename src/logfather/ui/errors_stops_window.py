@@ -92,7 +92,8 @@ class ErrorsStopsWindow(QDialog):
             "Line stoppages and errors per day for the chosen systems and days. Stops are the "
             "emergency, protective, operator and caution states; errors are every error or "
             "failure state, grouped by the part of the system that raised it. Hover a bar for "
-            "the systems behind it."
+            "the breakdown. Each day shows one bar per system, so a system with far more "
+            "errors than the rest, or a sudden rise, stands out."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {theme.TEXT_BRIGHT};")
@@ -140,17 +141,20 @@ class ErrorsStopsWindow(QDialog):
         tiles.addWidget(self._errors_tile, 1)
         layout.addLayout(tiles)
 
+        self._label_to_robot: dict[str, str] = {}
         self._stops_chart = StackedBarChart()
         self._stops_chart.setMinimumHeight(220)
-        self._stops_chart.set_detail_provider(lambda kind, day: self._detail("stops", kind, day))
+        self._stops_chart.set_grouped(True)
+        self._stops_chart.set_detail_provider(lambda label, day: self._detail("stops", label, day))
         self._stops_legend = QLabel("")
-        layout.addWidget(self._boxed("Line stoppages per day", self._stops_legend, self._stops_chart), 3)
+        layout.addWidget(self._boxed("Line stoppages per day, one bar per system", self._stops_legend, self._stops_chart), 3)
 
         self._errors_chart = StackedBarChart()
         self._errors_chart.setMinimumHeight(220)
-        self._errors_chart.set_detail_provider(lambda cat, day: self._detail("errors", cat, day))
+        self._errors_chart.set_grouped(True)
+        self._errors_chart.set_detail_provider(lambda label, day: self._detail("errors", label, day))
         self._errors_legend = QLabel("")
-        layout.addWidget(self._boxed("Errors per day by category", self._errors_legend, self._errors_chart), 3)
+        layout.addWidget(self._boxed("Errors per day, one bar per system", self._errors_legend, self._errors_chart), 3)
 
         self._table = QTableWidget()
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -333,14 +337,33 @@ class ErrorsStopsWindow(QDialog):
         top = sorted(((sum(v.values()), k) for k, v in errors.items() if sum(v.values())), reverse=True)[:3]
         self._errors_sub.setText(f"{total_errors / n_days:.0f} per day · " + " · ".join(f"{k} {n:,}" for n, k in top))
         fmt = lambda v: f"{int(round(v)):,}"
-        stop_series = [(k, _STOP_COLOURS[k], {d: float(n) for d, n in v.items()}) for k, v in stops.items() if sum(v.values())]
-        self._stops_chart.set_data(days, stop_series, fmt, empty_text="No stoppages in this range")
-        self._stops_legend.setText("&nbsp;&nbsp;".join(f'<span style="background-color:{c.name()};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{k}' for k, c, _ in stop_series))
-        error_series = [(k, _category_colour(i), {d: float(n) for d, n in v.items()}) for i, (k, v) in enumerate(errors.items()) if sum(v.values())]
-        self._errors_chart.set_data(days, error_series, fmt, empty_text="No errors in this range")
-        self._errors_legend.setText("&nbsp;&nbsp;".join(f'<span style="background-color:{c.name()};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{k}' for k, c, _ in error_series))
+        # One bar per system, the same colour and slot in every day.
+        robots = self._ordered_robots(set(data.system_series("stops")) | set(data.system_series("errors")))
+        colours = {robot: _category_colour(i) for i, robot in enumerate(robots)}
+        self._label_to_robot = {self._system_label(r): r for r in robots}
+        legend = "&nbsp;&nbsp;".join(
+            f'<span style="background-color:{colours[r].name()};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{self._system_label(r)}'
+            for r in robots
+        )
+        for table, chart, legend_label, empty in (
+            ("stops", self._stops_chart, self._stops_legend, "No stoppages in this range"),
+            ("errors", self._errors_chart, self._errors_legend, "No errors in this range"),
+        ):
+            per_system = data.system_series(table)
+            series = [
+                (self._system_label(r), colours[r], {d: float(n) for d, n in per_system.get(r, {}).items()})
+                for r in robots
+            ]
+            chart.set_data(days, series, fmt, empty_text=empty)
+            legend_label.setText(legend)
         self._fill_table(data)
         self._status.setText(f"{len(days)} day{'s' if len(days) != 1 else ''} · {total_stops:,} stoppages · {total_errors:,} errors")
+
+    def _ordered_robots(self, robots: set[str]) -> list[str]:
+        """Display order of the share listing; unknown robots after."""
+        known = self._known_systems_provider()
+        rank = {robot_id_from_folder(name): i for i, name in enumerate(known)}
+        return sorted(robots, key=lambda r: (rank.get(r, len(rank)), r))
 
     def _fill_table(self, data: ErrorsStopsData):
         per = data.per_system()
@@ -363,25 +386,23 @@ class ErrorsStopsWindow(QDialog):
                 table.setItem(r, c, item)
         table.resizeRowsToContents()
 
-    def _detail(self, table: str, series_name: str, day: date) -> str:
+    def _detail(self, table: str, label: str, day: date) -> str:
+        """One system on one day: total, then by kind (stops) or category
+        (errors), then the top states."""
         if self._data is None:
-            return series_name
-        if table == "stops":
-            selector = lambda s: stop_kind(s) == series_name
-        else:
-            selector = lambda s: categorize_error(s) == series_name
-        per_robot = self._data.day_breakdown(table, day, selector)
-        total = sum(per_robot.values())
-        lines = [f"<b>{series_name}</b> — {day:%A %d/%m/%Y}: {total:,}"]
-        for robot, n in sorted(per_robot.items(), key=lambda kv: -kv[1])[:8]:
-            lines.append(f"{self._system_label(robot)}: {n:,}")
-        if table == "errors":
-            states: dict[str, int] = {}
-            for robot_states in self._data.errors.get(day, {}).values():
-                for state, n in robot_states.items():
-                    if selector(state):
-                        states[state] = states.get(state, 0) + n
-            top = sorted(states.items(), key=lambda kv: -kv[1])[:4]
-            if top:
-                lines.append("<i>" + ", ".join(f"{s} {n:,}" for s, n in top) + "</i>")
+            return label
+        robot = self._label_to_robot.get(label, label)
+        states = self._data.system_day_states(table, robot, day)
+        total = sum(states.values())
+        noun = "stoppages" if table == "stops" else "errors"
+        lines = [f"<b>{label}</b> — {day:%A %d/%m/%Y}: {total:,} {noun}"]
+        groups: dict[str, int] = {}
+        for state, n in states.items():
+            key = (stop_kind(state) or "Other") if table == "stops" else categorize_error(state)
+            groups[key] = groups.get(key, 0) + n
+        for key, n in sorted(groups.items(), key=lambda kv: -kv[1]):
+            lines.append(f"{key}: {n:,}")
+        top = sorted(states.items(), key=lambda kv: -kv[1])[:4]
+        if top and table == "errors":
+            lines.append("<i>" + ", ".join(f"{s} {n:,}" for s, n in top) + "</i>")
         return "<br>".join(lines)

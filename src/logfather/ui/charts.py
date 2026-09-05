@@ -34,6 +34,14 @@ class StackedBarChart(QWidget):
         # Filled during paint: (rect, name, day) per drawn segment.
         self._segments: list[tuple[QRectF, str, date]] = []
         self._hover_index: int | None = None
+        # Grouped mode (Chris, 2026-09-05: Errors / Stops): one bar per
+        # series side by side inside each day, so one system standing out
+        # or climbing is obvious. Each series keeps its slot even at zero.
+        self._grouped = False
+
+    def set_grouped(self, grouped: bool) -> None:
+        self._grouped = bool(grouped)
+        self.update()
 
     def set_detail_provider(self, fn: DetailFn | None) -> None:
         self._detail_fn = fn
@@ -115,7 +123,13 @@ class StackedBarChart(QWidget):
             painter.drawText(rect, Qt.AlignCenter, self._empty_text)
             painter.end()
             return
-        vmax = max(totals)
+        if self._grouped:
+            vmax = max(
+                float(values.get(day, 0.0)) for _n, _c, values in self._series for day in self._days
+            )
+        else:
+            vmax = max(totals)
+        vmax = max(vmax, 1e-9)
         grid_pen = QPen(QColor(theme.BORDER))
         grid_pen.setWidth(1)
         painter.setFont(QFont(self.font().family(), max(8, self.font().pointSize() - 2)))
@@ -132,6 +146,12 @@ class StackedBarChart(QWidget):
             )
         n = len(self._days)
         slot = plot_w / n
+        if self._grouped:
+            self._paint_grouped(painter, plot_left, plot_bottom, plot_h, slot, vmax, totals)
+            painter.setPen(QPen(QColor(theme.BORDER_LIGHT)))
+            painter.drawLine(plot_left, plot_bottom, plot_right, plot_bottom)
+            painter.end()
+            return
         bar_w = max(4.0, slot * 0.62)
         for i, day in enumerate(self._days):
             x = plot_left + i * slot + (slot - bar_w) / 2
@@ -170,3 +190,41 @@ class StackedBarChart(QWidget):
         painter.setPen(QPen(QColor(theme.BORDER_LIGHT)))
         painter.drawLine(plot_left, plot_bottom, plot_right, plot_bottom)
         painter.end()
+
+    def _paint_grouped(self, painter, plot_left, plot_bottom, plot_h, slot, vmax, totals) -> None:
+        k = max(1, len(self._series))
+        cluster_w = slot * 0.8
+        gap = 1.0 if cluster_w / k > 4 else 0.0
+        bar_w = max(1.5, cluster_w / k - gap)
+        for i, day in enumerate(self._days):
+            x0 = plot_left + i * slot + (slot - cluster_w) / 2
+            for j, (name, colour, values) in enumerate(self._series):
+                value = float(values.get(day, 0.0))
+                x = x0 + j * (bar_w + gap)
+                if value <= 0:
+                    continue
+                h = max(1.0, value / vmax * plot_h)
+                seg = QRectF(x, plot_bottom - h, bar_w, h)
+                segment_index = len(self._segments)
+                self._segments.append((seg, name, day))
+                painter.setBrush(QBrush(colour))
+                if segment_index == self._hover_index:
+                    outline = QPen(QColor(theme.TEXT_BRIGHT))
+                    outline.setWidth(2)
+                    painter.setPen(outline)
+                else:
+                    painter.setPen(Qt.NoPen)
+                painter.drawRect(seg)
+            if totals[i] > 0 and slot >= 34:
+                painter.setPen(QColor(theme.TEXT_MUTED))
+                painter.drawText(
+                    QRectF(x0 - slot / 2, plot_bottom - plot_h - 22, cluster_w + slot, 18),
+                    Qt.AlignHCenter | Qt.AlignBottom,
+                    self._fmt(totals[i]),
+                )
+            painter.setPen(QColor(theme.TEXT_MUTED))
+            painter.drawText(
+                QRectF(x0 - slot / 2, plot_bottom + 6, cluster_w + slot, 20),
+                Qt.AlignHCenter | Qt.AlignTop,
+                day.strftime("%d/%m"),
+            )
