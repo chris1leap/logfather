@@ -312,6 +312,16 @@ class DataInventoryDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Data — fleet inventory")
+        # A real resizable window with minimise/maximise, not a fixed
+        # dialog (Chris, 2026-09-05); the chart stretches to fill it.
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.WindowTitleHint
+            | Qt.WindowMinMaxButtonsHint
+            | Qt.WindowCloseButtonHint
+        )
+        self.setSizeGripEnabled(True)
+        self.setMinimumSize(720, 480)
         self.resize(1180, 720)
         self._settings_provider = settings_provider
         self._parent_dir_provider = parent_dir_provider
