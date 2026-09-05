@@ -345,6 +345,15 @@ class DataInventoryDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
+        intro = QLabel(
+            "Here is an overview of the data stored by PikPak systems. "
+            "Elastic logs are stored continuously. "
+            "CCTV footage is stored for the last 30 days only (currently)."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {theme.TEXT_BRIGHT};")
+        layout.addWidget(intro)
+
         self._elastic_summary = QLabel("Elastic: not loaded")
         self._elastic_summary.setWordWrap(True)
         self._cctv_summary = QLabel("CCTV share: not loaded")
@@ -643,7 +652,9 @@ class DataInventoryDialog(QDialog):
 
     def _detail_for(self, name: str, day: date) -> str:
         """Every metric for one system on one day, for the hover tooltip."""
-        lines = [f"<b>{name}</b> — {day:%A %d/%m/%Y}"]
+        # Just the system and its figures: the day and the share of the
+        # day are already visible on the chart (Chris, 2026-09-05).
+        lines = [f"<b>{name}</b>"]
         inv = self._elastic
         if inv is not None:
             docs = 0
@@ -655,9 +666,7 @@ class DataInventoryDialog(QDialog):
                     docs += count
                     factor_used = inv.bytes_factor(robot)
                     est_bytes += count * factor_used
-            day_total = sum(int(per_day.get(day, 0)) for per_day in inv.counts.values())
-            share = f" ({docs / day_total:.0%} of the day)" if day_total and docs else ""
-            line = f"Elastic: {format_count(docs)} documents{share}"
+            line = f"Elastic: {format_count(docs)} documents"
             if est_bytes and docs:
                 line += f" ≈ {format_bytes(est_bytes)} (avg {factor_used:.0f} B/doc)"
             lines.append(line)
