@@ -42,10 +42,14 @@ from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.day_range_dialog import MAX_RANGE_DAYS, DayRangeDialog
+from logfather.ui.icons import zoom_glyph_icon
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _HIDDEN_KEY = "errors_hidden_systems"
+_ZOOM_KEY = "errors_day_zoom"
+_ZOOM_STEP = 1.25
+_ZOOM_MIN, _ZOOM_MAX = 0.3, 4.0
 
 # Stop kinds keep their meaning in colour: red-ish for emergency, amber
 # for protective, blue for operator, yellow for caution (all pastel).
@@ -91,6 +95,13 @@ class ErrorsStopsWindow(QDialog):
         stored = load_ui_state().get(_HIDDEN_KEY)
         self._hidden: set[str] = {str(n) for n in stored if str(n).strip()} if isinstance(stored, list) else set()
         self._filter_dirty = False
+        # Day zoom (Chris, 2026-09-05): + / - change how many days fit on
+        # screen (the width per day), never the text size. Remembered.
+        try:
+            self._day_zoom = float(load_ui_state().get(_ZOOM_KEY) or 1.0)
+        except (TypeError, ValueError):
+            self._day_zoom = 1.0
+        self._day_zoom = min(_ZOOM_MAX, max(_ZOOM_MIN, self._day_zoom))
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -138,6 +149,14 @@ class ErrorsStopsWindow(QDialog):
         refresh = QPushButton("Refresh")
         refresh.clicked.connect(self.start)
         controls.addWidget(refresh)
+        controls.addSpacing(12)
+        zoom_label = QLabel("Zoom")
+        zoom_label.setStyleSheet(theme.MUTED_LABEL)
+        controls.addWidget(zoom_label)
+        self._zoom_out_btn = self._zoom_button("minus", "Fewer pixels per day: more days on screen", -1)
+        self._zoom_in_btn = self._zoom_button("plus", "More pixels per day: fewer days on screen", +1)
+        controls.addWidget(self._zoom_out_btn)
+        controls.addWidget(self._zoom_in_btn)
         layout.addLayout(controls)
 
         tiles = QHBoxLayout()
@@ -182,6 +201,33 @@ class ErrorsStopsWindow(QDialog):
         self._refresh_labels()
 
     # ---- widgets ----------------------------------------------------------
+
+    def _zoom_button(self, glyph: str, tip: str, step: int) -> QToolButton:
+        btn = QToolButton()
+        btn.setIcon(zoom_glyph_icon(glyph))
+        btn.setIconSize(QSize(theme.ZOOM_CIRCLE_SIZE - 10, theme.ZOOM_CIRCLE_SIZE - 10))
+        btn.setStyleSheet(theme.ZOOM_CIRCLE_BUTTON)
+        btn.setFixedSize(theme.ZOOM_CIRCLE_SIZE, theme.ZOOM_CIRCLE_SIZE)
+        btn.setToolTip(tip)
+        btn.setAutoRepeat(True)
+        btn.clicked.connect(lambda _checked=False: self._change_day_zoom(step))
+        return btn
+
+    def _change_day_zoom(self, step: int) -> None:
+        factor = _ZOOM_STEP if step > 0 else 1.0 / _ZOOM_STEP
+        new = min(_ZOOM_MAX, max(_ZOOM_MIN, self._day_zoom * factor))
+        if abs(new - self._day_zoom) < 1e-6:
+            return
+        self._day_zoom = new
+        update_ui_state({_ZOOM_KEY: round(new, 4)})
+        self._zoom_out_btn.setEnabled(new > _ZOOM_MIN + 1e-6)
+        self._zoom_in_btn.setEnabled(new < _ZOOM_MAX - 1e-6)
+        # Keep the right-hand (latest) days in view while the width changes.
+        at_end = self._stops_chart.offset() >= self._stops_chart.max_offset() - 1
+        self._render()
+        if at_end:
+            for chart in (self._stops_chart, self._errors_chart):
+                chart.scroll_to_end()
 
     @staticmethod
     def _make_tile(title: str):
@@ -469,7 +515,8 @@ class ErrorsStopsWindow(QDialog):
         )
         # Enough width for every system's bar to be seen; longer ranges
         # scroll instead of squeezing (Chris, 2026-09-05).
-        min_slot = max(44.0, len(robots) * 5.0 + 12.0)
+        base_slot = max(44.0, len(robots) * 5.0 + 12.0)
+        min_slot = max(len(robots) * 2.0 + 6.0, base_slot * self._day_zoom)
         for table, chart, legend_label, empty in (
             ("stops", self._stops_chart, self._stops_legend, "No stoppages in this range"),
             ("errors", self._errors_chart, self._errors_legend, "No errors in this range"),
