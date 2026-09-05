@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-05
 
+- Overview drag-and-drop ordering (Chris): press-and-drag a company bar
+  or a machine's name to reorder; an accent line shows where it will
+  land; machines stay within their company. Order remembered per user
+  and used both for display and for the load sequence, so the table
+  fills top to bottom. Only the ▲/▼ arrow toggles a company's collapse
+  now - the rest of the bar is the drag handle. Clicking a machine name
+  opens it in the viewer.
 - Overview machine filter + progressive loading (Chris): funnel button
   opens a per-customer tick list (shared `ui/system_filter.py`);
   unticked systems are neither scanned nor fetched; selection remembered

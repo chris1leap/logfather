@@ -58,6 +58,8 @@ from logfather.data.ui_state_store import (
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _OVERVIEW_HIDDEN_KEY = "overview_hidden_systems"
+_OVERVIEW_CUSTOMER_ORDER_KEY = "overview_customer_order"
+_OVERVIEW_SYSTEM_ORDER_KEY = "overview_system_order"
 from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 from logfather.data.settings_store import (
@@ -431,10 +433,9 @@ class _OverviewCustomerHeaderItem(QGraphicsRectItem):
         super().hoverLeaveEvent(event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._widget.toggle_customer_collapsed(self._customer_name)
-            event.accept()
-            return
+        # Clicks and drags on the bar are handled by the widget's viewport
+        # filter (only the arrow toggles; the bar itself is the drag
+        # handle - Chris, 2026-09-05).
         super().mousePressEvent(event)
 
 
@@ -542,7 +543,7 @@ def _fmt_eta(seconds: float) -> str:
     return f"~{minutes}m {rem:02d}s left"
 
 
-def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False, day_range: tuple[date, date] | None = None, selected: set[str] | None = None):
+def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Path | None, full_refresh: bool, since_dt: datetime | None, use_disk_cache: bool = False, day_range: tuple[date, date] | None = None, selected: set[str] | None = None, order: list[str] | None = None):
     now_local = _local_now()
     if day_range is not None:
         # Historic day/range mode (Chris, 2026-09-05): fixed span, no
@@ -571,6 +572,10 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
         # Machine filter (Chris, 2026-09-05): unselected systems are
         # neither scanned nor fetched.
         system_roots = [p for p in system_roots if p.name in selected]
+    if order:
+        # Load in display order so the table fills top to bottom.
+        rank = {name: idx for idx, name in enumerate(order)}
+        system_roots.sort(key=lambda p: (rank.get(p.name, len(rank)), p.name.lower()))
     total_systems = len(system_roots)
     scan_clips = len(day_list) <= OVERVIEW_CLIP_SCAN_MAX_DAYS
 
@@ -775,6 +780,24 @@ class OverviewWidget(QWidget):
             {str(n) for n in stored_hidden if str(n).strip()} if isinstance(stored_hidden, list) else set()
         )
         self._filter_dirty = False
+        # Custom display order for companies and machines (drag and drop,
+        # Chris, 2026-09-05); per-user, remembered. Unlisted entries sort
+        # after the listed ones by the settings order.
+        state_blob = load_ui_state()
+        raw_customers = state_blob.get(_OVERVIEW_CUSTOMER_ORDER_KEY)
+        self._customer_order: list[str] = (
+            [str(c) for c in raw_customers if str(c).strip()] if isinstance(raw_customers, list) else []
+        )
+        raw_systems = state_blob.get(_OVERVIEW_SYSTEM_ORDER_KEY)
+        self._system_order: dict[str, list[str]] = (
+            {str(k): [str(n) for n in v] for k, v in raw_systems.items() if isinstance(v, list)}
+            if isinstance(raw_systems, dict) else {}
+        )
+        self._row_bands: list[tuple] = []
+        self._drag_candidate = None
+        self._dragging = False
+        self._drop_target: int | None = None
+        self._drop_line_item = None
         self.filter_btn = QToolButton()
         self.filter_btn.setIcon(funnel_icon())
         self.filter_btn.setIconSize(QSize(18, 18))
@@ -938,6 +961,19 @@ class OverviewWidget(QWidget):
 
     # ---- machine filter ---------------------------------------------------
 
+    def _display_sort_key(self, system_name: str) -> tuple:
+        """Settings order, overridden by the user's dragged order."""
+        customer = display_customer_name(self.settings, system_name)
+        base = system_group_sort_key(self.settings, system_name)
+        customer_rank = (
+            self._customer_order.index(customer)
+            if customer in self._customer_order
+            else len(self._customer_order)
+        )
+        order = self._system_order.get(customer) or []
+        system_rank = order.index(system_name) if system_name in order else len(order)
+        return (customer_rank, base[0], system_rank, base[1], base[2])
+
     def _known_system_names(self) -> list[str]:
         if self.parent_dir is None:
             return []
@@ -945,7 +981,133 @@ class OverviewWidget(QWidget):
             names = [p.name for p in self.parent_dir.iterdir() if p.is_dir()]
         except OSError:
             return []
-        return sorted(names, key=lambda n: system_group_sort_key(self.settings, n))
+        return sorted(names, key=self._display_sort_key)
+
+    # ---- drag and drop ordering -------------------------------------------
+
+    def _band_at(self, scene_pos):
+        x, y = float(scene_pos.x()), float(scene_pos.y())
+        for band in self._row_bands:
+            y0, y1, kind, _name, _customer, _arrow = band
+            if y0 <= y < y1:
+                if kind == "customer":
+                    return band
+                # Machines: only their name column, so the timeline lane
+                # keeps its own click-to-open-at-time behaviour.
+                return band if x < self._hover_timeline_x else None
+        return None
+
+    def _handle_drag_event(self, event) -> bool:
+        event_type = event.type()
+        if event_type == QEvent.MouseButtonPress:
+            if event.button() != Qt.LeftButton:
+                return False
+            band = self._band_at(self.view.mapToScene(event.pos()))
+            if band is None:
+                return False
+            self._drag_candidate = (band, event.pos())
+            self._dragging = False
+            return True
+        if event_type == QEvent.MouseMove and self._drag_candidate is not None:
+            band, press_pos = self._drag_candidate
+            if not self._dragging:
+                if (event.pos() - press_pos).manhattanLength() < 8:
+                    return True
+                self._dragging = True
+                self.view.viewport().setCursor(Qt.ClosedHandCursor)
+                self.hide_thumbnail_preview()
+            self._update_drop_target(band, float(self.view.mapToScene(event.pos()).y()))
+            return True
+        if event_type == QEvent.MouseButtonRelease and self._drag_candidate is not None:
+            band, _press_pos = self._drag_candidate
+            self._drag_candidate = None
+            if self._dragging:
+                self._dragging = False
+                self.view.viewport().unsetCursor()
+                self._finish_drop(band)
+            else:
+                self._click_band(band, self.view.mapToScene(event.pos()))
+            return True
+        return False
+
+    def _click_band(self, band, scene_pos):
+        _y0, _y1, kind, name, _customer, arrow_rect = band
+        if kind == "customer":
+            # Only the arrow toggles (Chris, 2026-09-05); the rest of the
+            # bar is the drag handle.
+            if arrow_rect is not None and arrow_rect.adjusted(-8, -6, 8, 6).contains(scene_pos):
+                self.toggle_customer_collapsed(name)
+            return
+        state = next((st for st in self._states.values() if st.name == name), None)
+        if state is not None:
+            self.open_requested.emit(state.root, self.current_day(), None)
+
+    def _drop_slots(self, band) -> tuple[list[tuple[float, int]], list[str]]:
+        """(line_y, insert_index) candidates and the names in current order,
+        for the group the dragged item belongs to."""
+        kind, customer = band[2], band[4]
+        if kind == "customer":
+            groups: list[list] = []
+            for b in self._row_bands:
+                if b[2] == "customer":
+                    groups.append([b[3], b[0], b[1]])
+                elif groups and groups[-1][0] == b[4]:
+                    groups[-1][2] = b[1]
+            slots = [(g[1], i) for i, g in enumerate(groups)]
+            if groups:
+                slots.append((groups[-1][2], len(groups)))
+            return slots, [g[0] for g in groups]
+        rows = [b for b in self._row_bands if b[2] == "system" and b[4] == customer]
+        slots = [(b[0], i) for i, b in enumerate(rows)]
+        if rows:
+            slots.append((rows[-1][1], len(rows)))
+        return slots, [b[3] for b in rows]
+
+    def _update_drop_target(self, band, y: float):
+        slots, _names = self._drop_slots(band)
+        if not slots:
+            return
+        line_y, index = min(slots, key=lambda slot: abs(slot[0] - y))
+        self._drop_target = index
+        line = self._live_scene_item(self._drop_line_item)
+        if line is None:
+            pen = QPen(QColor(theme.ACCENT))
+            pen.setWidth(3)
+            line = self.scene.addLine(0, 0, 0, 0, pen)
+            line.setZValue(30)
+            self._drop_line_item = line
+        width = self.scene.sceneRect().width()
+        line.setLine(4, line_y, width - 4, line_y)
+        line.setVisible(True)
+
+    def _finish_drop(self, band):
+        line = self._live_scene_item(self._drop_line_item)
+        if line is not None:
+            line.setVisible(False)
+        index = self._drop_target
+        self._drop_target = None
+        if index is None:
+            return
+        kind, name, customer = band[2], band[3], band[4]
+        _slots, names = self._drop_slots(band)
+        if name not in names:
+            return
+        old = names.index(name)
+        reordered = [n for n in names if n != name]
+        insert_at = index - (1 if index > old else 0)
+        insert_at = max(0, min(len(reordered), insert_at))
+        reordered.insert(insert_at, name)
+        if reordered == names:
+            return
+        if kind == "customer":
+            self._customer_order = reordered
+        else:
+            self._system_order[customer] = reordered
+        update_ui_state({
+            _OVERVIEW_CUSTOMER_ORDER_KEY: self._customer_order,
+            _OVERVIEW_SYSTEM_ORDER_KEY: self._system_order,
+        })
+        self._schedule_redraw()
 
     def _selected_systems(self) -> set[str] | None:
         """None = everything; else the ticked subset of the share."""
@@ -1073,9 +1235,10 @@ class OverviewWidget(QWidget):
             cache_root = self.cache_root
             self._historic_loaded_range = day_range
             selected = self._selected_systems()
+            order = self._known_system_names()
             self._overview_slot.start(
                 lambda job: _run_overview_load(
-                    job, settings, parent_dir, cache_root, True, None, False, day_range, selected
+                    job, settings, parent_dir, cache_root, True, None, False, day_range, selected, order
                 ),
                 on_result=self._on_loaded,
                 on_error=self._on_failed,
@@ -1110,8 +1273,9 @@ class OverviewWidget(QWidget):
         parent_dir = self.parent_dir
         cache_root = self.cache_root
         selected = self._selected_systems()
+        order = self._known_system_names()
         self._overview_slot.start(
-            lambda job: _run_overview_load(job, settings, parent_dir, cache_root, full_refresh, since_dt, use_disk_cache, None, selected),
+            lambda job: _run_overview_load(job, settings, parent_dir, cache_root, full_refresh, since_dt, use_disk_cache, None, selected, order),
             on_result=self._on_loaded,
             on_error=self._on_failed,
             on_progress=self._on_load_progress,
@@ -1143,6 +1307,8 @@ class OverviewWidget(QWidget):
 
     def eventFilter(self, obj, event):
         if obj is self.view.viewport():
+            if self._handle_drag_event(event):
+                return True
             if event.type() == QEvent.MouseMove:
                 scene_pos = self.view.mapToScene(event.pos())
                 x = float(scene_pos.x())
@@ -1914,7 +2080,7 @@ class OverviewWidget(QWidget):
             self.status_label.setText("Set a parent folder to enable overview")
             self._set_loading_visible(False)
             return
-        states = sorted(self._states.values(), key=lambda item: system_group_sort_key(self.settings, item.name))
+        states = sorted(self._states.values(), key=lambda item: self._display_sort_key(item.name))
         if not states:
             if self._overview_slot.is_running():
                 self.status_label.setText("Loading overview...")
@@ -2074,6 +2240,9 @@ class OverviewWidget(QWidget):
 
         current_y = top_pad
         system_row_index = 0
+        # (y0, y1, kind, name, customer, arrow_rect): hit bands for the
+        # drag-and-drop and arrow-click handling in the viewport filter.
+        self._row_bands = []
         for row_type, payload in display_rows:
             if row_type == "header":
                 # Customer bar: accent-blue so it stands out from the
@@ -2102,6 +2271,10 @@ class OverviewWidget(QWidget):
                 )
                 arrow_item.setZValue(2.2)
                 header_item.set_arrow_item(arrow_item)
+                self._row_bands.append(
+                    (current_y, current_y + header_height, "customer", str(payload), str(payload),
+                     arrow_item.sceneBoundingRect())
+                )
                 current_y += header_height
                 continue
 
@@ -2264,5 +2437,9 @@ class OverviewWidget(QWidget):
             click_item.setToolTip(self._row_tooltip(state, summary))
             click_item.setZValue(4.8)
             self.scene.addItem(click_item)
+            self._row_bands.append(
+                (y, y + row_height, "system", state.name,
+                 display_customer_name(self.settings, state.name), None)
+            )
             current_y += row_height
             system_row_index += 1
