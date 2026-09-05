@@ -1157,7 +1157,8 @@ class OverviewWidget(QWidget):
     def _reposition_sticky_header(self, _value=None):
         offset = self._sticky_offset()
         for item, base_y in self._sticky_header_items:
-            item.setY(base_y + offset)
+            if self._live_scene_item(item) is not None:
+                item.setY(base_y + offset)
         self._update_now_label()
         self._update_last_update_marker()
 
@@ -1783,6 +1784,10 @@ class OverviewWidget(QWidget):
         self._hover_line_item = None
         self._hover_label_item = None
         self._now_label_item = None
+        # Reset before setSceneRect below: that fires the scrollbar's
+        # valueChanged -> _reposition_sticky_header, which would otherwise
+        # touch items the clear() just freed (crash seen at startup).
+        self._sticky_header_items = []
         self._hover_timeline_width = 0
         self._last_drawn_window = None
         self.hide_thumbnail_preview()
