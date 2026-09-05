@@ -154,14 +154,14 @@ class ErrorsStopsWindow(QDialog):
         self._stops_chart.set_grouped(True)
         self._stops_chart.set_detail_provider(lambda label, day: self._detail("stops", label, day))
         self._stops_legend = QLabel("")
-        layout.addWidget(self._boxed("Line stoppages per day, one bar per system", self._stops_legend, self._stops_chart), 3)
+        layout.addWidget(self._boxed("Line stoppages per day", self._stops_legend, self._stops_chart), 3)
 
         self._errors_chart = StackedBarChart()
         self._errors_chart.setMinimumHeight(220)
         self._errors_chart.set_grouped(True)
         self._errors_chart.set_detail_provider(lambda label, day: self._detail("errors", label, day))
         self._errors_legend = QLabel("")
-        layout.addWidget(self._boxed("Errors per day, one bar per system", self._errors_legend, self._errors_chart), 3)
+        layout.addWidget(self._boxed("Errors per day", self._errors_legend, self._errors_chart), 3)
         # One scrollbar drives both charts; the wheel over either chart
         # scrolls too, and pushing past an end loads seven more days.
         self._scrollbar = QScrollBar(Qt.Horizontal)
