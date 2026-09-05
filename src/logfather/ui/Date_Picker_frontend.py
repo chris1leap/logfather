@@ -280,6 +280,18 @@ class DatePicker(QWidget):
         self.calendar.setSelectedDate(qd)
         self._apply_active_day(qd)
 
+    def select_day(self, selected_day: date):
+        """Pick a day for the current system without re-listing it (the
+        viewer's Choose date popup, Chris 2026-09-05)."""
+        qd = QDate(selected_day.year, selected_day.month, selected_day.day)
+        self.calendar.setCurrentPage(selected_day.year, selected_day.month)
+        self._selection_from_click = True
+        try:
+            self.calendar.setSelectedDate(qd)
+        finally:
+            self._selection_from_click = False
+        self._apply_active_day(qd)
+
     def update_pikpak_selection(self):
         for name, btn in self.pikpak_buttons.items():
             btn.setChecked(self.active_pikpak_name == name)

@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-05
 
+- Viewer top bar (Chris): a Choose system button (menu of every system on
+  the share, grouped by customer, current one ticked) and a Choose date
+  button (one-month calendar popup; days with footage highlighted, no
+  future days). Once chosen the buttons read the selection, replacing the
+  Customer / Line / System label. The hover-reveal left panel stays.
 - Data window, local Elastic cache (Chris): per-day document counts are
   kept under LOCALAPPDATA; a refresh counts only the days not yet cached
   (today always), reuses the oldest-record date and the sampled document

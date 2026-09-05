@@ -4,7 +4,7 @@ from dataclasses import asdict
 from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve, QRectF, QSize
+from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve, QPoint, QRectF, QSize
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from logfather.ui import theme
 from logfather.ui.Date_Picker_frontend import DatePicker
+from logfather.ui.day_popup import DayPopup
 from logfather.ui.Time_Picker import (
     TimePicker,
     TimelineItem,
@@ -53,7 +54,7 @@ from logfather.ui.stop_report import (
     collect_stop_report_data,
 )
 from logfather.ui.target_overlay_controller import TargetOverlayController
-from logfather.data.settings_store import Settings, display_customer_name, display_line_name
+from logfather.data.settings_store import Settings, display_customer_name, display_line_name, system_group_sort_key
 from logfather.ui.Log_vid_gui import VideoLogViewer
 from logfather.ui.data_inventory_dialog import DataInventoryDialog
 from logfather.ui.software_window import SoftwareWindow
@@ -200,6 +201,23 @@ class MainWindow(QWidget):
         self.current_system_label = QLabel("")
         self.current_system_label.setStyleSheet(theme.TOP_BAR_LABEL)
         self.current_system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # Viewer top bar (Chris, 2026-09-05): Choose system (a menu of
+        # every system grouped by customer) and Choose date (a one-day
+        # calendar popup). Once chosen, the buttons read the selection,
+        # so the Customer / Line / System label is retired.
+        self.choose_system_btn = QToolButton()
+        self.choose_system_btn.setText("Choose system")
+        self.choose_system_btn.setToolTip("Pick the system to view")
+        self.choose_system_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.choose_system_btn.clicked.connect(self._show_system_menu)
+        self.choose_date_btn = QToolButton()
+        self.choose_date_btn.setText("Choose date")
+        self.choose_date_btn.setToolTip("Pick the day to look at")
+        self.choose_date_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.choose_date_btn.setEnabled(False)
+        self.choose_date_btn.clicked.connect(self._show_day_popup)
+        self._day_popup = DayPopup(self)
+        self._day_popup.day_chosen.connect(self._on_popup_day_chosen)
         self.viewer.add_playback_right_widget(self.stop_report_btn)
         self.viewer.add_playback_right_widget(self.time_picker.fit_btn)
         self.viewer.add_playback_right_widget(self.time_picker.refresh_btn)
@@ -299,7 +317,11 @@ class MainWindow(QWidget):
         mode_row.addWidget(self.viewer_btn)
         mode_row.addWidget(self.fleetwide_search_btn)
         top_controls.addLayout(mode_row)
+        top_controls.addSpacing(12)
+        top_controls.addWidget(self.choose_system_btn, 0, Qt.AlignLeft)
+        top_controls.addWidget(self.choose_date_btn, 0, Qt.AlignLeft)
         top_controls.addWidget(self.current_system_label, 0, Qt.AlignLeft)
+        self.current_system_label.setVisible(False)
         self.calibrate_btn = QToolButton()
         self.calibrate_btn.setText("Calibrate")
         self.calibrate_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -707,6 +729,7 @@ class MainWindow(QWidget):
                 self.current_system_label.setText(self.system_id_override)
             else:
                 self.current_system_label.setText("")
+            self._refresh_chooser_buttons(None, None)
             return
         system_name = pikpak_root.name
         customer = display_customer_name(self.settings, system_name)
@@ -716,6 +739,74 @@ class MainWindow(QWidget):
             parts.append(line)
         parts.append(system_name)
         self.current_system_label.setText(" / ".join([part for part in parts if part]))
+        self._refresh_chooser_buttons(pikpak_root, day)
+
+    def _refresh_chooser_buttons(self, pikpak_root: Path | None, day: date | None) -> None:
+        if isinstance(pikpak_root, Path):
+            self.choose_system_btn.setText(self.current_system_label.text() or pikpak_root.name)
+            self.choose_date_btn.setEnabled(True)
+            self.choose_date_btn.setText(f"{day:%a %d %b %Y}" if day else "Choose date")
+        else:
+            self.choose_system_btn.setText(self.system_id_override or "Choose system")
+            self.choose_date_btn.setEnabled(False)
+            self.choose_date_btn.setText("Choose date")
+
+    def _show_system_menu(self) -> None:
+        menu = QMenu(self)
+        parent_dir = self.date_picker.parent_dir
+        subdirs: list[Path] = []
+        if isinstance(parent_dir, Path):
+            try:
+                subdirs = sorted(
+                    (p for p in parent_dir.iterdir() if p.is_dir()),
+                    key=lambda p: system_group_sort_key(self.settings, p.name),
+                )
+            except OSError:
+                subdirs = []
+        if not subdirs:
+            none = menu.addAction("No systems found - set the CCTV parent folder in Settings")
+            none.setEnabled(False)
+        active = self.date_picker.active_pikpak_name
+        last_customer = None
+        for path in subdirs:
+            customer = display_customer_name(self.settings, path.name)
+            if customer != last_customer:
+                if last_customer is not None:
+                    menu.addSeparator()
+                header = menu.addAction(customer)
+                header.setEnabled(False)
+                font = header.font()
+                font.setBold(True)
+                header.setFont(font)
+                last_customer = customer
+            line = display_line_name(self.settings, path.name)
+            label = f"    {line} - {path.name}" if line else f"    {path.name}"
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(path.name == active)
+            act.triggered.connect(lambda _checked=False, p=path: self._choose_system(p))
+        menu.exec(self.choose_system_btn.mapToGlobal(QPoint(0, self.choose_system_btn.height())))
+
+    def _choose_system(self, path: Path) -> None:
+        self.viewer_btn.setChecked(True)
+        self.date_picker.use_pikpak_folder(path)
+
+    def _show_day_popup(self) -> None:
+        top_dir = self.date_picker.top_dir
+        if not isinstance(top_dir, Path):
+            self._show_system_menu()
+            return
+        self._day_popup.open_for(
+            self.current_system_label.text() or top_dir.name,
+            self.date_picker.available_dates,
+            self.date_picker.active_day,
+            self.choose_date_btn.mapToGlobal(QPoint(0, self.choose_date_btn.height())),
+            scanning=self.date_picker._scan_slot.is_running(),
+        )
+
+    def _on_popup_day_chosen(self, day) -> None:
+        if isinstance(day, date) and isinstance(self.date_picker.top_dir, Path):
+            self.date_picker.select_day(day)
 
     # ------------------------------------------------------------------
     # Pick-buffer panel
@@ -1491,7 +1582,9 @@ class MainWindow(QWidget):
         # The Customer/Line/System label describes the viewer's selection;
         # in the fleet-wide modes it is wrong, not just redundant (Chris,
         # 2026-09-05: overview showed one system's name).
-        self.current_system_label.setVisible(in_viewer)
+        self.current_system_label.setVisible(False)
+        self.choose_system_btn.setVisible(in_viewer)
+        self.choose_date_btn.setVisible(in_viewer)
 
     def _on_first_clip_opened(self, _path) -> None:
         if not self._viewer_tools_available:
