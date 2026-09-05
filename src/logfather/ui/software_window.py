@@ -166,8 +166,8 @@ class _TimelineWidget(QWidget):
                         pen.setWidth(2)
                         painter.setPen(pen)
                     elif unique:
-                        # Code nobody else runs: accent outline (Chris).
-                        pen = QPen(QColor(theme.ACCENT))
+                        # Code nobody else runs: red outline (Chris).
+                        pen = QPen(QColor(theme.DANGER))
                         pen.setWidth(2)
                         painter.setPen(pen)
                     else:
@@ -197,7 +197,7 @@ class SoftwareWindow(QDialog):
         layout.setSpacing(8)
         intro = QLabel(
             "Each PikPak system as a block, one lane per software package, a bar for every "
-            "dated span of version (git commit). A blue outline marks a commit that no other "
+            "dated span of version (git commit). A red outline marks a commit that no other "
             "system runs. Argus 2 systems log this on every node start; Argus 1 systems log "
             "no version or commit fields."
         )
@@ -280,4 +280,4 @@ class SoftwareWindow(QDialog):
         now = datetime.now(timezone.utc)
         self._timeline.set_data(systems, now - timedelta(days=self._days), now)
         argus2 = sum(1 for s in systems if s.generation == "Argus 2" and s.spans)
-        self._status.setText(f"{len(systems)} systems · {argus2} with version data")
+        self._status.setText(f"{len(systems)} systems · {argus2} with version data · cached locally, refreshed for elapsed days only")

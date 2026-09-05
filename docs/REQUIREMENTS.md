@@ -32,6 +32,10 @@ Living record of agreed functionality: what is open, and what has shipped
   `sw_version.*` and the health node's "Node git details" documents
   (`data/software_history.py`, tested span logic). Argus 1 systems show
   as rows with no data, since they log no version or commit fields.
+  A commit that no other system runs gets a red outline. The raw facts
+  are cached under LOCALAPPDATA; a refresh queries only the days since
+  the cache was written, and a range the cache already covers is
+  re-clipped locally without a query.
 - Viewer log filters survive a reload (Chris): the source / state /
   message tick boxes the user unticked are remembered when the panels
   are rebuilt, and if filters were loaded before a reload (Refresh, or
