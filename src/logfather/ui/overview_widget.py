@@ -2437,7 +2437,10 @@ class OverviewWidget(QWidget):
                 line.setZValue(4)
 
             status_text = str(summary.get("status") or "Unknown")
-            if not state.loaded:
+            if not state.loaded and not state.events and not state.video_items:
+                # Only while the row is genuinely empty: a cache-seeded row
+                # already shows real data, so its real state stands while
+                # the tail is fetched (Chris, 2026-09-05).
                 status_text = "Downloading" if state.phase == "downloading" else "Waiting"
             status_color = {
                 "Running": QColor("#7cc77b"),
