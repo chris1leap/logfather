@@ -24,6 +24,15 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-05
 
+- Data window, local Elastic cache (Chris): per-day document counts are
+  kept under LOCALAPPDATA; a refresh counts only the days not yet cached
+  (today always), reuses the oldest-record date and the sampled document
+  sizes for a week. The window opens on the saved figures with "Last
+  updated: <date>" beside Refresh; when they are not from today the
+  Refresh button pulses until clicked.
+- Data window, click an Elastic bar (Chris): opens Kibana Discover in the
+  browser on that system and local day (either robot-id field), so the
+  actual documents can be read.
 - Errors / Stops window (Chris): top-bar button; the Overview's machine
   filter and Live / Choose days picker (defaults to the last 7 days).
   Two stacked daily charts - line stoppages by kind (emergency,

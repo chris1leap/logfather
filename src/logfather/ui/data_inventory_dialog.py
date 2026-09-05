@@ -10,11 +10,12 @@ for that system on that day.
 from __future__ import annotations
 
 import os
+import webbrowser
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QPoint, QRectF, QSize, Qt
+from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -39,9 +40,14 @@ from logfather.data.data_inventory import (
     fetch_elastic_inventory,
     format_bytes,
     format_count,
+    cache_saved_at,
     inventory_days,
+    inventory_from_cache,
+    load_inventory_cache,
+    kibana_discover_url,
     scan_cctv_inventory,
 )
+from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.data.settings_store import display_customer_name, system_group_sort_key
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
@@ -173,8 +179,20 @@ class DataInventoryDialog(QDialog):
         self._progress.setRange(0, 0)
         self._progress.hide()
         controls.addWidget(self._progress)
+        # Last-updated stamp beside Refresh; the button pulses when the
+        # figures are not from today (Chris, 2026-09-05).
+        self._updated_label = QLabel("")
+        self._updated_label.setStyleSheet(theme.MUTED_LABEL)
+        controls.addWidget(self._updated_label)
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.clicked.connect(self.start)
+        self._refresh_btn.setStyleSheet(
+            f"QPushButton[pulse=\"true\"] {{ background-color: {theme.ACCENT_DIM};"
+            f" border: 1px solid {theme.ACCENT}; color: {theme.TEXT_BRIGHT}; }}"
+        )
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(650)
+        self._pulse_timer.timeout.connect(self._pulse_tick)
         controls.addWidget(self._refresh_btn)
         # The 14-day section - filter, metric toggle, key and chart - sits
         # in one framed box (Chris, 2026-09-05).
@@ -228,23 +246,69 @@ class DataInventoryDialog(QDialog):
     # ---- lifecycle --------------------------------------------------------
 
     def start_if_needed(self) -> None:
-        if not self._started:
+        if self._started:
+            return
+        # Open on the saved figures when there are any; Refresh (pulsing
+        # if they are not from today) fetches the days since.
+        cache = load_inventory_cache()
+        cached = inventory_from_cache(cache, inventory_days(datetime.now().date(), INVENTORY_DAYS))
+        if cached is None:
             self.start()
+            return
+        self._started = True
+        self._on_elastic_result(cached)
+        self._set_last_updated(cache_saved_at(cache))
+        self._progress.show()
+        self._start_cctv_scan()
+        self._on_any_finished()
 
     def start(self) -> None:
         self._started = True
         settings = self._settings_provider()
-        parent_dir = self._parent_dir_provider()
         self._elastic_summary.setText("Elastic: loading...")
         self._progress.show()
         self._status_label.setText("Querying Elastic and the CCTV share...")
         self._elastic_slot.start(
             lambda job: fetch_elastic_inventory(settings, INVENTORY_DAYS, progress=job.emit_progress),
-            on_result=self._on_elastic_result,
+            on_result=self._on_elastic_fetched,
             on_error=self._on_elastic_error,
             on_progress=self._on_progress,
             on_finished=self._on_any_finished,
         )
+        self._start_cctv_scan()
+
+    def _on_elastic_fetched(self, inventory: ElasticInventory) -> None:
+        self._on_elastic_result(inventory)
+        self._set_last_updated(datetime.now().astimezone())
+
+    def _set_last_updated(self, when: datetime | None) -> None:
+        if when is None:
+            self._updated_label.setText("Last updated: never")
+            self._set_pulse(True)
+            return
+        today = datetime.now().date()
+        stamp = f"today {when:%H:%M}" if when.date() == today else f"{when:%d/%m/%Y %H:%M}"
+        self._updated_label.setText(f"Last updated: {stamp}")
+        self._set_pulse(when.date() != today)
+
+    def _set_pulse(self, on: bool) -> None:
+        if on and not self._pulse_timer.isActive():
+            self._pulse_timer.start()
+        elif not on:
+            self._pulse_timer.stop()
+            self._apply_pulse(False)
+
+    def _pulse_tick(self) -> None:
+        self._apply_pulse(not bool(self._refresh_btn.property("pulse")))
+
+    def _apply_pulse(self, lit: bool) -> None:
+        self._refresh_btn.setProperty("pulse", bool(lit))
+        self._refresh_btn.style().unpolish(self._refresh_btn)
+        self._refresh_btn.style().polish(self._refresh_btn)
+        self._refresh_btn.update()
+
+    def _start_cctv_scan(self) -> None:
+        parent_dir = self._parent_dir_provider()
         if parent_dir is None:
             self._cctv_summary.setText("CCTV share: no parent folder configured")
         else:
@@ -481,10 +545,11 @@ class DataInventoryDialog(QDialog):
             "bytes": "CCTV data not loaded",
         }[self._metric]
         self._chart.set_data(days, series, fmt, empty_text=empty)
-        # CCTV bars open that system's day folder in Explorer on click
-        # (Chris, 2026-09-05); Elastic bars have nowhere to go.
+        # CCTV bars open that system's day folder in Explorer on click;
+        # Elastic bars open Kibana Discover on that system and day
+        # (Chris, 2026-09-05).
         self._chart.set_click_handler(
-            self._open_day_folder if self._metric in ("clips", "bytes") else None
+            self._open_day_folder if self._metric in ("clips", "bytes") else self._open_in_kibana
         )
         legend_bits = [
             f'<span style="background-color:{colour.name()};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{name}'
@@ -505,6 +570,27 @@ class DataInventoryDialog(QDialog):
             self._status_label.setText(f"Opened {folder}")
         except OSError as exc:
             self._status_label.setText(f"Could not open {folder}: {exc}")
+
+    def _open_in_kibana(self, name: str, day: date) -> None:
+        robot = self._system_to_robot(name)
+        if not robot:
+            self._status_label.setText(f"No robot id known for {name}")
+            return
+        settings = self._settings_provider()
+        url = kibana_discover_url(settings.elastic_url or "", robot, day)
+        try:
+            webbrowser.open(url)
+            self._status_label.setText(f"Opened Kibana for {name} on {day:%d/%m/%Y}")
+        except Exception as exc:
+            self._status_label.setText(f"Could not open the browser: {exc}")
+
+    def _system_to_robot(self, name: str) -> str | None:
+        for robot, system in self._robot_to_system.items():
+            if system == name:
+                return robot
+        if name.startswith("35-2300-"):
+            return name
+        return robot_id_from_folder(name)
 
     def _detail_for(self, name: str, day: date) -> str:
         """Every metric for one system on one day, for the hover tooltip."""
@@ -529,6 +615,8 @@ class DataInventoryDialog(QDialog):
             if est_bytes and docs:
                 line += f" ≈ {format_bytes(est_bytes)} (avg {factor_used:.0f} B/doc)"
             lines.append(line)
+            if docs:
+                lines.append("<i>Click to open these documents in Kibana</i>")
         cctv = None if showing_elastic else self._cctv
         if cctv is not None and name in cctv.clips:
             clips = int(cctv.clips[name].get(day, 0))

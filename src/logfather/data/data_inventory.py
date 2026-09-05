@@ -16,18 +16,22 @@ Robot ids and system folders are related by elastic_schema
 from __future__ import annotations
 
 import json
+import os
 import re
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import quote
 
 import requests
 
 from logfather.data.day_listing_cache import load_day_files_cached
 from logfather.data.elastic_client import api_headers
 from logfather.data.elastic_loader import (
+    ELASTIC_INDEX_PATTERN,
     KIBANA_BASE_DEFAULT,
     _normalize_index_id,
     _search_url,
@@ -36,6 +40,13 @@ from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.data.settings_store import Settings
 
 INVENTORY_DAYS = 14
+
+# Local cache of the Elastic inventory (Chris, 2026-09-05): finished days
+# never change, so a refresh only queries the days not yet counted (today
+# is always re-counted). Sampled document sizes are kept for a week.
+INVENTORY_CACHE_SCHEMA = 1
+INVENTORY_CACHE_KEEP_DAYS = 60
+SAMPLE_MAX_AGE = timedelta(days=7)
 
 # Terms-aggregation field candidates, tried in order: keyword sub-fields
 # first (a text field without fielddata rejects the aggregation).
@@ -86,6 +97,220 @@ class CctvInventory:
 
 
 # ------------------------------------------------------------- pure logic
+
+
+def _default_inventory_cache_path() -> Path:
+    base = os.environ.get("LOCALAPPDATA")
+    if base:
+        return Path(base) / "VideoLogViewer" / "cache" / "data_inventory.json"
+    return Path.home() / ".videolog_cache" / "data_inventory.json"
+
+
+def load_inventory_cache(path: Path | None = None) -> dict | None:
+    p = path if path is not None else _default_inventory_cache_path()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict) or data.get("schema") != INVENTORY_CACHE_SCHEMA:
+        return None
+    return data
+
+
+def save_inventory_cache(cache: dict, path: Path | None = None) -> bool:
+    p = path if path is not None else _default_inventory_cache_path()
+    tmp = p.with_name(f"{p.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(cache, separators=(",", ":")), encoding="utf-8")
+        os.replace(tmp, p)
+        return True
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return False
+
+
+def cached_day_counts(cache: dict | None, days: list[date]) -> tuple[dict[str, dict[date, int]], set[date]]:
+    """(robot -> day -> docs, the days of `days` the cache holds complete).
+    A day is complete when it was counted on a later day."""
+    if not cache:
+        return {}, set()
+    complete: set[date] = set()
+    for raw in cache.get("complete_days") or []:
+        try:
+            complete.add(date.fromisoformat(str(raw)))
+        except ValueError:
+            continue
+    wanted = complete & set(days)
+    counts: dict[str, dict[date, int]] = {}
+    for robot, per_day in (cache.get("counts") or {}).items():
+        if not isinstance(per_day, dict):
+            continue
+        for raw, n in per_day.items():
+            try:
+                day = date.fromisoformat(str(raw))
+            except ValueError:
+                continue
+            if day in wanted:
+                counts.setdefault(str(robot), {})[day] = int(n or 0)
+    return counts, wanted
+
+
+def days_to_fetch(days: list[date], complete: set[date]) -> list[date]:
+    """The trailing run of days from the first one not in the cache; the
+    histogram is one range query, so a gap means everything after it."""
+    for i, day in enumerate(days):
+        if day not in complete:
+            return list(days[i:])
+    return [days[-1]] if days else []
+
+
+def cached_samples(cache: dict | None, now: datetime) -> dict[str, float]:
+    """Per-robot sampled bytes/doc still fresh enough to reuse."""
+    if not cache:
+        return {}
+    try:
+        sampled_at = datetime.fromisoformat(str(cache.get("sampled_at") or ""))
+    except ValueError:
+        return {}
+    if sampled_at.tzinfo is None:
+        sampled_at = sampled_at.replace(tzinfo=timezone.utc)
+    if now.astimezone(timezone.utc) - sampled_at.astimezone(timezone.utc) > SAMPLE_MAX_AGE:
+        return {}
+    out: dict[str, float] = {}
+    for robot, value in (cache.get("sampled") or {}).items():
+        try:
+            if float(value) > 0:
+                out[str(robot)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def merge_inventory_cache(
+    cache: dict | None,
+    inventory: "ElasticInventory",
+    fetched_days: list[date],
+    today: date,
+    sampled: dict[str, float],
+    sampled_at: datetime,
+) -> dict:
+    """The cache after this fetch: counts for every known day (pruned to
+    the keep window), the days now complete, the oldest record and the
+    sample set."""
+    old = cache if isinstance(cache, dict) else {}
+    counts: dict[str, dict[str, int]] = {}
+    for robot, per_day in (old.get("counts") or {}).items():
+        if isinstance(per_day, dict):
+            counts[str(robot)] = {str(k): int(v or 0) for k, v in per_day.items()}
+    fetched = set(fetched_days)
+    # A fetched day replaces whatever the cache had for it (a robot with
+    # no documents that day loses its stale partial count).
+    for robot in counts:
+        for day in fetched:
+            counts[robot].pop(day.isoformat(), None)
+    for robot, per_day in inventory.counts.items():
+        target = counts.setdefault(robot, {})
+        for day, n in per_day.items():
+            target[day.isoformat()] = int(n)
+    complete = set()
+    for raw in old.get("complete_days") or []:
+        try:
+            complete.add(date.fromisoformat(str(raw)))
+        except ValueError:
+            continue
+    complete |= {d for d in fetched if d < today}
+    floor = today - timedelta(days=INVENTORY_CACHE_KEEP_DAYS)
+    complete = {d for d in complete if d >= floor}
+    for robot in list(counts):
+        counts[robot] = {k: v for k, v in counts[robot].items() if k >= floor.isoformat()}
+        if not counts[robot]:
+            counts.pop(robot)
+    return {
+        "schema": INVENTORY_CACHE_SCHEMA,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "counts": counts,
+        "complete_days": sorted(d.isoformat() for d in complete),
+        "oldest_ts": inventory.oldest_ts.isoformat() if inventory.oldest_ts else old.get("oldest_ts"),
+        "sampled": {r: float(v) for r, v in sampled.items()},
+        "sampled_at": sampled_at.astimezone(timezone.utc).isoformat(),
+        "total_docs": inventory.total_docs if inventory.total_docs is not None else old.get("total_docs"),
+        "total_bytes": inventory.total_bytes if inventory.total_bytes is not None else old.get("total_bytes"),
+        "bytes_per_doc": inventory.bytes_per_doc if inventory.bytes_per_doc is not None else old.get("bytes_per_doc"),
+        "bytes_basis": inventory.bytes_basis or str(old.get("bytes_basis") or ""),
+    }
+
+
+def cache_saved_at(cache: dict | None) -> datetime | None:
+    """When the cache was last written, as local time."""
+    try:
+        raw = str((cache or {}).get("saved_at") or "")
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone()
+
+
+def inventory_from_cache(cache: dict | None, days: list[date]) -> "ElasticInventory | None":
+    """An inventory built only from the cache (Chris, 2026-09-05: the Data
+    window opens on the last saved figures and says when they date from;
+    Refresh fetches what has changed). None when the cache is empty."""
+    if not cache or not cache.get("counts"):
+        return None
+    wanted = set(days)
+    inventory = ElasticInventory(days=list(days))
+    for robot, per_day in (cache.get("counts") or {}).items():
+        if not isinstance(per_day, dict):
+            continue
+        for raw, n in per_day.items():
+            try:
+                day = date.fromisoformat(str(raw))
+            except ValueError:
+                continue
+            if day in wanted:
+                inventory.counts.setdefault(str(robot), {})[day] = int(n or 0)
+    try:
+        raw = str(cache.get("oldest_ts") or "")
+        inventory.oldest_ts = datetime.fromisoformat(raw.replace("Z", "+00:00")) if raw else None
+    except ValueError:
+        inventory.oldest_ts = None
+    inventory.total_docs = int(cache["total_docs"]) if cache.get("total_docs") is not None else None
+    inventory.total_bytes = int(cache["total_bytes"]) if cache.get("total_bytes") is not None else None
+    inventory.bytes_per_doc = float(cache["bytes_per_doc"]) if cache.get("bytes_per_doc") is not None else None
+    inventory.bytes_basis = str(cache.get("bytes_basis") or "")
+    sampled = {}
+    for robot, value in (cache.get("sampled") or {}).items():
+        try:
+            if float(value) > 0:
+                sampled[str(robot)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    window_docs = {r: sum(v.values()) for r, v in inventory.counts.items()}
+    real = inventory.bytes_per_doc if inventory.bytes_basis.startswith("index store") else None
+    inventory.bytes_per_doc_by_robot = scale_robot_factors(sampled, window_docs, real)
+    return inventory
+
+
+def kibana_discover_url(kibana_base: str, robot_id: str, day: date, index_pattern: str = ELASTIC_INDEX_PATTERN) -> str:
+    """Kibana Discover for one system's documents on one local day (Chris,
+    2026-09-05: click an Elastic bar to see the actual data). Uses the
+    browser's default data view; the query matches either id field."""
+    base = (kibana_base or "").rstrip("/")
+    if ".es." in base:
+        base = base.replace(".es.", ".kb.")
+    start = datetime.combine(day, dt_time.min).astimezone().astimezone(timezone.utc)
+    end = start + timedelta(days=1)
+    rid = str(robot_id).replace("'", "!'")
+    query = f'leap_robot_id:"{rid}" or system_id:"{rid}"'
+    g = f"(time:(from:'{start:%Y-%m-%dT%H:%M:%S.000Z}',to:'{end:%Y-%m-%dT%H:%M:%S.000Z}'))"
+    a = f"(query:(language:kuery,query:'{query}'))"
+    safe = "():,'!"
+    return f"{base}/app/discover#/?_g={quote(g, safe=safe)}&_a={quote(a, safe=safe)}"
 
 
 def inventory_days(today: date, days: int = INVENTORY_DAYS) -> list[date]:
@@ -204,10 +429,15 @@ def fetch_elastic_inventory(
     settings: Settings,
     days: int = INVENTORY_DAYS,
     progress: ProgressFn | None = None,
+    cache_path: Path | None = None,
+    use_cache: bool = True,
 ) -> ElasticInventory:
     now_local = datetime.now().astimezone()
     day_list = inventory_days(now_local.date(), days)
     inventory = ElasticInventory(days=day_list)
+    cache = load_inventory_cache(cache_path) if use_cache else None
+    cached_counts, complete = cached_day_counts(cache, day_list)
+    fetch_days = days_to_fetch(day_list, complete)
     url_base = settings.elastic_url or KIBANA_BASE_DEFAULT
     api_key = settings.elastic_api_key or ""
     if not url_base or not api_key:
@@ -222,8 +452,14 @@ def fetch_elastic_inventory(
         return resp.json()
 
     if progress:
-        progress("Elastic: counting documents per day and system...")
-    start_iso = datetime.combine(day_list[0], dt_time.min).astimezone().isoformat()
+        if complete:
+            progress(
+                f"Elastic: {len(complete)} of {len(day_list)} days from the local cache; "
+                f"counting {len(fetch_days)} day{'s' if len(fetch_days) != 1 else ''}..."
+            )
+        else:
+            progress("Elastic: counting documents per day and system...")
+    start_iso = datetime.combine(fetch_days[0], dt_time.min).astimezone().isoformat()
     last_error: Exception | None = None
     for robot_field, system_field in _ROBOT_FIELD_CANDIDATES:
         body = {
@@ -253,11 +489,15 @@ def fetch_elastic_inventory(
                 continue
             raise
         buckets = ((data.get("aggregations") or {}).get("per_day") or {}).get("buckets") or []
-        inventory.counts = parse_histogram(buckets, day_list)
+        inventory.counts = parse_histogram(buckets, fetch_days)
         last_error = None
         break
     if last_error is not None:
         raise last_error
+    for robot, per_day in cached_counts.items():
+        target = inventory.counts.setdefault(robot, {})
+        for day, n in per_day.items():
+            target[day] = target.get(day, 0) + n
 
     if progress:
         progress("Elastic: total document count and oldest record...")
@@ -267,14 +507,18 @@ def fetch_elastic_inventory(
     except Exception:
         inventory.total_docs = None
     try:
-        oldest = _post(
-            {"size": 1, "sort": [{"@timestamp": "asc"}], "_source": ["@timestamp"]},
-            timeout=90,
-        )
-        hits = ((oldest.get("hits") or {}).get("hits") or [])
-        if hits:
-            raw = str(hits[0].get("_source", {}).get("@timestamp") or "")
-            inventory.oldest_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        cached_oldest = str((cache or {}).get("oldest_ts") or "")
+        if cached_oldest:
+            inventory.oldest_ts = datetime.fromisoformat(cached_oldest.replace("Z", "+00:00"))
+        else:
+            oldest = _post(
+                {"size": 1, "sort": [{"@timestamp": "asc"}], "_source": ["@timestamp"]},
+                timeout=90,
+            )
+            hits = ((oldest.get("hits") or {}).get("hits") or [])
+            if hits:
+                raw = str(hits[0].get("_source", {}).get("@timestamp") or "")
+                inventory.oldest_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except Exception:
         inventory.oldest_ts = None
 
@@ -300,8 +544,16 @@ def fetch_elastic_inventory(
         pass
     # Per-robot document sizes from a random sample of each robot's
     # documents in the window (one query per robot).
-    sampled: dict[str, float] = {}
-    robots = sorted(inventory.counts)
+    sampled: dict[str, float] = cached_samples(cache, now_local)
+    sampled_at = now_local
+    if sampled:
+        try:
+            sampled_at = datetime.fromisoformat(str(cache.get("sampled_at")))
+        except (TypeError, ValueError):
+            sampled_at = now_local
+    robots = sorted(r for r in inventory.counts if r not in sampled)
+    if not robots and progress:
+        progress("Elastic: document sizes from the local cache")
     window_docs = {r: sum(per_day.values()) for r, per_day in inventory.counts.items()}
     for idx, robot in enumerate(robots, start=1):
         if progress:
@@ -357,6 +609,11 @@ def fetch_elastic_inventory(
             inventory.total_bytes = int(inventory.total_docs * inventory.bytes_per_doc)
     elif inventory.bytes_per_doc is not None and sampled:
         inventory.bytes_basis = "index store size, apportioned per system by sampled document sizes"
+    if use_cache:
+        save_inventory_cache(
+            merge_inventory_cache(cache, inventory, fetch_days, now_local.date(), sampled, sampled_at),
+            cache_path,
+        )
     return inventory
 
 
