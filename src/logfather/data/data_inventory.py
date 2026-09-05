@@ -15,6 +15,7 @@ Robot ids and system folders are related by elastic_schema
 """
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -56,6 +57,12 @@ class ElasticInventory:
     counts: dict[str, dict[date, int]] = field(default_factory=dict)  # robot -> day -> docs
     total_docs: int | None = None
     oldest_ts: datetime | None = None
+    # Storage: real index store size when the API key may read index
+    # stats, else an estimate from sampled document JSON. bytes_per_doc
+    # apportions either onto the per-day/per-robot document counts.
+    total_bytes: int | None = None
+    bytes_per_doc: float | None = None
+    bytes_basis: str = ""
 
 
 @dataclass
@@ -102,6 +109,30 @@ def parse_histogram(
                     continue
                 counts[robot][day] += int(sub.get("doc_count") or 0)
     return {robot: dict(per_day) for robot, per_day in counts.items()}
+
+
+def sum_cat_indices(rows: list) -> tuple[int, int]:
+    """(store bytes, docs) summed over _cat/indices JSON rows (bytes=b)."""
+    store = docs = 0
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            store += int(row.get("store.size") or 0)
+            docs += int(row.get("docs.count") or 0)
+        except (TypeError, ValueError):
+            continue
+    return store, docs
+
+
+def mean_source_bytes(hits: list) -> float | None:
+    """Average compact-JSON size of the hits' _source, or None."""
+    sizes = [
+        len(json.dumps(hit.get("_source") or {}, separators=(",", ":")))
+        for hit in hits or []
+        if isinstance(hit, dict)
+    ]
+    return (sum(sizes) / len(sizes)) if sizes else None
 
 
 def estimate_bytes(clip_count: int, sample_size: int | None) -> int:
@@ -218,6 +249,44 @@ def fetch_elastic_inventory(
             inventory.oldest_ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except Exception:
         inventory.oldest_ts = None
+
+    if progress:
+        progress("Elastic: storage size...")
+    # Real store size needs the monitor / view_index_metadata index
+    # privilege; the search-only key gets 403, hence the sampled fallback.
+    es_root = url.split("/_search")[0].rsplit("/", 1)[0]
+    pattern = _normalize_index_id(None)
+    try:
+        resp = requests.get(
+            f"{es_root}/_cat/indices/{pattern}?format=json&h=docs.count,store.size&bytes=b",
+            headers=headers,
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            store, docs = sum_cat_indices(resp.json())
+            if store > 0 and docs > 0:
+                inventory.total_bytes = store
+                inventory.bytes_per_doc = store / docs
+                inventory.bytes_basis = "index store size"
+    except Exception:
+        pass
+    if inventory.bytes_per_doc is None:
+        try:
+            sample = _post(
+                {"size": 300, "sort": [{"@timestamp": "desc"}], "track_total_hits": False},
+                timeout=60,
+            )
+            avg = mean_source_bytes(((sample.get("hits") or {}).get("hits") or []))
+            if avg:
+                inventory.bytes_per_doc = avg
+                inventory.bytes_basis = (
+                    "estimated from sampled document JSON - the API key lacks the "
+                    "index-stats privilege for real store sizes"
+                )
+                if inventory.total_docs:
+                    inventory.total_bytes = int(inventory.total_docs * avg)
+        except Exception:
+            pass
     return inventory
 
 

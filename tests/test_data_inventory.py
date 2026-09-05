@@ -6,8 +6,28 @@ from logfather.data.data_inventory import (
     format_bytes,
     format_count,
     inventory_days,
+    mean_source_bytes,
     parse_histogram,
+    sum_cat_indices,
 )
+
+
+def test_sum_cat_indices_skips_malformed_rows():
+    rows = [
+        {"store.size": "1000", "docs.count": "10"},
+        {"store.size": "abc", "docs.count": "5"},
+        "not a row",
+        {"store.size": 2000, "docs.count": 20},
+    ]
+    assert sum_cat_indices(rows) == (3000, 30)
+    assert sum_cat_indices([]) == (0, 0)
+
+
+def test_mean_source_bytes():
+    hits = [{"_source": {"a": 1}}, {"_source": {"a": 1, "bb": "xx"}}, "junk"]
+    # {"a":1} is 7 bytes; {"a":1,"bb":"xx"} is 17 bytes.
+    assert mean_source_bytes(hits) == 12.0
+    assert mean_source_bytes([]) is None
 
 
 def test_inventory_days_is_trailing_window_oldest_first():
