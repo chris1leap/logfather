@@ -4,8 +4,8 @@ from dataclasses import asdict
 from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve, QRectF, QSize
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -72,6 +72,23 @@ ENABLE_LOG_BUTTON = True
 TIMELINE_MIN_HEIGHT = 165
 TIMELINE_MAX_HEIGHT = 360
 TIMELINE_EXPAND_DELAY_MS = 1500
+
+
+def _zoom_glyph_icon(kind: str, size: int = 24) -> QIcon:
+    """A plus or minus drawn symmetrically about the icon centre."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    s = float(size)
+    bar = s * 0.14
+    painter.drawRect(QRectF(s * 0.20, (s - bar) / 2, s * 0.60, bar))
+    if kind == "plus":
+        painter.drawRect(QRectF((s - bar) / 2, s * 0.20, bar, s * 0.60))
+    painter.end()
+    return QIcon(pm)
 
 
 class MainWindow(QWidget):
@@ -535,7 +552,12 @@ class MainWindow(QWidget):
 
         def circle_button(text: str, delta: float, tip: str) -> QToolButton:
             btn = QToolButton(row)
-            btn.setText(text)
+            # Drawn glyphs, not text: the font's "+" and minus sit at
+            # different heights, so text was never dead-centre in the
+            # circle (Chris, 2026-09-05). Qt centres an icon exactly.
+            btn.setIcon(_zoom_glyph_icon("plus" if text == "+" else "minus"))
+            btn.setIconSize(QSize(theme.ZOOM_CIRCLE_SIZE - 10, theme.ZOOM_CIRCLE_SIZE - 10))
+            btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
             btn.setToolTip(tip)
             btn.setAutoRaise(True)
             btn.setStyleSheet(theme.ZOOM_CIRCLE_BUTTON)
