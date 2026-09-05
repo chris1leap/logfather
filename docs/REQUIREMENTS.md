@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-05
 
+- Viewer log filters survive a reload (Chris): the source / state /
+  message tick boxes the user unticked are remembered when the panels
+  are rebuilt, and if filters were loaded before a reload (Refresh, or
+  opening another clip) they load and apply again automatically with
+  the same ticks.
 - Overview drag-and-drop ordering (Chris): press-and-drag a company bar
   or a machine's name to reorder; an accent line shows where it will
   land; machines stay within their company. Order remembered per user

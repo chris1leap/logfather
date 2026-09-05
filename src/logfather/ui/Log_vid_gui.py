@@ -317,6 +317,11 @@ class VideoLogViewer(QWidget):
     def _build_filter_panel(self):
         """The Filters tab: source / state / message checkbox columns."""
         self.filters_loaded = False
+        # Unticked filter keys survive a reload: rebuilt checkboxes start
+        # from this memory, and filters auto-reload if they were loaded
+        # before (Chris, 2026-09-05).
+        self._remembered_unchecked: dict[str, set[str]] = {"source": set(), "state": set(), "message": set()}
+        self._filters_wanted = False
 
         # Source filter
         self.source_label = QLabel(f"Filter by {SOURCE_COLUMN}")
@@ -2076,7 +2081,27 @@ class VideoLogViewer(QWidget):
     # ---- Filter UI helpers ----
     # (unchanged from your version)
 
+    def _remember_unchecked_filters(self):
+        """Snapshot what the user has unticked before the panels are
+        rebuilt. Empty dicts mean nothing was built - keep the old memory."""
+        for kind, boxes in (
+            ("source", self.source_checkboxes),
+            ("state", self.state_checkboxes),
+            ("message", self.message_checkboxes),
+        ):
+            if not boxes:
+                continue
+            unchecked: set[str] = set()
+            for key, box in boxes.items():
+                try:
+                    if not box.isChecked():
+                        unchecked.add(key)
+                except RuntimeError:
+                    continue
+            self._remembered_unchecked[kind] = unchecked
+
     def clear_filter_checkboxes(self, show_busy: bool = True):
+        self._remember_unchecked_filters()
         if show_busy:
             self._set_log_busy(True, "Resetting source filters...")
         self._reset_source_panel()
@@ -2097,6 +2122,8 @@ class VideoLogViewer(QWidget):
             self._set_log_busy(False)
 
     def _reset_filter_state(self, show_busy: bool = False):
+        if self.filters_loaded:
+            self._filters_wanted = True
         self.filters_loaded = False
         self.clear_filter_checkboxes(show_busy=show_busy)
         if hasattr(self, "filter_panel"):
@@ -2149,7 +2176,7 @@ class VideoLogViewer(QWidget):
 
             for key in unique_sources:
                 cb = QCheckBox(key)
-                cb.setChecked(True)
+                cb.setChecked(key not in self._remembered_unchecked["source"])
                 cb.stateChanged.connect(self.on_source_checkbox_changed)
                 self.source_layout_inner.addWidget(cb)
                 self.source_checkboxes[key] = cb
@@ -2165,7 +2192,7 @@ class VideoLogViewer(QWidget):
 
             for key in unique_states:
                 cb = QCheckBox(key)
-                cb.setChecked(True)
+                cb.setChecked(key not in self._remembered_unchecked["state"])
                 cb.stateChanged.connect(self.on_state_checkbox_changed)
                 self.state_layout_inner.addWidget(cb)
                 self.state_checkboxes[key] = cb
@@ -2181,7 +2208,7 @@ class VideoLogViewer(QWidget):
 
             for key in unique_messages:
                 cb = QCheckBox(key)
-                cb.setChecked(True)
+                cb.setChecked(key not in self._remembered_unchecked["message"])
                 cb.stateChanged.connect(self.on_message_checkbox_changed)
                 self.message_layout_inner.addWidget(cb)
                 self.message_checkboxes[key] = cb
@@ -5005,6 +5032,11 @@ class VideoLogViewer(QWidget):
         self._apply_loaded_events(*build_events_from_rows(rows))
         # Avoid modal dialog here; it can re-enter UI updates during heavy redraw.
         print("[viewer] events loaded", flush=True)
+        if self._filters_wanted and self.all_events and not self.filters_loaded:
+            # Filters were loaded before this reload: rebuild them with the
+            # remembered ticks and re-apply, no extra click needed.
+            self._filters_wanted = False
+            self.load_filters_panel()
 
     def _on_elastic_logs_failed(self, message: str):
         print(f"[viewer] _on_elastic_logs_failed: {message}", flush=True)
