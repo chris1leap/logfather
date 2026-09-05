@@ -100,8 +100,10 @@ class OverviewSystemState:
     # Bumped on every data merge; keys the per-system summary cache so the
     # event state machine reruns only when the data actually changed.
     events_version: int = 0
-    # False from the skeleton payload until this system's own data lands.
+    # False from the skeleton payload until this system's own data lands;
+    # phase says why: "waiting" (queued) or "downloading" (in progress).
     loaded: bool = True
+    phase: str = "loaded"
 
 
 _THUMBNAIL_CACHE: OrderedDict[str, tuple[int, QImage | None]] = OrderedDict()
@@ -589,6 +591,7 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
             "video_items": [],
             "thumbnail_image": None,
             "loaded": False,
+            "phase": "waiting",
         }
         for root in system_roots
     ]
@@ -651,6 +654,11 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
             eta = f" — {_fmt_eta(avg * (total_systems - idx + 1))}"
         clip_note = "" if scan_clips else f" (clips skipped for ranges over {OVERVIEW_CLIP_SCAN_MAX_DAYS} days)"
         job.emit_progress(f"Loading {root.name} ({idx}/{total_systems}){clip_note}{eta}")
+        if progressive:
+            # Flip this row from Waiting to Downloading before its fetch
+            # (Chris, 2026-09-05).
+            row["phase"] = "downloading"
+            job.emit_progress(payload([dict(row)], False))
         video_items = []
         if scan_clips:
             for day_entry in day_list:
@@ -668,6 +676,7 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
                 row["events"].extend(list(chunk.get(row["robot_id"]) or []))
         if progressive:
             row["loaded"] = True
+            row["phase"] = "loaded"
             job.emit_progress(payload(
                 [dict(row)], False, status=f"Loaded {root.name} ({idx}/{total_systems}){eta}"
             ))
@@ -701,6 +710,7 @@ def _run_overview_load(job, settings: Settings, parent_dir: Path, cache_root: Pa
     job.emit_progress("Rendering overview...")
     for row in rows:
         row["loaded"] = True
+        row["phase"] = "loaded"
     # A full-window fetch counts as a full refresh even when it started as
     # a cache-seeded load that found no cache file.
     return payload(rows, True, replace=False, full=covers_full_day)
@@ -1622,6 +1632,7 @@ class OverviewWidget(QWidget):
             state.robot_id = row.get("robot_id")
             state.video_items = list(row.get("video_items") or [])
             state.loaded = bool(row.get("loaded", True))
+            state.phase = str(row.get("phase") or ("loaded" if state.loaded else "waiting"))
             thumb = row.get("thumbnail_image")
             state.thumbnail_image = thumb if isinstance(thumb, QImage) else None
             incoming_events = list(row.get("events") or [])
@@ -2427,7 +2438,7 @@ class OverviewWidget(QWidget):
 
             status_text = str(summary.get("status") or "Unknown")
             if not state.loaded:
-                status_text = "Loading..."
+                status_text = "Downloading" if state.phase == "downloading" else "Waiting"
             status_color = {
                 "Running": QColor("#7cc77b"),
                 "Manual": QColor("#f0ad4e"),
