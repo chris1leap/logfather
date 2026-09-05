@@ -827,7 +827,8 @@ class OverviewWidget(QWidget):
         controls.setContentsMargins(0, 0, 0, 0)
         controls.addWidget(self.filter_btn)
         controls.addSpacing(12)
-        controls.addWidget(QLabel("Zoom"))
+        self._zoom_label = QLabel("Zoom")
+        controls.addWidget(self._zoom_label)
         controls.addWidget(self.one_hour_btn)
         controls.addWidget(self.five_hour_btn)
         controls.addWidget(self.all_day_btn)
@@ -1215,6 +1216,12 @@ class OverviewWidget(QWidget):
                 f"{start_day:%d/%m} – {end_day:%d/%m/%Y}"
             )
         self.live_btn.setChecked(False)
+        # A chosen range is shown whole: the 1h/5h zooms anchored at the
+        # range end only showed today's tail (Chris, 2026-09-05), and for
+        # multi-day spans the zoom buttons are hidden as irrelevant.
+        self.all_day_btn.setChecked(True)
+        self._set_display_mode("all")
+        self._update_zoom_controls()
         self._reset_loaded_data()
         self.refresh(force_full=True)
 
@@ -1224,8 +1231,17 @@ class OverviewWidget(QWidget):
             return
         self._filter_day_range = None
         self.pick_days_btn.setText("Choose days…")
+        self._update_zoom_controls()
         self._reset_loaded_data()
         self.refresh(force_full=True)
+
+    def _update_zoom_controls(self):
+        multi_day = (
+            self._filter_day_range is not None
+            and self._filter_day_range[0] != self._filter_day_range[1]
+        )
+        for widget in (self._zoom_label, self.one_hour_btn, self.five_hour_btn, self.all_day_btn):
+            widget.setVisible(not multi_day)
 
     def refresh(self, force_full: bool = False):
         if self.parent_dir is None:
