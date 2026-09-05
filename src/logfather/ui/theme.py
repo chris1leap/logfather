@@ -177,6 +177,16 @@ OVERFLOW_BUTTON = (
     "QToolButton::menu-indicator { image: none; }"
 )
 
+# Zoom row in the overflow menu: (-) Zoom (+) as circled buttons.
+ZOOM_CIRCLE_SIZE = 22
+ZOOM_CIRCLE_BUTTON = (
+    f"QToolButton {{ border: 1px solid {BORDER_LIGHT}; border-radius: {ZOOM_CIRCLE_SIZE // 2}px;"
+    f" background: {BG}; color: {TEXT}; font-weight: bold; padding: 0; }}"
+    f"QToolButton:hover {{ background: {BG_HOVER}; border-color: {ACCENT}; }}"
+    f"QToolButton:pressed {{ background: {BORDER}; }}"
+    f"QToolButton:disabled {{ color: {BORDER_LIGHT}; border-color: {BORDER}; }}"
+)
+
 SHUTDOWN_POPUP = (
     f"QWidget {{ background-color: {BG}; color: {TEXT};"
     f" border: 1px solid {BORDER_LIGHT}; font-size: 16px; }}"

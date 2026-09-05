@@ -5,6 +5,7 @@ from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QEvent, QVariantAnimation, QEasingCurve
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSplitter,
     QToolButton,
+    QWidgetAction,
     QSizePolicy,
     QPushButton,
     QLabel,
@@ -308,16 +310,16 @@ class MainWindow(QWidget):
         self.overflow_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         overflow_menu = QMenu(self.overflow_btn)
         # Zoom: scales the application font (text + buttons) live and is
-        # remembered per user (Chris, 2026-09-05). Application-wide
-        # shortcuts so they work without opening the menu.
-        self._zoom_label_action = overflow_menu.addAction("")
-        self._zoom_label_action.setEnabled(False)
-        for text, delta, shortcut in (
-            ("Zoom in", theme.ZOOM_STEP, "Ctrl+="),
-            ("Zoom out", -theme.ZOOM_STEP, "Ctrl+-"),
-            ("Reset zoom", 0.0, "Ctrl+0"),
+        # remembered per user (Chris, 2026-09-05). One menu row:
+        # (-) Zoom (+). Shortcuts (Ctrl+= / Ctrl+- / Ctrl+0) stay as hidden
+        # application-wide actions so they work without opening the menu.
+        overflow_menu.addAction(self._build_zoom_row_action(overflow_menu))
+        for delta, shortcut in (
+            (theme.ZOOM_STEP, "Ctrl+="),
+            (-theme.ZOOM_STEP, "Ctrl+-"),
+            (0.0, "Ctrl+0"),
         ):
-            action = overflow_menu.addAction(text)
+            action = QAction(self)
             action.setShortcut(shortcut)
             action.setShortcutContext(Qt.ApplicationShortcut)
             action.triggered.connect(lambda _checked=False, d=delta: self._change_zoom(d))
@@ -523,8 +525,42 @@ class MainWindow(QWidget):
         self._refresh_zoom_label()
         self.overview_widget.refresh_layout()
 
+    def _build_zoom_row_action(self, menu: QMenu) -> QWidgetAction:
+        """Single menu row: (-) Zoom (+). The buttons keep the menu open so
+        several steps can be taken in a row."""
+        row = QWidget(menu)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(12, 4, 12, 4)
+        layout.setSpacing(10)
+
+        def circle_button(text: str, delta: float, tip: str) -> QToolButton:
+            btn = QToolButton(row)
+            btn.setText(text)
+            btn.setToolTip(tip)
+            btn.setAutoRaise(True)
+            btn.setStyleSheet(theme.ZOOM_CIRCLE_BUTTON)
+            btn.setFixedSize(theme.ZOOM_CIRCLE_SIZE, theme.ZOOM_CIRCLE_SIZE)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _checked=False, d=delta: self._change_zoom(d))
+            return btn
+
+        self._zoom_out_btn = circle_button("−", -theme.ZOOM_STEP, "Zoom out (Ctrl+-)")
+        self._zoom_label = QLabel("Zoom", row)
+        self._zoom_label.setAlignment(Qt.AlignCenter)
+        self._zoom_in_btn = circle_button("+", theme.ZOOM_STEP, "Zoom in (Ctrl+=)")
+        layout.addWidget(self._zoom_out_btn)
+        layout.addWidget(self._zoom_label, 1)
+        layout.addWidget(self._zoom_in_btn)
+
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(row)
+        return action
+
     def _refresh_zoom_label(self) -> None:
-        self._zoom_label_action.setText(f"Zoom: {theme.zoom_factor() * 100:.0f}%")
+        pct = f"{theme.zoom_factor() * 100:.0f}%"
+        self._zoom_label.setToolTip(f"Current zoom {pct}. Ctrl+0 resets to 100%.")
+        self._zoom_out_btn.setEnabled(theme.zoom_factor() > theme.ZOOM_MIN)
+        self._zoom_in_btn.setEnabled(theme.zoom_factor() < theme.ZOOM_MAX)
 
     def _open_data_dialog(self):
         if self._data_dialog is None:
