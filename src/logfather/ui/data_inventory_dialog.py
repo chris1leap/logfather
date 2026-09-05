@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -318,7 +319,7 @@ class DataInventoryDialog(QDialog):
             controls.addWidget(btn)
         self._metric_buttons["elastic"].setChecked(True)
         controls.addSpacing(16)
-        self._days_label = QLabel(f"Last {INVENTORY_DAYS} days · hover a bar for details")
+        self._days_label = QLabel("hover a bar for details · click a CCTV bar to open its folder")
         self._days_label.setStyleSheet(theme.MUTED_LABEL)
         controls.addWidget(self._days_label)
         controls.addStretch(1)
@@ -335,16 +336,28 @@ class DataInventoryDialog(QDialog):
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.clicked.connect(self.start)
         controls.addWidget(self._refresh_btn)
-        layout.addLayout(controls)
+        # The 14-day section - filter, metric toggle, key and chart - sits
+        # in one framed box (Chris, 2026-09-05).
+        summary_box = QGroupBox(f"{INVENTORY_DAYS} day summary")
+        summary_box.setStyleSheet(
+            f"QGroupBox {{ font-weight: bold; margin-top: 16px; padding: 10px 8px 8px 8px;"
+            f" border: 1px solid {theme.BORDER_LIGHT}; border-radius: 6px; }}"
+            f"QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 6px;"
+            f" color: {theme.TEXT_BRIGHT}; }}"
+        )
+        box_layout = QVBoxLayout(summary_box)
+        box_layout.setSpacing(8)
+        box_layout.addLayout(controls)
 
         self._legend = QLabel("")
         self._legend.setWordWrap(True)
-        layout.addWidget(self._legend)
+        box_layout.addWidget(self._legend)
 
         self._chart = _StackedBarChart()
         self._chart.set_detail_provider(self._detail_for)
         self._chart.set_click_handler(None)
-        layout.addWidget(self._chart, 1)
+        box_layout.addWidget(self._chart, 1)
+        layout.addWidget(summary_box, 1)
 
     @staticmethod
     def _make_tile(title: str):

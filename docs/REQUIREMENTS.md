@@ -50,7 +50,8 @@ Living record of agreed functionality: what is open, and what has shipped
   tiles (Elastic total since oldest record; CCTV total on the share,
   estimated from the retained day folders), Elastic documents / Elastic
   size / CCTV clips / CCTV size metrics, stacked per-day bars for the
-  last 14 days in pastel colours, hover details for the shown source
+  last 14 days in pastel colours (filter, toggle, key and chart framed
+  in a "14 day summary" box), hover details for the shown source
   only, funnel filter grouped by customer (remembered), click a CCTV bar
   to open that day's folder in Explorer, resizable/maximisable window.
   Elastic sizes: real index store size when the key may read it, else
