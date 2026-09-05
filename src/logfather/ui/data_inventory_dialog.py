@@ -9,6 +9,7 @@ for that system on that day.
 """
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -181,12 +182,30 @@ class _StackedBarChart(QWidget):
         self._fmt: Callable[[float], str] = str
         self._empty_text = "No data loaded yet"
         self._detail_fn: DetailFn | None = None
+        # Optional click target for a segment (name, day); the cursor
+        # turns into a hand over segments while one is set.
+        self._click_fn: Callable[[str, date], None] | None = None
         # Filled during paint: (rect, name, day) per drawn segment.
         self._segments: list[tuple[QRectF, str, date]] = []
         self._hover_index: int | None = None
 
     def set_detail_provider(self, fn: DetailFn | None) -> None:
         self._detail_fn = fn
+
+    def set_click_handler(self, fn: Callable[[str, date], None] | None) -> None:
+        self._click_fn = fn
+        if fn is None:
+            self.unsetCursor()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._click_fn is not None:
+            pos = event.position()
+            for rect, name, day in self._segments:
+                if rect.contains(pos):
+                    self._click_fn(name, day)
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
 
     def set_data(
         self,
@@ -212,6 +231,8 @@ class _StackedBarChart(QWidget):
         if hit != self._hover_index:
             self._hover_index = hit
             self.update()
+        if self._click_fn is not None:
+            self.setCursor(Qt.PointingHandCursor if hit is not None else Qt.ArrowCursor)
         if hit is None:
             QToolTip.hideText()
         else:
@@ -421,6 +442,7 @@ class DataInventoryDialog(QDialog):
 
         self._chart = _StackedBarChart()
         self._chart.set_detail_provider(self._detail_for)
+        self._chart.set_click_handler(None)
         layout.addWidget(self._chart, 1)
 
     @staticmethod
@@ -705,11 +727,30 @@ class DataInventoryDialog(QDialog):
             "bytes": "CCTV data not loaded",
         }[self._metric]
         self._chart.set_data(days, series, fmt, empty_text=empty)
+        # CCTV bars open that system's day folder in Explorer on click
+        # (Chris, 2026-09-05); Elastic bars have nowhere to go.
+        self._chart.set_click_handler(
+            self._open_day_folder if self._metric in ("clips", "bytes") else None
+        )
         legend_bits = [
             f'<span style="background-color:{colour.name()};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{name}'
             for name, colour, _values in series
         ]
         self._legend.setText("&nbsp;&nbsp;&nbsp;".join(legend_bits))
+
+    def _open_day_folder(self, name: str, day: date) -> None:
+        parent_dir = self._parent_dir_provider()
+        if parent_dir is None:
+            return
+        folder = Path(parent_dir) / name / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
+        if not folder.is_dir():
+            self._status_label.setText(f"No folder on the share for {name} on {day:%d/%m/%Y}")
+            return
+        try:
+            os.startfile(str(folder))
+            self._status_label.setText(f"Opened {folder}")
+        except OSError as exc:
+            self._status_label.setText(f"Could not open {folder}: {exc}")
 
     def _detail_for(self, name: str, day: date) -> str:
         """Every metric for one system on one day, for the hover tooltip."""
@@ -739,6 +780,7 @@ class DataInventoryDialog(QDialog):
             clips = int(cctv.clips[name].get(day, 0))
             est = int(cctv.est_bytes.get(name, {}).get(day, 0))
             lines.append(f"CCTV: {clips:,} clips ≈ {format_bytes(est)} (est.)")
+            lines.append("<i>Click to open this day's folder</i>")
             oldest = cctv.oldest_day.get(name)
             folders = cctv.day_folders.get(name)
             if oldest is not None or folders:
