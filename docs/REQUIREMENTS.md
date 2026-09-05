@@ -24,6 +24,17 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-05
 
+- Errors / Stops window (Chris): top-bar button; the Overview's machine
+  filter and Live / Choose days picker (defaults to the last 7 days).
+  Two stacked daily charts - line stoppages by kind (emergency,
+  protective, operator, caution) and errors by category (planner,
+  targeting, motion, sensors, drives/power, crate change, system) -
+  with totals above and a per-system table below (stoppages, errors,
+  most common error); hover a bar for the systems behind it. Exact
+  Elastic aggregations over both robot-id fields
+  (`data/errors_stops.py`, classification tested). The stacked bar chart
+  and day-range dialog moved to shared modules (`ui/charts.py`,
+  `ui/day_range_dialog.py`).
 - Software window (Chris): top-bar Software button opens a timeline -
   one block per PikPak system, one lane per package (argus, planner,
   targeting, actuators, sensors, infeed, crate_change, behaviour), a bar

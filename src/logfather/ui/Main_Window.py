@@ -57,6 +57,7 @@ from logfather.data.settings_store import Settings, display_customer_name, displ
 from logfather.ui.Log_vid_gui import VideoLogViewer
 from logfather.ui.data_inventory_dialog import DataInventoryDialog
 from logfather.ui.software_window import SoftwareWindow
+from logfather.ui.errors_stops_window import ErrorsStopsWindow
 from logfather.ui.overview_widget import OverviewWidget
 from logfather.ui.fleetwide_elastic_search_widget import FleetwideElasticSearchWidget
 from logfather.ui.target_buffer_widget import TargetBufferWidget
@@ -327,6 +328,14 @@ class MainWindow(QWidget):
         self.software_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.software_btn.clicked.connect(self._open_software_window)
         self._software_window: SoftwareWindow | None = None
+        # Errors / Stops window (Chris, 2026-09-05): stoppages and errors
+        # per day, same filter and day picker as the Overview.
+        self.errors_btn = QToolButton()
+        self.errors_btn.setText("Errors / Stops")
+        self.errors_btn.setToolTip("Line stoppages and errors per day, by system")
+        self.errors_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.errors_btn.clicked.connect(self._open_errors_window)
+        self._errors_window: ErrorsStopsWindow | None = None
 
         # Rarely-used items live behind "⋯" instead of permanent buttons.
         self.overflow_btn = QToolButton()
@@ -360,6 +369,7 @@ class MainWindow(QWidget):
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.buffer_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.data_btn, 0, Qt.AlignRight)
+        top_controls.addWidget(self.errors_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.software_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.overflow_btn, 0, Qt.AlignRight)
 
@@ -611,6 +621,20 @@ class MainWindow(QWidget):
             self._data_dialog.shutdown()
         if self._software_window is not None:
             self._software_window.shutdown()
+        if self._errors_window is not None:
+            self._errors_window.shutdown()
+
+    def _open_errors_window(self):
+        if self._errors_window is None:
+            self._errors_window = ErrorsStopsWindow(
+                settings_provider=lambda: self.settings,
+                known_systems_provider=self.overview_widget._known_system_names,
+                parent=self,
+            )
+        self._errors_window.show()
+        self._errors_window.raise_()
+        self._errors_window.activateWindow()
+        self._errors_window.start_if_needed()
 
     def _open_software_window(self):
         if self._software_window is None:
