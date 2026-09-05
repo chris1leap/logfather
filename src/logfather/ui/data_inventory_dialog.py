@@ -716,7 +716,10 @@ class DataInventoryDialog(QDialog):
         # Just the system and its figures: the day and the share of the
         # day are already visible on the chart (Chris, 2026-09-05).
         lines = [f"<b>{name}</b>"]
-        inv = self._elastic
+        # Only the source the chart is showing (Chris, 2026-09-05): an
+        # Elastic view says nothing about CCTV, and vice versa.
+        showing_elastic = self._metric in ("elastic", "elastic_bytes")
+        inv = self._elastic if showing_elastic else None
         if inv is not None:
             docs = 0
             est_bytes = 0.0
@@ -731,7 +734,7 @@ class DataInventoryDialog(QDialog):
             if est_bytes and docs:
                 line += f" ≈ {format_bytes(est_bytes)} (avg {factor_used:.0f} B/doc)"
             lines.append(line)
-        cctv = self._cctv
+        cctv = None if showing_elastic else self._cctv
         if cctv is not None and name in cctv.clips:
             clips = int(cctv.clips[name].get(day, 0))
             est = int(cctv.est_bytes.get(name, {}).get(day, 0))
