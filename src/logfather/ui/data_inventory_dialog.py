@@ -354,6 +354,16 @@ class DataInventoryDialog(QDialog):
         intro.setStyleSheet(f"color: {theme.TEXT_BRIGHT};")
         layout.addWidget(intro)
 
+        # Two headline tiles (Chris, 2026-09-05): Elastic total since its
+        # oldest record, CCTV total currently on the share.
+        tiles = QHBoxLayout()
+        tiles.setSpacing(12)
+        self._elastic_tile, self._elastic_tile_value, self._elastic_tile_sub = self._make_tile("Elastic total")
+        self._cctv_tile, self._cctv_tile_value, self._cctv_tile_sub = self._make_tile("CCTV total")
+        tiles.addWidget(self._elastic_tile, 1)
+        tiles.addWidget(self._cctv_tile, 1)
+        layout.addLayout(tiles)
+
         self._elastic_summary = QLabel("Elastic: not loaded")
         self._elastic_summary.setWordWrap(True)
         self._cctv_summary = QLabel("CCTV share: not loaded")
@@ -412,6 +422,32 @@ class DataInventoryDialog(QDialog):
         self._chart = _StackedBarChart()
         self._chart.set_detail_provider(self._detail_for)
         layout.addWidget(self._chart, 1)
+
+    @staticmethod
+    def _make_tile(title: str):
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background-color: {theme.BG_RAISED}; border: 1px solid {theme.BORDER};"
+            " border-radius: 6px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+        box = QVBoxLayout(frame)
+        box.setContentsMargins(18, 12, 18, 12)
+        box.setSpacing(2)
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-weight: bold;")
+        value_label = QLabel("—")
+        value_font = QFont()
+        value_font.setPointSizeF(value_font.pointSizeF() * 2.2)
+        value_font.setBold(True)
+        value_label.setFont(value_font)
+        value_label.setStyleSheet(f"color: {theme.TEXT_BRIGHT};")
+        sub_label = QLabel("loading...")
+        sub_label.setStyleSheet(f"color: {theme.TEXT_MUTED};")
+        box.addWidget(title_label)
+        box.addWidget(value_label)
+        box.addWidget(sub_label)
+        return frame, value_label, sub_label
 
     # ---- lifecycle --------------------------------------------------------
 
@@ -503,6 +539,18 @@ class DataInventoryDialog(QDialog):
         if inventory.bytes_basis:
             parts.append(f"sizes: {inventory.bytes_basis}")
         self._elastic_summary.setText("Elastic: " + " · ".join(parts))
+        if inventory.total_bytes:
+            self._elastic_tile_value.setText(format_bytes(inventory.total_bytes))
+            since = (
+                f"since {inventory.oldest_ts.astimezone():%d %b %Y}"
+                if inventory.oldest_ts is not None
+                else "all records"
+            )
+            est = "" if inventory.bytes_basis.startswith("index store") else " · estimated"
+            self._elastic_tile_sub.setText(f"{since} · {format_count(inventory.total_docs or 0)} documents{est}")
+        else:
+            self._elastic_tile_value.setText("—")
+            self._elastic_tile_sub.setText("size unavailable")
         self._rebuild_views()
 
     def _on_cctv_result(self, inventory: CctvInventory) -> None:
@@ -525,6 +573,19 @@ class DataInventoryDialog(QDialog):
             oldest_day, oldest_name = min(oldest_pairs)
             parts.append(f"oldest day folder {oldest_day:%d/%m/%Y} ({oldest_name})")
         self._cctv_summary.setText("CCTV share: " + " · ".join(parts))
+        # Share total: each system's average bytes per day-with-clips in
+        # the window, times the day folders it actually has on the share
+        # (the retained ~30 days), summed across systems.
+        share_total = 0.0
+        for system, per_day in inventory.est_bytes.items():
+            days_with_clips = sum(1 for v in inventory.clips.get(system, {}).values() if v)
+            if not days_with_clips:
+                continue
+            per_day_avg = sum(per_day.values()) / days_with_clips
+            share_total += per_day_avg * max(days_with_clips, inventory.day_folders.get(system, 0))
+        folder_note = f"last {folder_counts[len(folder_counts) // 2]} days" if folder_counts else "current retention"
+        self._cctv_tile_value.setText(format_bytes(share_total))
+        self._cctv_tile_sub.setText(f"on the share ({folder_note}) · {len(inventory.clips)} systems · estimated")
         self._rebuild_views()
 
     # ---- system filter ----------------------------------------------------
