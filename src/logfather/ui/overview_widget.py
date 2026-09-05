@@ -1824,10 +1824,11 @@ class OverviewWidget(QWidget):
         right_pad = 190
         # Two sticky header rows: column titles / time ticks / now-clock
         # on the first, the blue last-update label on the second.
-        top_pad = 46
+        zoom = theme.zoom_factor()
+        top_pad = int(46 * zoom)
         bottom_pad = 18
-        row_height = OVERVIEW_ROW_HEIGHT
-        header_height = 36
+        row_height = int(OVERVIEW_ROW_HEIGHT * zoom)
+        header_height = int(36 * zoom)
         display_rows: list[tuple[str, object]] = []
         last_customer = None
         for state in states:

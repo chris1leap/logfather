@@ -307,7 +307,24 @@ class MainWindow(QWidget):
         self.overflow_btn.setPopupMode(QToolButton.InstantPopup)
         self.overflow_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         overflow_menu = QMenu(self.overflow_btn)
+        # Zoom: scales the application font (text + buttons) live and is
+        # remembered per user (Chris, 2026-09-05). Application-wide
+        # shortcuts so they work without opening the menu.
+        self._zoom_label_action = overflow_menu.addAction("")
+        self._zoom_label_action.setEnabled(False)
+        for text, delta, shortcut in (
+            ("Zoom in", theme.ZOOM_STEP, "Ctrl+="),
+            ("Zoom out", -theme.ZOOM_STEP, "Ctrl+-"),
+            ("Reset zoom", 0.0, "Ctrl+0"),
+        ):
+            action = overflow_menu.addAction(text)
+            action.setShortcut(shortcut)
+            action.setShortcutContext(Qt.ApplicationShortcut)
+            action.triggered.connect(lambda _checked=False, d=delta: self._change_zoom(d))
+            self.addAction(action)
+        overflow_menu.addSeparator()
         overflow_menu.addAction("About", self._open_about_dialog)
+        self._refresh_zoom_label()
         self.overflow_btn.setMenu(overflow_menu)
 
         top_controls.addStretch(1)
@@ -499,6 +516,15 @@ class MainWindow(QWidget):
             0,
             lambda: self._overlay_controller.set_tracking_enabled(self.track_toggle.isChecked()),
         )
+
+    def _change_zoom(self, delta: float) -> None:
+        target = 1.0 if delta == 0.0 else theme.zoom_factor() + delta
+        theme.set_zoom(QApplication.instance(), target)
+        self._refresh_zoom_label()
+        self.overview_widget.refresh_layout()
+
+    def _refresh_zoom_label(self) -> None:
+        self._zoom_label_action.setText(f"Zoom: {theme.zoom_factor() * 100:.0f}%")
 
     def _open_data_dialog(self):
         if self._data_dialog is None:

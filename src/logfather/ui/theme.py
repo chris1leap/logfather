@@ -32,6 +32,49 @@ ACCENT_BORDER = "#3d6288"   # border partnering ACCENT_DIM fills
 
 FONT_SCALE = 1.3            # applied to the app default font at startup
 
+# User zoom on top of FONT_SCALE (Chris, 2026-09-05): Ctrl+= / Ctrl+- /
+# Ctrl+0 from the top-right menu, live and remembered per user. Scales
+# the application font, which drives text and button sizes; scene-based
+# views ask zoom_factor() for their row geometry.
+ZOOM_MIN = 0.6
+ZOOM_MAX = 2.0
+ZOOM_STEP = 0.1
+_ZOOM_KEY = "ui_zoom"
+_base_point_size: float | None = None
+_zoom: float = 1.0
+
+
+def _load_zoom() -> float:
+    try:
+        from logfather.data.ui_state_store import load_ui_state
+
+        raw = float(load_ui_state().get(_ZOOM_KEY) or 1.0)
+    except Exception:
+        raw = 1.0
+    return max(ZOOM_MIN, min(ZOOM_MAX, raw))
+
+
+def zoom_factor() -> float:
+    return _zoom
+
+
+def set_zoom(app, value: float) -> float:
+    """Apply a zoom level to the running app and remember it."""
+    global _zoom, _base_point_size
+    _zoom = max(ZOOM_MIN, min(ZOOM_MAX, round(float(value), 2)))
+    if _base_point_size is None:
+        _base_point_size = app.font().pointSizeF() / FONT_SCALE
+    font = app.font()
+    font.setPointSizeF(_base_point_size * FONT_SCALE * _zoom)
+    app.setFont(font)
+    try:
+        from logfather.data.ui_state_store import update_ui_state
+
+        update_ui_state({_ZOOM_KEY: _zoom})
+    except Exception:
+        pass
+    return _zoom
+
 # ---------------------------------------------------------------- palette
 
 TEXT = "#d7dde2"          # primary light text
@@ -392,8 +435,11 @@ def apply_app_theme(app) -> None:
     # ~30% larger type app-wide (Chris, 2026-09-05). Scaling the default
     # font covers every widget and graphics-scene text that doesn't set
     # its own size; the explicit px sizes above are pre-scaled to match.
+    global _base_point_size, _zoom
+    _base_point_size = app.font().pointSizeF()
+    _zoom = _load_zoom()
     font = app.font()
-    font.setPointSizeF(font.pointSizeF() * FONT_SCALE)
+    font.setPointSizeF(_base_point_size * FONT_SCALE * _zoom)
     app.setFont(font)
 
     pal = QPalette()
