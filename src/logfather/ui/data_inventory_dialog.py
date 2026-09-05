@@ -158,10 +158,12 @@ class _SystemFilterPopup(QWidget):
 
 
 def _series_colour(index: int) -> QColor:
-    """Distinct, theme-friendly colours: golden-angle hue steps."""
+    """Distinct pastel colours: golden-angle hue steps at low saturation
+    (Chris, 2026-09-05: the saturated set read as neon on the dark
+    ground). Alternating lightness keeps neighbours apart."""
     hue = (index * 137.508) % 360.0
     colour = QColor()
-    colour.setHsvF(hue / 360.0, 0.55, 0.85)
+    colour.setHsvF(hue / 360.0, 0.32, 0.86 if index % 2 == 0 else 0.74)
     return colour
 
 
