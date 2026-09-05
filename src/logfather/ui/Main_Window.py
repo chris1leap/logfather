@@ -56,6 +56,7 @@ from logfather.ui.target_overlay_controller import TargetOverlayController
 from logfather.data.settings_store import Settings, display_customer_name, display_line_name
 from logfather.ui.Log_vid_gui import VideoLogViewer
 from logfather.ui.data_inventory_dialog import DataInventoryDialog
+from logfather.ui.software_window import SoftwareWindow
 from logfather.ui.overview_widget import OverviewWidget
 from logfather.ui.fleetwide_elastic_search_widget import FleetwideElasticSearchWidget
 from logfather.ui.target_buffer_widget import TargetBufferWidget
@@ -318,6 +319,14 @@ class MainWindow(QWidget):
         self.data_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.data_btn.clicked.connect(self._open_data_dialog)
         self._data_dialog: DataInventoryDialog | None = None
+        # Software window: versions + commits per system over time (Chris,
+        # 2026-09-05).
+        self.software_btn = QToolButton()
+        self.software_btn.setText("Software")
+        self.software_btn.setToolTip("Package versions and git commits per system, over time")
+        self.software_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.software_btn.clicked.connect(self._open_software_window)
+        self._software_window: SoftwareWindow | None = None
 
         # Rarely-used items live behind "⋯" instead of permanent buttons.
         self.overflow_btn = QToolButton()
@@ -351,6 +360,7 @@ class MainWindow(QWidget):
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.buffer_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.data_btn, 0, Qt.AlignRight)
+        top_controls.addWidget(self.software_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.overflow_btn, 0, Qt.AlignRight)
 
         # Activity bar: a persistent strip at the very bottom showing what
@@ -599,6 +609,16 @@ class MainWindow(QWidget):
     def _shutdown_data_dialog(self):
         if self._data_dialog is not None:
             self._data_dialog.shutdown()
+        if self._software_window is not None:
+            self._software_window.shutdown()
+
+    def _open_software_window(self):
+        if self._software_window is None:
+            self._software_window = SoftwareWindow(settings_provider=lambda: self.settings, parent=self)
+        self._software_window.show()
+        self._software_window.raise_()
+        self._software_window.activateWindow()
+        self._software_window.start_if_needed()
 
     def _open_about_dialog(self):
         from logfather.ui.about_page import AboutDialog

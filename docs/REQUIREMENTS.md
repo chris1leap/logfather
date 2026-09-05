@@ -24,6 +24,14 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-05
 
+- Software window (Chris): top-bar Software button opens a timeline -
+  one block per PikPak system, one lane per package (argus, planner,
+  targeting, actuators, sensors, infeed, crate_change, behaviour), a bar
+  per dated span labelled "version (commit)", hover for branch, dates
+  and node-start count; 30d/90d/6mo/1yr ranges. Built from
+  `sw_version.*` and the health node's "Node git details" documents
+  (`data/software_history.py`, tested span logic). Argus 1 systems show
+  as rows with no data, since they log no version or commit fields.
 - Viewer log filters survive a reload (Chris): the source / state /
   message tick boxes the user unticked are remembered when the panels
   are rebuilt, and if filters were loaded before a reload (Refresh, or
