@@ -56,8 +56,10 @@ class StackedBarChart(QWidget):
         self._grouped = bool(grouped)
         self.update()
 
-    def set_min_slot(self, px: float) -> None:
-        """Minimum width per day; 0 fits every day on screen."""
+    def set_slot_width(self, px: float) -> None:
+        """Fixed width per day; 0 fits every day on screen. Fixed means
+        loading more days scrolls rather than shrinking the bars (Chris,
+        2026-09-06: the wheel must scroll, never look like a zoom)."""
         self._min_slot = max(0.0, float(px))
         self.update()
 
@@ -70,9 +72,21 @@ class StackedBarChart(QWidget):
         return max(1.0, float(self.rect().width() - 76 - 16))
 
     def slot_width(self) -> float:
-        n = max(1, len(self._days))
-        fit = self._plot_width() / n
-        return max(self._min_slot, fit) if self._min_slot > 0 else fit
+        if self._min_slot > 0:
+            return self._min_slot
+        return self._plot_width() / max(1, len(self._days))
+
+    def nudge(self, fraction: float) -> None:
+        """Scroll by a fraction of the visible width (negative = older);
+        at an end, ask for more days instead."""
+        before = self._offset
+        self.set_offset(self._offset + fraction * self._plot_width())
+        if abs(self._offset - before) < 0.5:
+            now = time.monotonic()
+            if now - self._last_edge > 0.7:
+                self._last_edge = now
+                self.edge_reached.emit("newer" if fraction > 0 else "older")
+        self._emit_scroll_state()
 
     def max_offset(self) -> float:
         return max(0.0, self.slot_width() * len(self._days) - self._plot_width())
@@ -102,18 +116,9 @@ class StackedBarChart(QWidget):
         delta = event.angleDelta().x() or event.angleDelta().y()
         if delta == 0:
             return
-        # Wheel down / right moves to later days.
-        direction = -1 if delta > 0 else 1
-        target = self._offset + direction * self.slot_width() * 2
-        before = self._offset
-        self.set_offset(target)
+        # Wheel down / right moves to later days; never a zoom.
         event.accept()
-        if abs(self._offset - before) < 0.5:
-            now = time.monotonic()
-            if now - self._last_edge > 0.7:
-                self._last_edge = now
-                self.edge_reached.emit("newer" if direction > 0 else "older")
-        self._emit_scroll_state()
+        self.nudge(-0.2 if delta > 0 else 0.2)
 
     def set_detail_provider(self, fn: DetailFn | None) -> None:
         self._detail_fn = fn

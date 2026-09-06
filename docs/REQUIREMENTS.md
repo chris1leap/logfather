@@ -50,9 +50,13 @@ Living record of agreed functionality: what is open, and what has shipped
   sideways (one scrollbar for both charts, wheel over a chart too)
   rather than squeezing onto one screen; scrolling past either end
   loads seven more days, drawn as hatched "loading" columns until they
-  arrive (Chris). Zoom + / - circles at the top right change the width
-  per day (how many days fit on screen), never the text size; remembered
-  per user (Chris). The Live button reads "Live (today)" here and on the
+  arrive (Chris). A freshly chosen range is fitted to the screen and the
+  width per day then locked, so loading more days scrolls rather than
+  shrinking the bars; the wheel always scrolls, never zooms; Zoom + / -
+  circles at the top right are the only way to change the width per day
+  (never the text size); arrow buttons either side of each chart step
+  back / forward by a fifth of the view and load more days at the ends
+  (Chris, 2026-09-06). The Live button reads "Live (today)" here and on the
   Overview. Exact
   Elastic aggregations over both robot-id fields
   (`data/errors_stops.py`, classification tested). The stacked bar chart
