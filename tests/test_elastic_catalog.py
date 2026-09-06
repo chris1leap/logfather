@@ -31,3 +31,32 @@ def test_parse_catalog_shares_examples_and_fields():
     assert planner.examples == ["New node state"]
     assert planner.fields == ["state_name", "sw_version", "system_id"]
     assert parse_catalog([]).total_docs == 0
+
+
+def test_describe_field_and_pick_agg_field():
+    from logfather.data.elastic_catalog import describe_field, parse_field_values, pick_agg_field
+
+    assert "transition" in describe_field("state_name")
+    assert describe_field("sw_version.planner") == "Software version of the planner package."
+    assert "numeric" in describe_field("weird_thing", "float")
+    caps = {"fields": {
+        "state_name": {"text": {}}, "state_name.keyword": {"keyword": {}},
+        "qc_confidence": {"float": {}}, "qc_model_loaded": {"boolean": {}},
+        "sw_version.planner": {"text": {}}, "sw_version.planner.keyword": {"keyword": {}},
+        "blob": {"text": {}},
+    }}
+    assert pick_agg_field("state_name", caps) == ("state_name.keyword", "text")
+    assert pick_agg_field("qc_confidence", caps) == ("qc_confidence", "float")
+    assert pick_agg_field("qc_model_loaded", caps) == ("qc_model_loaded", "boolean")
+    assert pick_agg_field("sw_version", caps) == (None, "object")
+    assert pick_agg_field("blob", caps) == (None, "text")
+    assert pick_agg_field("missing", caps) == (None, "unknown")
+    result = {"hits": {"total": {"value": 1000}}, "aggregations": {"with_field": {
+        "doc_count": 800, "c": {"value": 3},
+        "v": {"buckets": [{"key": "planner_ready", "doc_count": 500}, {"key": 1.5, "key_as_string": "1.5", "doc_count": 300}]},
+        "st": {"count": 800, "min": 0.1, "max": 9.0, "avg": 2.5},
+    }}}
+    fv = parse_field_values(result, "x", "/n", 365, "float", "d")
+    assert fv.node_docs == 1000 and fv.docs_with_field == 800 and fv.distinct == 3
+    assert fv.values == [("planner_ready", 500), ("1.5", 300)]
+    assert fv.stats == {"min": 0.1, "max": 9.0, "avg": 2.5}

@@ -44,7 +44,12 @@ Living record of agreed functionality: what is open, and what has shipped
   last week's documents, example messages and the fields its documents
   carry, the fields in two side-by-side columns in the widest column
   (`data/elastic_catalog.py`, curated node descriptions + one live
-  aggregation).
+  aggregation). Each field is a link: clicking it opens what the field is
+  (curated note, or one derived from its mapping type), how often the
+  node's documents carry it, and every value it has held over the last
+  year with counts and shares (top 300; numbers also get min / avg /
+  max; objects and bare text fall back to the latest 200 documents)
+  (Chris, 2026-09-06).
 - Data window, click an Elastic bar (Chris): opens Kibana Discover in the
   browser on that system and local day (either robot-id field), so the
   actual documents can be read.
