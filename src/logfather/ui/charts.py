@@ -15,6 +15,13 @@ from logfather.ui import theme
 DetailFn = Callable[[str, date], str]
 
 
+def day_heading(day: date) -> str:
+    """'Mon 18th' - the label above each day's cluster (Chris, 2026-09-06)."""
+    n = day.day
+    suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{day:%a} {n}{suffix}"
+
+
 class StackedBarChart(QWidget):
     """One stacked bar per day, a segment per system; hover a segment for
     that system/day's details (Chris, 2026-09-05)."""
@@ -329,12 +336,13 @@ class StackedBarChart(QWidget):
                 else:
                     painter.setPen(Qt.NoPen)
                 painter.drawRect(seg)
-            if totals[i] > 0 and slot >= 34:
-                painter.setPen(QColor(theme.TEXT_MUTED))
+            # The day, not the total, heads each cluster (Chris, 2026-09-06).
+            if slot >= 34:
+                painter.setPen(QColor(theme.TEXT))
                 painter.drawText(
                     QRectF(x0 - slot / 2, plot_bottom - plot_h - 22, cluster_w + slot, 18),
                     Qt.AlignHCenter | Qt.AlignBottom,
-                    self._fmt(totals[i]),
+                    day_heading(day) if slot >= 64 else f"{day:%a} {day.day}",
                 )
             painter.setPen(QColor(theme.TEXT_MUTED))
             painter.drawText(
