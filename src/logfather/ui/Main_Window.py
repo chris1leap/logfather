@@ -636,6 +636,7 @@ class MainWindow(QWidget):
                 settings_provider=lambda: self.settings,
                 known_systems_provider=self.overview_widget._known_system_names,
                 parent=self,
+                open_system=self._open_system_from_errors,
             )
         self._errors_window.show()
         self._errors_window.raise_()
@@ -1615,6 +1616,16 @@ class MainWindow(QWidget):
                 self._animate_left_panel(self._left_panel_target_width)
             self.time_picker.setVisible(True)
             self._apply_initial_timeline_size()
+
+    def _open_system_from_errors(self, folder_name: str, day: date) -> None:
+        """A bar in the Errors / Stops window: that system and day in the
+        viewer, main window brought to the front (Chris, 2026-09-06)."""
+        parent_dir = self.date_picker.parent_dir
+        if not isinstance(parent_dir, Path):
+            return
+        self._open_system_from_overview(parent_dir / folder_name, day)
+        self.raise_()
+        self.activateWindow()
 
     def _open_system_from_overview(self, pikpak_root: Path | None, selected_day: date | None, target_dt: datetime | None = None):
         if not isinstance(pikpak_root, Path) or selected_day is None:

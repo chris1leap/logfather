@@ -76,6 +76,7 @@ class ErrorsStopsWindow(QDialog):
         settings_provider: Callable,
         known_systems_provider: Callable[[], list[str]],
         parent=None,
+        open_system: Callable[[str, date], None] | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Errors / Stops")
@@ -85,6 +86,9 @@ class ErrorsStopsWindow(QDialog):
         self.resize(1280, 880)
         self._settings_provider = settings_provider
         self._known_systems_provider = known_systems_provider
+        # Clicking a bar opens that system and day in the viewer (Chris,
+        # 2026-09-06); the main window supplies the opener.
+        self._open_system = open_system
         self._slot = JobSlot(self)
         self._extend_slot = JobSlot(self)
         self._data: ErrorsStopsData | None = None
@@ -189,6 +193,7 @@ class ErrorsStopsWindow(QDialog):
         self._stops_chart.setMinimumHeight(220)
         self._stops_chart.set_grouped(True)
         self._stops_chart.set_detail_provider(lambda label, day: self._detail("stops", label, day))
+        self._stops_chart.set_click_handler(self._on_bar_clicked)
         self._stops_legend = QLabel("")
         self._stops_legend.setVisible(self._show_key)
         layout.addWidget(self._boxed("Line stoppages per day", self._stops_legend, self._stops_chart, arrows=True), 3)
@@ -197,6 +202,7 @@ class ErrorsStopsWindow(QDialog):
         self._errors_chart.setMinimumHeight(220)
         self._errors_chart.set_grouped(True)
         self._errors_chart.set_detail_provider(lambda label, day: self._detail("errors", label, day))
+        self._errors_chart.set_click_handler(self._on_bar_clicked)
         self._errors_legend = QLabel("")
         self._errors_legend.setVisible(self._show_key)
         layout.addWidget(self._boxed("Errors per day", self._errors_legend, self._errors_chart, arrows=True), 3)
@@ -639,4 +645,24 @@ class ErrorsStopsWindow(QDialog):
         top = sorted(states.items(), key=lambda kv: -kv[1])[:4]
         if top and table == "errors":
             lines.append("<i>" + ", ".join(f"{s} {n:,}" for s, n in top) + "</i>")
+        if self._open_system is not None and self._folder_for(label):
+            lines.append("<i>Click to open this system and day in the viewer</i>")
         return "<br>".join(lines)
+
+    def _folder_for(self, label: str) -> str | None:
+        """The share folder (PikPakNNN) behind a chart label, if any."""
+        robot = self._label_to_robot.get(label, label)
+        for name in self._known_systems_provider():
+            if robot_id_from_folder(name) == robot:
+                return name
+        return None
+
+    def _on_bar_clicked(self, label: str, day: date) -> None:
+        if self._open_system is None:
+            return
+        folder = self._folder_for(label)
+        if not folder:
+            self._status.setText(f"{label} has no CCTV folder on the share to open")
+            return
+        self._status.setText(f"Opening {folder} on {day:%d/%m/%Y} in the viewer")
+        self._open_system(folder, day)

@@ -65,7 +65,8 @@ Living record of agreed functionality: what is open, and what has shipped
   Sep)", here and on the Overview (Chris, 2026-09-06). A month / year
   line ("September 2026") sits above the day headings, one label per
   run of days in a month, staying in view while scrolling (Chris,
-  2026-09-06). Exact
+  2026-09-06). Clicking a bar opens that system and day in the viewer
+  (Chris, 2026-09-06). Exact
   Elastic aggregations over both robot-id fields
   (`data/errors_stops.py`, classification tested). The stacked bar chart
   and day-range dialog moved to shared modules (`ui/charts.py`,
