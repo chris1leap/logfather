@@ -52,6 +52,7 @@ from logfather.data.settings_store import display_customer_name, system_group_so
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
 from logfather.ui.charts import StackedBarChart
+from logfather.ui.elastic_catalog_dialog import ElasticCatalogDialog
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
@@ -127,7 +128,20 @@ class DataInventoryDialog(QDialog):
         # oldest record, CCTV total currently on the share.
         tiles = QHBoxLayout()
         tiles.setSpacing(12)
-        self._elastic_tile, self._elastic_tile_value, self._elastic_tile_sub = self._make_tile("Elastic total")
+        # A big ? in the Elastic tile's corner opens the catalogue of what
+        # Elastic stores (Chris, 2026-09-06).
+        self._help_btn = QToolButton()
+        self._help_btn.setText("?")
+        self._help_btn.setToolTip("What kinds of data are stored in Elastic")
+        self._help_btn.setFixedSize(40, 40)
+        self._help_btn.setStyleSheet(
+            f"QToolButton {{ border: 2px solid {theme.ACCENT_BORDER}; border-radius: 8px; background: {theme.BG};"
+            f" color: {theme.ACCENT}; font-size: 26px; font-weight: bold; padding: 0; }}"
+            f"QToolButton:hover {{ background: {theme.BG_HOVER}; border-color: {theme.ACCENT}; }}"
+        )
+        self._help_btn.clicked.connect(self._open_catalog)
+        self._catalog_dialog: ElasticCatalogDialog | None = None
+        self._elastic_tile, self._elastic_tile_value, self._elastic_tile_sub = self._make_tile("Elastic total", self._help_btn)
         self._cctv_tile, self._cctv_tile_value, self._cctv_tile_sub = self._make_tile("CCTV total")
         tiles.addWidget(self._elastic_tile, 1)
         tiles.addWidget(self._cctv_tile, 1)
@@ -218,7 +232,7 @@ class DataInventoryDialog(QDialog):
         layout.addWidget(summary_box, 1)
 
     @staticmethod
-    def _make_tile(title: str):
+    def _make_tile(title: str, corner: QWidget | None = None):
         frame = QFrame()
         frame.setStyleSheet(
             f"QFrame {{ background-color: {theme.BG_RAISED}; border: 1px solid {theme.BORDER};"
@@ -238,10 +252,25 @@ class DataInventoryDialog(QDialog):
         value_label.setStyleSheet(f"color: {theme.TEXT_BRIGHT};")
         sub_label = QLabel("loading...")
         sub_label.setStyleSheet(f"color: {theme.TEXT_MUTED};")
-        box.addWidget(title_label)
+        if corner is None:
+            box.addWidget(title_label)
+        else:
+            head = QHBoxLayout()
+            head.setContentsMargins(0, 0, 0, 0)
+            head.addWidget(title_label, 1, Qt.AlignTop)
+            head.addWidget(corner, 0, Qt.AlignTop | Qt.AlignRight)
+            box.addLayout(head)
         box.addWidget(value_label)
         box.addWidget(sub_label)
         return frame, value_label, sub_label
+
+    def _open_catalog(self) -> None:
+        if self._catalog_dialog is None:
+            self._catalog_dialog = ElasticCatalogDialog(self._settings_provider, parent=self)
+        self._catalog_dialog.show()
+        self._catalog_dialog.raise_()
+        self._catalog_dialog.activateWindow()
+        self._catalog_dialog.start_if_needed()
 
     # ---- lifecycle --------------------------------------------------------
 
@@ -329,6 +358,8 @@ class DataInventoryDialog(QDialog):
     def shutdown(self) -> None:
         self._elastic_slot.shutdown()
         self._cctv_slot.shutdown()
+        if self._catalog_dialog is not None:
+            self._catalog_dialog.shutdown()
 
     def closeEvent(self, event):
         # Hide rather than destroy: reopening shows the last results.
