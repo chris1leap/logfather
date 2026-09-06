@@ -44,7 +44,7 @@ from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.day_range_dialog import MAX_RANGE_DAYS, DayRangeDialog, live_button_text
-from logfather.ui.icons import zoom_glyph_icon
+from logfather.ui.icons import arrow_icon, zoom_glyph_icon
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
@@ -308,17 +308,18 @@ class ErrorsStopsWindow(QDialog):
         # 2026-09-06).
         row = QHBoxLayout()
         row.setSpacing(4)
-        row.addWidget(self._arrow_button(Qt.LeftArrow, "Back in time (loads earlier days at the start)", -_NUDGE_FRACTION))
+        row.addWidget(self._arrow_button("left", "Back in time (loads earlier days at the start)", -_NUDGE_FRACTION))
         row.addWidget(body, 1)
-        row.addWidget(self._arrow_button(Qt.RightArrow, "Forward in time (loads later days at the end)", _NUDGE_FRACTION))
+        row.addWidget(self._arrow_button("right", "Forward in time (loads later days at the end)", _NUDGE_FRACTION))
         inner.addLayout(row, 1)
         return box
 
-    def _arrow_button(self, arrow, tip: str, fraction: float) -> QToolButton:
+    def _arrow_button(self, direction: str, tip: str, fraction: float) -> QToolButton:
         btn = QToolButton()
-        btn.setArrowType(arrow)
+        btn.setIcon(arrow_icon(direction, 28))
+        btn.setIconSize(QSize(22, 22))
         btn.setToolTip(tip)
-        btn.setFixedWidth(22)
+        btn.setFixedWidth(30)
         btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         btn.setAutoRepeat(True)
         btn.setAutoRepeatInterval(180)
