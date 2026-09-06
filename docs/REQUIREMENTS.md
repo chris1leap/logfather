@@ -37,11 +37,13 @@ Living record of agreed functionality: what is open, and what has shipped
   Refresh button pulses until clicked.
 - Data window Elastic tile reads "18 Mar 2022 – <last day with data>"
   rather than "since 18 Mar 2022" (Chris, 2026-09-06).
-- Data window ? box (Chris, 2026-09-06): a big ? in the Elastic tile's
-  top-right corner opens "What is stored in Elastic" - one row per
+- Data window ? box (Chris, 2026-09-06): a pixel-art question block
+  (gold, in the style of the classic platform game) in the Elastic
+  tile's top-right corner opens "What is stored in Elastic" - one row per
   source node with a plain description of what it logs, its share of the
   last week's documents, example messages and the fields its documents
-  carry (`data/elastic_catalog.py`, curated node descriptions + one live
+  carry, the fields in two side-by-side columns in the widest column
+  (`data/elastic_catalog.py`, curated node descriptions + one live
   aggregation).
 - Data window, click an Elastic bar (Chris): opens Kibana Discover in the
   browser on that system and local day (either robot-id field), so the

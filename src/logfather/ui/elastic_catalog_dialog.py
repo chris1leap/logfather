@@ -88,6 +88,21 @@ class ElasticCatalogDialog(QDialog):
         event.ignore()
         self.hide()
 
+    @staticmethod
+    def _fields_widget(fields: list[str]) -> QLabel:
+        half = (len(fields) + 1) // 2
+        left, right = fields[:half], fields[half:]
+        rows = "".join(
+            f"<tr><td style='padding-right:18px'>{a}</td><td>{b}</td></tr>"
+            for a, b in zip(left, right + [""] * (len(left) - len(right)))
+        )
+        label = QLabel(f"<table cellspacing='0'>{rows}</table>" if fields else "—")
+        label.setTextFormat(Qt.RichText)
+        label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        label.setContentsMargins(4, 2, 4, 2)
+        label.setStyleSheet("background: transparent;")
+        return label
+
     def _on_result(self, catalog: ElasticCatalog) -> None:
         self._loaded = True
         table = self._table
@@ -99,14 +114,17 @@ class ElasticCatalogDialog(QDialog):
                 e.description or "—",
                 f"{e.share * 100:.1f}%  ({format_count(e.docs)} docs)",
                 "\n".join(e.examples) or "—",
-                ", ".join(e.fields) or "—",
             ]
             for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 if c == 3:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 table.setItem(r, c, item)
-        for c, w in enumerate((250, 130, 380, 150, 260)):
+            # Fields in two side-by-side columns (Chris, 2026-09-06): the
+            # longest text, so it gets the widest column and half the rows.
+            table.setItem(r, 5, QTableWidgetItem(""))
+            table.setCellWidget(r, 5, self._fields_widget(e.fields))
+        for c, w in enumerate((220, 120, 320, 140, 230)):
             table.setColumnWidth(c, w)
         table.resizeRowsToContents()
         self._status.setText(

@@ -53,6 +53,7 @@ from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.elastic_catalog_dialog import ElasticCatalogDialog
+from logfather.ui.icons import question_block_icon
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
@@ -131,13 +132,14 @@ class DataInventoryDialog(QDialog):
         # A big ? in the Elastic tile's corner opens the catalogue of what
         # Elastic stores (Chris, 2026-09-06).
         self._help_btn = QToolButton()
-        self._help_btn.setText("?")
+        self._help_btn.setIcon(question_block_icon(44))
+        self._help_btn.setIconSize(QSize(44, 44))
         self._help_btn.setToolTip("What kinds of data are stored in Elastic")
-        self._help_btn.setFixedSize(40, 40)
+        self._help_btn.setFixedSize(48, 48)
+        self._help_btn.setCursor(Qt.PointingHandCursor)
         self._help_btn.setStyleSheet(
-            f"QToolButton {{ border: 2px solid {theme.ACCENT_BORDER}; border-radius: 8px; background: {theme.BG};"
-            f" color: {theme.ACCENT}; font-size: 26px; font-weight: bold; padding: 0; }}"
-            f"QToolButton:hover {{ background: {theme.BG_HOVER}; border-color: {theme.ACCENT}; }}"
+            "QToolButton { border: none; background: transparent; padding: 0; }"
+            f"QToolButton:hover {{ background: {theme.BG_HOVER}; border-radius: 6px; }}"
         )
         self._help_btn.clicked.connect(self._open_catalog)
         self._catalog_dialog: ElasticCatalogDialog | None = None

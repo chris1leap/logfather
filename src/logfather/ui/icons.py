@@ -45,3 +45,55 @@ def arrow_icon(direction: str, size: int = 24) -> QIcon:
     painter.drawPolyline(points)
     painter.end()
     return QIcon(pm)
+
+
+_QUESTION_ROWS = (
+    ".#####.",
+    "##...##",
+    "##...##",
+    "....##.",
+    "...##..",
+    "...##..",
+    "...##..",
+    ".......",
+    "...##..",
+    "...##..",
+)
+
+
+def question_block_icon(size: int = 40) -> QIcon:
+    """A pixel-art question block in the style of the classic platform
+    game (Chris, 2026-09-06): gold block, dark outline, corner rivets and
+    a chunky pale ? with a shadow. Drawn on a 16x16 grid."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setPen(Qt.NoPen)
+    cell = size / 16.0
+    gold, shade, outline, pale = QColor("#f8b838"), QColor("#a85400"), QColor("#1a0c00"), QColor("#fff4d6")
+
+    def px(x: int, y: int, colour: QColor) -> None:
+        painter.setBrush(colour)
+        painter.drawRect(QRectF(x * cell, y * cell, cell + 0.5, cell + 0.5))
+
+    for y in range(16):
+        for x in range(16):
+            if x in (0, 15) or y in (0, 15):
+                px(x, y, outline)
+            elif x == 14 or y == 14:
+                px(x, y, shade)
+            else:
+                px(x, y, gold)
+    for x, y in ((1, 1), (13, 1), (1, 13), (13, 13)):
+        px(x, y, shade)
+    ox, oy = 4, 3
+    for dy, row in enumerate(_QUESTION_ROWS):
+        for dx, ch in enumerate(row):
+            if ch == "#":
+                px(ox + dx + 1, oy + dy + 1, shade)
+    for dy, row in enumerate(_QUESTION_ROWS):
+        for dx, ch in enumerate(row):
+            if ch == "#":
+                px(ox + dx, oy + dy, pale)
+    painter.end()
+    return QIcon(pm)
