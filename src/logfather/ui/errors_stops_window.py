@@ -43,7 +43,7 @@ from logfather.data.software_history import system_display_name
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
 from logfather.ui.charts import StackedBarChart
-from logfather.ui.day_range_dialog import MAX_RANGE_DAYS, DayRangeDialog
+from logfather.ui.day_range_dialog import MAX_RANGE_DAYS, DayRangeDialog, live_button_text
 from logfather.ui.icons import zoom_glyph_icon
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
@@ -129,7 +129,7 @@ class ErrorsStopsWindow(QDialog):
         self.filter_btn.clicked.connect(self._open_filter)
         controls.addWidget(self.filter_btn)
         controls.addSpacing(12)
-        self.live_btn = QPushButton("Live (today)")
+        self.live_btn = QPushButton(live_button_text())
         self.live_btn.setCheckable(True)
         self.live_btn.setToolTip("Today only")
         self.live_btn.clicked.connect(self._on_live)
@@ -331,6 +331,7 @@ class ErrorsStopsWindow(QDialog):
         today = datetime.now().date()
         live = start == end == today
         self.live_btn.setChecked(live)
+        self.live_btn.setText(live_button_text(today))
         if start == end:
             self.pick_days_btn.setText(start.strftime("%d/%m/%Y") if not live else "Choose days…")
         else:

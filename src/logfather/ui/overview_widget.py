@@ -55,7 +55,7 @@ from logfather.data.ui_state_store import (
     set_customer_collapsed,
     update_ui_state,
 )
-from logfather.ui.day_range_dialog import DayRangeDialog
+from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _OVERVIEW_HIDDEN_KEY = "overview_hidden_systems"
@@ -647,7 +647,7 @@ class OverviewWidget(QWidget):
 
         # Day filter: live today, or one button opening a calendar
         # dialog for a day / span of days (Chris, 2026-09-05).
-        self.live_btn = QPushButton("Live (today)")
+        self.live_btn = QPushButton(live_button_text())
         self.live_btn.setCheckable(True)
         self.live_btn.setChecked(True)
         self.live_btn.setToolTip("Follow today's data live")
@@ -1423,9 +1423,15 @@ class OverviewWidget(QWidget):
         )
         label.setVisible(True)
 
+    def _refresh_live_text(self):
+        text = live_button_text()
+        if self.live_btn.text() != text:
+            self.live_btn.setText(text)
+
     def _update_now_label(self):
         """Update the persistent HH:MM:SS marker in place between rebuilds.
         Hidden in historic range mode - "now" is off the timeline there."""
+        self._refresh_live_text()
         if self._filter_day_range is not None:
             item = self._live_scene_item(self._now_label_item)
             if item is not None:

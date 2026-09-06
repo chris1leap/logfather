@@ -21,6 +21,13 @@ from logfather.ui import theme
 MAX_RANGE_DAYS = 365
 
 
+def live_button_text(today: date | None = None) -> str:
+    """'Live (Sun 6 Sep)' - the Live button carries the current date
+    (Chris, 2026-09-06)."""
+    day = today or date.today()
+    return f"Live ({day:%a} {day.day} {day:%b})"
+
+
 class DayRangeDialog(QDialog):
     """From/To day pickers as plain calendars (Chris, 2026-09-05: one
     button opens this; simplest possible range selection)."""

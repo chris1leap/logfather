@@ -61,8 +61,8 @@ Living record of agreed functionality: what is open, and what has shipped
   (Chris, 2026-09-06). The per-system colour key is hidden by default;
   "Show PikPak key" in the window's top-right ⋯ menu shows it
   (remembered per user; hover still names the system) (Chris,
-  2026-09-06). The Live button reads "Live (today)" here and on the
-  Overview. Exact
+  2026-09-06). The Live button carries the current date, "Live (Sun 6
+  Sep)", here and on the Overview (Chris, 2026-09-06). Exact
   Elastic aggregations over both robot-id fields
   (`data/errors_stops.py`, classification tested). The stacked bar chart
   and day-range dialog moved to shared modules (`ui/charts.py`,
