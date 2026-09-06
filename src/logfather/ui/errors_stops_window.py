@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from typing import Callable
 
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
     QScrollBar,
     QSizePolicy,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -48,6 +49,7 @@ from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _HIDDEN_KEY = "errors_hidden_systems"
+_SHOW_KEY_KEY = "errors_show_key"
 _ZOOM_STEP = 1.25
 _NUDGE_FRACTION = 0.2
 
@@ -100,6 +102,9 @@ class ErrorsStopsWindow(QDialog):
         # instead of shrinking the bars; only the Zoom + / - change it
         # (Chris, 2026-09-06). None = fit on the next render.
         self._slot_px: float | None = None
+        # The per-system key is off by default; the top-right menu turns
+        # it on (Chris, 2026-09-06). Remembered per user.
+        self._show_key = bool(load_ui_state().get(_SHOW_KEY_KEY, False))
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
@@ -155,6 +160,20 @@ class ErrorsStopsWindow(QDialog):
         self._zoom_in_btn = self._zoom_button("plus", "More pixels per day: fewer days on screen", +1)
         controls.addWidget(self._zoom_out_btn)
         controls.addWidget(self._zoom_in_btn)
+        controls.addSpacing(8)
+        self._menu_btn = QToolButton()
+        self._menu_btn.setText("⋯")
+        self._menu_btn.setStyleSheet(theme.OVERFLOW_BUTTON)
+        self._menu_btn.setPopupMode(QToolButton.InstantPopup)
+        self._menu_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        menu = QMenu(self._menu_btn)
+        self._show_key_action = QAction("Show PikPak key", self)
+        self._show_key_action.setCheckable(True)
+        self._show_key_action.setChecked(self._show_key)
+        self._show_key_action.toggled.connect(self._on_show_key_toggled)
+        menu.addAction(self._show_key_action)
+        self._menu_btn.setMenu(menu)
+        controls.addWidget(self._menu_btn)
         layout.addLayout(controls)
 
         tiles = QHBoxLayout()
@@ -171,6 +190,7 @@ class ErrorsStopsWindow(QDialog):
         self._stops_chart.set_grouped(True)
         self._stops_chart.set_detail_provider(lambda label, day: self._detail("stops", label, day))
         self._stops_legend = QLabel("")
+        self._stops_legend.setVisible(self._show_key)
         layout.addWidget(self._boxed("Line stoppages per day", self._stops_legend, self._stops_chart, arrows=True), 3)
 
         self._errors_chart = StackedBarChart()
@@ -178,6 +198,7 @@ class ErrorsStopsWindow(QDialog):
         self._errors_chart.set_grouped(True)
         self._errors_chart.set_detail_provider(lambda label, day: self._detail("errors", label, day))
         self._errors_legend = QLabel("")
+        self._errors_legend.setVisible(self._show_key)
         layout.addWidget(self._boxed("Errors per day", self._errors_legend, self._errors_chart, arrows=True), 3)
         # One scrollbar drives both charts; the wheel over either chart
         # scrolls too, and pushing past an end loads seven more days.
@@ -210,6 +231,12 @@ class ErrorsStopsWindow(QDialog):
         btn.setAutoRepeat(True)
         btn.clicked.connect(lambda _checked=False: self._change_day_zoom(step))
         return btn
+
+    def _on_show_key_toggled(self, checked: bool) -> None:
+        self._show_key = bool(checked)
+        update_ui_state({_SHOW_KEY_KEY: self._show_key})
+        for legend in (self._stops_legend, self._errors_legend):
+            legend.setVisible(self._show_key)
 
     def _slot_floor(self, n_systems: int) -> float:
         return n_systems * 2.0 + 6.0

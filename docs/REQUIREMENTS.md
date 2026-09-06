@@ -56,7 +56,10 @@ Living record of agreed functionality: what is open, and what has shipped
   circles at the top right are the only way to change the width per day
   (never the text size); arrow buttons either side of each chart step
   back / forward by a fifth of the view and load more days at the ends
-  (Chris, 2026-09-06). The Live button reads "Live (today)" here and on the
+  (Chris, 2026-09-06). The per-system colour key is hidden by default;
+  "Show PikPak key" in the window's top-right ⋯ menu shows it
+  (remembered per user; hover still names the system) (Chris,
+  2026-09-06). The Live button reads "Live (today)" here and on the
   Overview. Exact
   Elastic aggregations over both robot-id fields
   (`data/errors_stops.py`, classification tested). The stacked bar chart
