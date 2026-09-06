@@ -57,12 +57,15 @@ Living record of agreed functionality: what is open, and what has shipped
   shrinking the bars; the wheel always scrolls, never zooms; Zoom + / -
   circles at the top right are the only way to change the width per day
   (never the text size); arrow buttons either side of each chart step
-  back / forward by a fifth of the view and load more days at the ends
-  (Chris, 2026-09-06). The per-system colour key is hidden by default;
+  back / forward by a fifth of the view, always landing on a whole day
+  (wheel too), and load more days at the ends (Chris, 2026-09-06). The per-system colour key is hidden by default;
   "Show PikPak key" in the window's top-right ⋯ menu shows it
   (remembered per user; hover still names the system) (Chris,
   2026-09-06). The Live button carries the current date, "Live (Sun 6
-  Sep)", here and on the Overview (Chris, 2026-09-06). Exact
+  Sep)", here and on the Overview (Chris, 2026-09-06). A month / year
+  line ("September 2026") sits above the day headings, one label per
+  run of days in a month, staying in view while scrolling (Chris,
+  2026-09-06). Exact
   Elastic aggregations over both robot-id fields
   (`data/errors_stops.py`, classification tested). The stacked bar chart
   and day-range dialog moved to shared modules (`ui/charts.py`,

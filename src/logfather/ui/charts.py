@@ -84,10 +84,15 @@ class StackedBarChart(QWidget):
         return self._plot_width() / max(1, len(self._days))
 
     def nudge(self, fraction: float) -> None:
-        """Scroll by a fraction of the visible width (negative = older);
-        at an end, ask for more days instead."""
+        """Scroll by a fraction of the visible width (negative = older),
+        landing on a whole day and moving at least one day (Chris,
+        2026-09-06: never stop halfway through a day); at an end, ask for
+        more days instead."""
         before = self._offset
-        self.set_offset(self._offset + fraction * self._plot_width())
+        target = self._snap(self._offset + fraction * self._plot_width())
+        if abs(target - before) < 0.5 and fraction:
+            target = self._snap(before + (self.slot_width() if fraction > 0 else -self.slot_width()))
+        self.set_offset(target)
         if abs(self._offset - before) < 0.5:
             now = time.monotonic()
             if now - self._last_edge > 0.7:
@@ -101,8 +106,18 @@ class StackedBarChart(QWidget):
     def offset(self) -> float:
         return self._offset
 
+    def _snap(self, px: float) -> float:
+        """The nearest day boundary; the very end (latest day flush right)
+        is allowed as it is."""
+        limit = self.max_offset()
+        px = min(max(0.0, float(px)), limit)
+        slot = self.slot_width()
+        if slot <= 0 or px >= limit - 0.5:
+            return px
+        return min(limit, round(px / slot) * slot)
+
     def set_offset(self, px: float) -> None:
-        new = min(max(0.0, float(px)), self.max_offset())
+        new = self._snap(px)
         if abs(new - self._offset) > 0.5:
             self._offset = new
             self.update()
@@ -193,6 +208,8 @@ class StackedBarChart(QWidget):
         painter.fillRect(rect, QColor(theme.BG_DEEP))
         self._segments = []
         left, right, top, bottom = 76, 16, 30, 36
+        if self._grouped:
+            top = 52  # room for the month / year line above the day headings
         plot_left = rect.left() + left
         plot_right = rect.right() - right
         plot_top = rect.top() + top
@@ -306,6 +323,33 @@ class StackedBarChart(QWidget):
                 day.strftime("%d/%m"),
             )
 
+    def _paint_month_line(self, painter, origin, slot, y_top: float, visible_left: float, visible_right: float) -> None:
+        """'September 2026' over each run of days in one month, kept
+        inside the visible part of the run while scrolling; a faint tick
+        marks each month boundary (Chris, 2026-09-06)."""
+        runs: list[tuple[int, int]] = []
+        for i, day in enumerate(self._days):
+            if runs and (self._days[runs[-1][0]].year, self._days[runs[-1][0]].month) == (day.year, day.month):
+                runs[-1] = (runs[-1][0], i)
+            else:
+                runs.append((i, i))
+        bold = QFont(painter.font())
+        bold.setBold(True)
+        for start, end in runs:
+            x0 = origin + start * slot
+            x1 = origin + (end + 1) * slot
+            lo, hi = max(x0, visible_left), min(x1, visible_right)
+            if hi - lo < 10:
+                continue
+            painter.setPen(QPen(QColor(theme.BORDER_LIGHT)))
+            if x0 >= visible_left:
+                painter.drawLine(int(x0), int(y_top), int(x0), int(y_top + 18))
+            painter.setFont(bold)
+            painter.setPen(QColor(theme.TEXT_BRIGHT))
+            label = self._days[start].strftime("%B %Y") if hi - lo >= 120 else self._days[start].strftime("%b %Y")
+            painter.drawText(QRectF(lo, y_top, hi - lo, 18), Qt.AlignCenter, label)
+        painter.setFont(QFont(self.font().family(), max(8, self.font().pointSize() - 2)))
+
     def _paint_grouped(self, painter, origin, plot_bottom, plot_h, slot, vmax, totals) -> None:
         k = max(1, len(self._series))
         cluster_w = slot * 0.8
@@ -313,6 +357,7 @@ class StackedBarChart(QWidget):
         bar_w = max(1.5, cluster_w / k - gap)
         visible_left = origin + self._offset
         visible_right = visible_left + self._plot_width()
+        self._paint_month_line(painter, origin, slot, plot_bottom - plot_h - 46, visible_left, visible_right)
         for i, day in enumerate(self._days):
             x0 = origin + i * slot + (slot - cluster_w) / 2
             if x0 + slot < visible_left or x0 - slot > visible_right:
