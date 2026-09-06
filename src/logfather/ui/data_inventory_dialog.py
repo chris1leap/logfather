@@ -381,11 +381,18 @@ class DataInventoryDialog(QDialog):
         self._elastic_summary.setText("Elastic: " + " · ".join(parts))
         if inventory.total_bytes:
             self._elastic_tile_value.setText(format_bytes(inventory.total_bytes))
-            since = (
-                f"since {inventory.oldest_ts.astimezone():%d %b %Y}"
-                if inventory.oldest_ts is not None
-                else "all records"
+            # First and last day with data (Chris, 2026-09-06), the last
+            # being the newest day in the window with any documents.
+            newest = max(
+                (day for per_day in inventory.counts.values() for day, n in per_day.items() if n > 0),
+                default=None,
             )
+            if inventory.oldest_ts is not None:
+                since = f"{inventory.oldest_ts.astimezone():%d %b %Y}"
+                if newest is not None:
+                    since += f" – {newest:%d %b %Y}"
+            else:
+                since = "all records"
             est = "" if inventory.bytes_basis.startswith("index store") else " · estimated"
             self._elastic_tile_sub.setText(f"{since} · {format_count(inventory.total_docs or 0)} documents{est}")
         else:

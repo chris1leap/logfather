@@ -35,6 +35,8 @@ Living record of agreed functionality: what is open, and what has shipped
   sizes for a week. The window opens on the saved figures with "Last
   updated: <date>" beside Refresh; when they are not from today the
   Refresh button pulses until clicked.
+- Data window Elastic tile reads "18 Mar 2022 – <last day with data>"
+  rather than "since 18 Mar 2022" (Chris, 2026-09-06).
 - Data window, click an Elastic bar (Chris): opens Kibana Discover in the
   browser on that system and local day (either robot-id field), so the
   actual documents can be read.
