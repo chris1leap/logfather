@@ -316,10 +316,10 @@ class ErrorsStopsWindow(QDialog):
 
     def _arrow_button(self, direction: str, tip: str, fraction: float) -> QToolButton:
         btn = QToolButton()
-        btn.setIcon(arrow_icon(direction, 28))
-        btn.setIconSize(QSize(22, 22))
+        btn.setIcon(arrow_icon(direction, 40))
+        btn.setIconSize(QSize(32, 32))
         btn.setToolTip(tip)
-        btn.setFixedWidth(30)
+        btn.setFixedWidth(42)
         btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         btn.setAutoRepeat(True)
         btn.setAutoRepeatInterval(180)
