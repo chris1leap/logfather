@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from logfather.data.data_inventory import format_count
-from logfather.data.elastic_catalog import ElasticCatalog, FieldValues, fetch_catalog, fetch_field_values
+from logfather.data.elastic_catalog import ElasticCatalog, FieldValues, fetch_catalog, fetch_field_values, value_note
 from logfather.ui import theme
 from logfather.ui.qt_worker import JobSlot
 
@@ -59,12 +59,13 @@ class FieldValuesDialog(QDialog):
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
         self._table.verticalHeader().setVisible(False)
-        self._table.setColumnCount(3)
-        self._table.setHorizontalHeaderLabels(["Value", "Documents", "Share"])
+        self._table.setColumnCount(4)
+        self._table.setHorizontalHeaderLabels(["Value", "Meaning", "Documents", "Share"])
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         layout.addWidget(self._table, 1)
 
     def show_field(self, source: str, field: str) -> None:
@@ -115,10 +116,15 @@ class FieldValuesDialog(QDialog):
         table = self._table
         table.setRowCount(len(fv.values))
         base = fv.docs_with_field or sum(n for _v, n in fv.values) or 1
+        # A Meaning column for enumerated fields (Chris, 2026-09-06: the
+        # severity levels are worth spelling out).
+        has_notes = any(value_note(fv.field, v) for v, _n in fv.values)
+        table.setColumnHidden(1, not has_notes)
         for r, (value, count) in enumerate(fv.values):
-            for c, text in enumerate((value, f"{count:,}", f"{count / base * 100:.1f}%")):
+            cells = (value, value_note(fv.field, value), f"{count:,}", f"{count / base * 100:.1f}%")
+            for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
-                if c:
+                if c >= 2:
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 table.setItem(r, c, item)
         table.resizeRowsToContents()

@@ -49,7 +49,10 @@ Living record of agreed functionality: what is open, and what has shipped
   node's documents carry it, and every value it has held over the last
   year with counts and shares (top 300; numbers also get min / avg /
   max; objects and bare text fall back to the latest 200 documents)
-  (Chris, 2026-09-06).
+  (Chris, 2026-09-06). Enumerated fields get a Meaning column and a
+  fuller note: syslog severity 0 emergency ... 4 warning, 6
+  informational, 7 debug; facility always 3 = daemon; host a
+  placeholder (Chris, 2026-09-06).
 - Data window, click an Elastic bar (Chris): opens Kibana Discover in the
   browser on that system and local day (either robot-id field), so the
   actual documents can be read.

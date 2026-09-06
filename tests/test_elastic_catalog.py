@@ -60,3 +60,13 @@ def test_describe_field_and_pick_agg_field():
     assert fv.node_docs == 1000 and fv.docs_with_field == 800 and fv.distinct == 3
     assert fv.values == [("planner_ready", 500), ("1.5", 300)]
     assert fv.stats == {"min": 0.1, "max": 9.0, "avg": 2.5}
+
+
+def test_value_notes_for_enumerated_fields():
+    from logfather.data.elastic_catalog import describe_field, value_note
+
+    assert value_note("severity", "4") == "warning"
+    assert value_note("severity", 6) == "informational"
+    assert value_note("facility", "3").startswith("daemon")
+    assert value_note("state_name", "planner_error") == ""
+    assert "0 emergency" in describe_field("severity") and "6 informational" in describe_field("severity")

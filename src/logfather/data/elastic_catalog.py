@@ -131,7 +131,7 @@ FIELD_INFO: dict[str, str] = {
     "sw_version": "Software version per package (argus, planner, targeting...). Feeds the Software window.",
     "system_id": "The PikPak system that wrote the document (Argus 2 schema).",
     "leap_robot_id": "The PikPak system that wrote the document (Argus 1 schema).",
-    "severity": "Numeric log severity (Argus 1 schema only).",
+    "severity": "Syslog severity of the line (Argus 1 schema only): 0 emergency, 1 alert, 2 critical, 3 error, 4 warning, 5 notice, 6 informational, 7 debug. Almost everything is 6; about 1 in 45 documents is 4 or worse. Beware: PikPak010 QC status lines are tagged 0 (emergency) routinely, so 0 is not a real emergency there. Argus 2 systems log no severity at all - only state_name says whether something went wrong.",
     "event": "Short event name, used with message to say what happened.",
     "image_url": "Link to the image captured for this event, when one exists.",
     "source_index": "The Elastic index the document was routed to.",
@@ -174,12 +174,12 @@ FIELD_INFO: dict[str, str] = {
     "check_piston_state_msg": "Message returned by the piston state check.",
     "check_piston_state_result": "Result of the piston state check.",
     "pin_num": "The IO pin a sensor reading refers to.",
-    "port": "The IO port a reading or log line refers to.",
+    "port": "On Argus 1 documents, the syslog source port of the line (changes per connection, not meaningful). On sensor readings, the IO port the reading refers to.",
     "average": "Average of the polled value over the reporting window.",
     "min": "Minimum of the polled value over the reporting window.",
     "max": "Maximum of the polled value over the reporting window.",
-    "facility": "Syslog facility (Argus 1 schema).",
-    "host": "The host that wrote the log line (Argus 1 schema).",
+    "facility": "Syslog facility of the line (Argus 1 schema). Always 3 = daemon: the logs leave the machine through a syslog forwarder as a background-service message, so it carries no PikPak meaning.",
+    "host": "Syslog host of the line (Argus 1 schema). A fixed placeholder address, not the real machine; use leap_robot_id for the system.",
     "logtype": "Log type tag (Argus 1 schema).",
     "state_code": "Numeric code of the state (Argus 1 schema).",
     "state_group": "The group the state belongs to (Argus 1 schema).",
@@ -197,6 +197,21 @@ FIELD_INFO: dict[str, str] = {
     "products_rejected": "Products rejected so far in the run.",
     "run_duration": "How long the run has been going.",
 }
+
+# Meaning of the values of enumerated fields, shown beside them.
+VALUE_NOTES: dict[str, dict[str, str]] = {
+    "severity": {"0": "emergency", "1": "alert", "2": "critical", "3": "error", "4": "warning", "5": "notice", "6": "informational", "7": "debug"},
+    "facility": {"0": "kernel", "1": "user", "2": "mail", "3": "daemon (system background service)", "4": "auth", "5": "syslog", "6": "line printer", "7": "news"},
+}
+
+
+def value_note(field: str, value: str) -> str:
+    """What a value of an enumerated field means, or an empty string."""
+    notes = VALUE_NOTES.get(str(field or ""))
+    if not notes:
+        return ""
+    return notes.get(str(value).strip(), "")
+
 
 _NUMERIC_TYPES = {"long", "integer", "short", "byte", "double", "float", "half_float", "scaled_float", "unsigned_long"}
 
