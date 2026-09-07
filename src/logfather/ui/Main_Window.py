@@ -1,4 +1,7 @@
+import os
 import shutil
+import subprocess
+import sys
 import time
 from dataclasses import asdict
 from datetime import date, timedelta, datetime, timezone
@@ -28,7 +31,9 @@ from PySide6.QtWidgets import (
 
 from logfather.ui import theme
 from logfather.ui.Date_Picker_frontend import DatePicker
+from logfather.core.app_version import is_newer, latest_available_version, load_version_info
 from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
+from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import funnel_icon
 from logfather.ui.icons import zoom_glyph_icon
@@ -382,7 +387,23 @@ class MainWindow(QWidget):
         top_controls.addWidget(self.data_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.errors_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.software_btn, 0, Qt.AlignRight)
+        # Newer-version pill (Chris, 2026-09-07): an instance left open
+        # checks every ten minutes whether the checkout or origin/main has
+        # moved on, and offers a restart into the new version.
+        self.update_btn = QPushButton("")
+        self.update_btn.setStyleSheet(theme.UPDATE_PILL)
+        self.update_btn.setCursor(Qt.PointingHandCursor)
+        self.update_btn.clicked.connect(self._restart_for_update)
+        self.update_btn.hide()
+        top_controls.addWidget(self.update_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.overflow_btn, 0, Qt.AlignRight)
+        self._update_slot = JobSlot(self)
+        self._update_info: dict | None = None
+        self._update_timer = QTimer(self)
+        self._update_timer.setInterval(10 * 60 * 1000)
+        self._update_timer.timeout.connect(self._check_for_update)
+        self._update_timer.start()
+        QTimer.singleShot(90_000, self._check_for_update)
 
         # Activity bar: a persistent strip at the very bottom showing what
         # the app is waiting on — clip downloads with size and a green
@@ -655,6 +676,61 @@ class MainWindow(QWidget):
         self._software_window.raise_()
         self._software_window.activateWindow()
         self._software_window.start_if_needed()
+
+    # ---- newer version available ------------------------------------------
+
+    def _check_for_update(self) -> None:
+        if self._update_slot.is_running() or getattr(self, "_shutdown_in_progress", False):
+            return
+        self._update_slot.start(
+            lambda job: latest_available_version(),
+            on_result=self._on_update_result,
+            on_error=lambda _m: None,
+        )
+
+    def _on_update_result(self, info) -> None:
+        if not isinstance(info, dict):
+            return
+        current = str(load_version_info().get("version") or "")
+        latest = str(info.get("version") or "")
+        if not is_newer(latest, current):
+            return
+        self._update_info = info
+        where = "on GitHub" if str(info.get("source", "")).startswith("origin") else "in this checkout"
+        self.update_btn.setText(f"v{latest} available · Restart")
+        self.update_btn.setToolTip(
+            f"You are running v{current}; v{latest} ({info.get('git_sha') or '?'}) is {where}. "
+            "Click to close this instance and start the new one."
+        )
+        self.update_btn.show()
+        self._set_activity("update", f"Version {latest} is available. Click Restart at the top right to update.", None, None)
+
+    def _restart_for_update(self) -> None:
+        info = self._update_info or {}
+        if str(info.get("source", "")).startswith("origin"):
+            # The new code is only on the remote: bring it in first.
+            try:
+                subprocess.run(["git", "pull", "--ff-only", "--quiet"], cwd=str(REPO_ROOT),
+                               timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            except Exception as exc:
+                self._set_activity("update", f"Could not pull the new version: {exc}", None, None)
+                return
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._spawn_new_instance)
+        self.close()
+
+    @staticmethod
+    def _spawn_new_instance() -> None:
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, *sys.argv[1:]]
+        else:
+            cmd = [sys.executable, os.path.abspath(sys.argv[0]), *sys.argv[1:]]
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        try:
+            subprocess.Popen(cmd, cwd=os.getcwd(), creationflags=flags, close_fds=True)
+        except Exception as exc:
+            print(f"[update] could not start the new instance: {exc}")
 
     def _open_about_dialog(self):
         from logfather.ui.about_page import AboutDialog
@@ -1125,6 +1201,7 @@ class MainWindow(QWidget):
         steps = (
             ("Stopping target-overlay worker", self._overlay_controller.shutdown),
             ("Stopping stop-report worker", self._stop_report_slot.shutdown),
+            ("Stopping update check", self._update_slot.shutdown),
             ("Stopping date scan", self.date_picker.stop_scan_thread),
             ("Stopping timeline loader", self.time_picker.shutdown_workers),
             ("Stopping overview loader", self.overview_widget.shutdown_workers),

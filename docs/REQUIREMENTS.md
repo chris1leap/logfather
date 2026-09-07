@@ -53,6 +53,13 @@ Living record of agreed functionality: what is open, and what has shipped
   name once per run of days, so 30+ days stay readable; both the Data
   chart and the Errors / Stops charts (which keep their month line on
   top and show day numbers only underneath).
+- Newer-version notice (Chris): a running instance checks 90 s after
+  start and every ten minutes whether the checkout's HEAD or origin/main
+  (after a quiet fetch) is a newer version; if so an amber "v0.NNN
+  available · Restart" pill appears in the top bar and the activity bar
+  says so. Restart pulls (fast-forward) when the new code is only on
+  GitHub, closes cleanly, then starts the new instance. Frozen builds
+  without git skip the check (`core/app_version.py`, tested).
 - Data chart order (Chris): Argus 1 systems first, then Argus 2, each in
   the usual customer order; generation read from which id field carries
   the bulk of a system's documents and kept in the local cache.

@@ -177,6 +177,13 @@ OVERFLOW_BUTTON = (
     "QToolButton::menu-indicator { image: none; }"
 )
 
+# "v0.207 available · Restart" pill in the top bar (Chris, 2026-09-07).
+UPDATE_PILL = (
+    f"QPushButton {{ background-color: {WARNING_BORDER}; color: #1a1200; font-weight: bold;"
+    " border: none; border-radius: 12px; padding: 4px 14px; }"
+    "QPushButton:hover { background-color: #e39a12; }"
+)
+
 # Zoom row in the overflow menu: (-) Zoom (+) as circled buttons.
 ZOOM_CIRCLE_SIZE = 22
 ZOOM_CIRCLE_BUTTON = (

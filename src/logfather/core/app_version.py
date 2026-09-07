@@ -17,14 +17,14 @@ def _candidate_paths() -> list[Path]:
     ]
 
 
-def _git(*args: str) -> str | None:
+def _git(*args: str, timeout: float = 5) -> str | None:
     try:
         out = subprocess.run(
             ["git", *args],
             cwd=str(Path(__file__).resolve().parent),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=timeout,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if out.returncode == 0 and out.stdout.strip():
@@ -89,3 +89,41 @@ def format_version_label() -> str:
 def format_version_suffix() -> str:
     label = format_version_label()
     return f" ({label})" if label else ""
+
+
+# ------------------------------------------------------- update checking
+# (Chris, 2026-09-07: an older instance left open should learn that a
+# newer version exists and say so.)
+
+
+def version_number(version: str | None) -> int | None:
+    """0.207 -> 207; None for dev / malformed."""
+    text = str(version or "").strip().lstrip("v")
+    if not text.startswith("0."):
+        return None
+    tail = text[2:]
+    return int(tail) if tail.isdigit() else None
+
+
+def is_newer(candidate: str | None, current: str | None) -> bool:
+    a, b = version_number(candidate), version_number(current)
+    return a is not None and b is not None and a > b
+
+
+def latest_available_version(fetch: bool = True, remote: str = "origin", branch: str = "main") -> dict | None:
+    """The newest version reachable from this checkout: the local HEAD
+    (someone committed or pulled) or the remote branch after a fetch.
+    None outside a git checkout or when nothing can be read."""
+    local = version_from_git()
+    if local is None:
+        return None
+    best = dict(local, source="this checkout")
+    if fetch:
+        _git("fetch", "--quiet", remote, branch, timeout=25)
+    count = _git("rev-list", "--count", f"{remote}/{branch}")
+    if count and count.isdigit():
+        remote_version = f"0.{int(count):03d}"
+        if is_newer(remote_version, best["version"]):
+            sha = _git("rev-parse", "--short", f"{remote}/{branch}") or ""
+            best = {"version": remote_version, "build_date": "", "git_sha": sha, "source": f"{remote}/{branch}"}
+    return best
