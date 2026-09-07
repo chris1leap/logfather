@@ -7,6 +7,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ## Open
 
+- Grafana telemetry in System Replay (Chris, 2026-09-07): a strip under
+  the log panel showing the chosen metrics (servo temperatures, motor
+  currents) for the selected system and day with the playhead across it.
+  Blocked on a Grafana service-account token; the groundwork (settings,
+  client, check script) shipped 2026-09-07. First target: dashboard
+  `ge98whx` "Actuators issues" on leapmonitoring.grafana.net.
+
 - Elastic real on-disk sizes in the Data window (2026-09-05): needs the
   app's API key granted the `view_index_metadata` (or `monitor`) index
   privilege on `logstash-*,pikpak,pikpak-*`; the code already prefers
@@ -24,6 +31,15 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Grafana groundwork (Chris, 2026-09-07): Settings gains Grafana URL and
+  Grafana token (a service-account token, stored like the Elastic key and
+  never exported); `core/grafana.py` parses dashboard JSON (panels in
+  rows, data source refs, query text per source type, $variables) and
+  flattens DataFrame-JSON query results; `data/grafana_client.py` talks
+  to Grafana's API and proxies queries through `/api/ds/query` so the
+  app never needs to know the backend; `tools/grafana_check.py` prints
+  the data sources and every query on a dashboard, answering "where does
+  Grafana read from today".
 - The mode switcher reads Overview | System Replay | Search (was Viewer
   and Fleetwide; Chris, 2026-09-07); the screens are unchanged.
 - System Replay left panel retired (Chris): the old calendar and system

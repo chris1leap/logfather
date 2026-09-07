@@ -48,12 +48,14 @@ class FleetwideSearchDefinition:
 
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".cctv_picker_settings.json"
+GRAFANA_URL_DEFAULT = "https://leapmonitoring.grafana.net"
 SHAREABLE_EXPORT_FORMAT = "logfather-settings"
 SHAREABLE_EXPORT_VERSION = 1
 SHAREABLE_FIELDS = (
     "elastic_url",
     "elastic_index",
     "elastic_timestamp_field",
+    "grafana_url",
     "auto_ocr_sync",
     "auto_ocr_open_on_missing",
     "log_panel_pinned",
@@ -133,6 +135,11 @@ class Settings:
     elastic_url: Optional[str] = None
     elastic_index: Optional[str] = None
     elastic_timestamp_field: Optional[str] = None
+    # Grafana Cloud stack and a service-account token (Viewer role). The
+    # token is a secret like the Elastic key: stored in the home settings
+    # file, never exported in the shareable settings.
+    grafana_url: Optional[str] = None
+    grafana_token: Optional[str] = None
     auto_ocr_sync: bool = True
     auto_ocr_open_on_missing: bool = False
     conditions: List[Condition] = field(default_factory=_default_conditions)
@@ -163,6 +170,7 @@ class Settings:
                 elastic_api_key=None,
                 elastic_index=None,
                 elastic_timestamp_field="@timestamp_ros",
+                grafana_url=GRAFANA_URL_DEFAULT,
                 conditions=_default_conditions(),
             )
         try:
@@ -198,6 +206,7 @@ class Settings:
                 elastic_api_key=None,
                 elastic_index=None,
                 elastic_timestamp_field="@timestamp_ros",
+                grafana_url=GRAFANA_URL_DEFAULT,
                 conditions=_default_conditions(),
             )
             settings.load_warning = (
@@ -320,6 +329,8 @@ class Settings:
                 elastic_url=data.get("elastic_url") or "https://leap-deployment.kb.europe-west2.gcp.elastic-cloud.com:9243",
                 elastic_index=data.get("elastic_index"),
                 elastic_timestamp_field=data.get("elastic_timestamp_field") or "@timestamp_ros",
+                grafana_url=data.get("grafana_url") or GRAFANA_URL_DEFAULT,
+                grafana_token=data.get("grafana_token") or None,
                 auto_ocr_sync=bool(data.get("auto_ocr_sync", True)),
                 auto_ocr_open_on_missing=bool(data.get("auto_ocr_open_on_missing", False)),
                 log_panel_pinned=bool(data.get("log_panel_pinned", False)),

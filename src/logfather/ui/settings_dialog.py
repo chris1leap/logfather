@@ -51,6 +51,11 @@ class SettingsPanel(QWidget):
         self.elastic_url_edit = QLineEdit(settings.elastic_url or "")
         self.elastic_key_edit = QLineEdit(settings.elastic_api_key or "")
         self.elastic_key_edit.setEchoMode(QLineEdit.Password)
+        self.grafana_url_edit = QLineEdit(settings.grafana_url or "")
+        self.grafana_url_edit.setPlaceholderText("https://leapmonitoring.grafana.net")
+        self.grafana_token_edit = QLineEdit(settings.grafana_token or "")
+        self.grafana_token_edit.setEchoMode(QLineEdit.Password)
+        self.grafana_token_edit.setPlaceholderText("service account token (Viewer role)")
         self.auto_ocr_sync_checkbox = QCheckBox("Auto-sync logs using OCR")
         self.auto_ocr_sync_checkbox.setChecked(bool(settings.auto_ocr_sync))
         # Single OCR toggle: auto-sync. Auto-open is tied to the same setting.
@@ -59,6 +64,8 @@ class SettingsPanel(QWidget):
         form.addRow("PikPak parent", parent_row)
         form.addRow("Elastic URL", self.elastic_url_edit)
         form.addRow("Elastic API key", self.elastic_key_edit)
+        form.addRow("Grafana URL", self.grafana_url_edit)
+        form.addRow("Grafana token", self.grafana_token_edit)
         form.addRow("", self.auto_ocr_sync_checkbox)
 
         # Conditions grid
@@ -93,6 +100,8 @@ class SettingsPanel(QWidget):
         self.parent_path_edit.editingFinished.connect(self.save_requested.emit)
         self.elastic_url_edit.textChanged.connect(self.changed.emit)
         self.elastic_key_edit.textChanged.connect(self.changed.emit)
+        self.grafana_url_edit.textChanged.connect(self.changed.emit)
+        self.grafana_token_edit.textChanged.connect(self.changed.emit)
         self.auto_ocr_sync_checkbox.toggled.connect(self.changed.emit)
         for edit in self.condition_name_edits:
             edit.textChanged.connect(self.changed.emit)
@@ -112,6 +121,8 @@ class SettingsPanel(QWidget):
             self.parent_path_edit,
             self.elastic_url_edit,
             self.elastic_key_edit,
+            self.grafana_url_edit,
+            self.grafana_token_edit,
             self.auto_ocr_sync_checkbox,
             *self.condition_name_edits,
             *self.condition_query_edits,
@@ -122,6 +133,8 @@ class SettingsPanel(QWidget):
             self.parent_path_edit.setText(self.settings.last_parent or "")
             self.elastic_url_edit.setText(self.settings.elastic_url or "")
             self.elastic_key_edit.setText(self.settings.elastic_api_key or "")
+            self.grafana_url_edit.setText(self.settings.grafana_url or "")
+            self.grafana_token_edit.setText(self.settings.grafana_token or "")
             self.auto_ocr_sync_checkbox.setChecked(bool(self.settings.auto_ocr_sync))
             for i, (name_edit, query_edit) in enumerate(zip(self.condition_name_edits, self.condition_query_edits)):
                 cond = self.settings.conditions[i] if i < len(self.settings.conditions) else Condition()
@@ -136,6 +149,8 @@ class SettingsPanel(QWidget):
         settings.last_parent = parent_path or None
         settings.elastic_url = self.elastic_url_edit.text().strip() or None
         settings.elastic_api_key = self.elastic_key_edit.text().strip() or None
+        settings.grafana_url = self.grafana_url_edit.text().strip() or None
+        settings.grafana_token = self.grafana_token_edit.text().strip() or None
         settings.auto_ocr_sync = bool(self.auto_ocr_sync_checkbox.isChecked())
         settings.auto_ocr_open_on_missing = settings.auto_ocr_sync
 
