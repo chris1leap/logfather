@@ -858,13 +858,14 @@ class MainWindow(QWidget):
         parent_dir = self.date_picker.parent_dir
         subdirs: list[Path] = []
         if isinstance(parent_dir, Path):
-            try:
-                subdirs = sorted(
-                    (p for p in parent_dir.iterdir() if p.is_dir()),
-                    key=lambda p: system_group_sort_key(self.settings, p.name),
-                )
-            except OSError:
-                subdirs = []
+            # The Overview already listed the share (and caches it); a
+            # fresh listing here cost seconds per click on the WAN share
+            # (Chris, 2026-09-07). No is_dir() round trips either.
+            names = self.overview_widget._known_system_names()
+            subdirs = sorted(
+                (parent_dir / name for name in names),
+                key=lambda p: system_group_sort_key(self.settings, p.name),
+            )
         if not subdirs:
             none = menu.addAction("No systems found - set the CCTV parent folder in Settings")
             none.setEnabled(False)
