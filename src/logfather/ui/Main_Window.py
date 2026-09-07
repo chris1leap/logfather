@@ -249,10 +249,15 @@ class MainWindow(QWidget):
         self.left_toggle = QToolButton()
         self.left_toggle.setText("Hide Date Picker")
         self.left_toggle.setCheckable(True)
-        self.left_toggle.setChecked(True)
+        # The left-hand calendar / system panel is retired (Chris,
+        # 2026-09-07): Choose system and Choose date in the top bar do its
+        # job. The DatePicker object stays as the logic behind those
+        # buttons but is never shown, never revealed by hovering the edge.
+        self.left_toggle.setChecked(False)
         self.left_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.left_toggle.setVisible(False)
-        self._hover_reveal_enabled = True
+        self._hover_reveal_enabled = False
+        self._left_panel_retired = True
         self._left_reveal_px = 12
 
         self.buffer_toggle = QToolButton()
@@ -264,6 +269,7 @@ class MainWindow(QWidget):
 
         horizontal_splitter = QSplitter(Qt.Horizontal)
         horizontal_splitter.addWidget(self.date_picker)
+        self.date_picker.setVisible(False)
         horizontal_splitter.addWidget(self.content_stack)
         horizontal_splitter.addWidget(self.buffer_widget)
         horizontal_splitter.setStretchFactor(0, 2)
@@ -271,7 +277,7 @@ class MainWindow(QWidget):
         horizontal_splitter.setStretchFactor(2, 0)
         self._horizontal_splitter = horizontal_splitter
         self._left_panel_target_width = 380
-        self._left_panel_visible = True
+        self._left_panel_visible = False
         self._left_panel_anim = QVariantAnimation(self)
         self._left_panel_anim.setDuration(170)
         self._left_panel_anim.setEasingCurve(QEasingCurve.OutCubic)
@@ -932,6 +938,8 @@ class MainWindow(QWidget):
 
     def _set_date_picker_visible(self, visible: bool, splitter: QSplitter):
         _ = splitter
+        if getattr(self, "_left_panel_retired", False):
+            return
         self._left_panel_visible = bool(visible)
         if self._left_panel_visible:
             self.left_toggle.setText("Hide Date Picker")
@@ -1694,7 +1702,7 @@ class MainWindow(QWidget):
             self._horizontal_splitter.setSizes([0, max(1, sum(self._horizontal_splitter.sizes()) or self.width())])
             self._main_splitter.setSizes([max(1, sum(self._main_splitter.sizes()) or self.height()), 0])
         else:
-            self._hover_reveal_enabled = True
+            self._hover_reveal_enabled = not getattr(self, "_left_panel_retired", False)
             self.viewer.setMinimumSize(980, 120)
             self.content_stack.setMinimumWidth(980)
             if self.left_toggle.isChecked():

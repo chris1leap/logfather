@@ -26,6 +26,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 - The mode switcher reads Overview | System Replay | Search (was Viewer
   and Fleetwide; Chris, 2026-09-07); the screens are unchanged.
+- System Replay left panel retired (Chris): the old calendar and system
+  list on the left, and its hover-reveal, are gone; Choose system and
+  Choose date in the top bar do that job. The panel's logic (share
+  scan, day highlighting) still drives those buttons behind the scenes.
 - Viewer retention warning (Chris): choosing a day more than 30 days old
   shows "CCTV footage is deleted after 30 days" with a crossed-out camera
   icon where the footage would play (`core/retention.py`, tested
