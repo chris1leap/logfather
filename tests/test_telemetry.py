@@ -101,3 +101,23 @@ def test_summary_track_prefers_hottest_motor_then_cpu():
     assert track.name == "CPU temperature" and track.values == [40.0, 41.0]
     assert summary_track(None) is None
     assert max_across([], "x") is None
+
+
+def test_fleet_query_and_tracks_by_robot():
+    from logfather.core.telemetry import METRICS, fleet_query, normalise_robot_id, tracks_by_robot, window_stats
+
+    spec = {m.key: m for m in METRICS}
+    assert fleet_query(spec["cpu_temp"], "leap_robot_id") == 'max by(leap_robot_id) (sensors_cpu_temperature{leap_robot_id!=""})'
+    assert fleet_query(spec["motor_temp"], "system_id") == 'max by(system_id) (actuators_motor_temperature{system_id!=""} != 0)'
+    assert normalise_robot_id("013") == "35-2300-013" and normalise_robot_id("35-2300-013") == "35-2300-013"
+    series = [
+        Series("a", [0, 30_000], [40.0, 41.0], {"system_id": "013"}),
+        Series("b", [60_000], [42.0], {"system_id": "35-2300-013"}),
+        Series("c", [0], [50.0], {"system_id": "35-2300-006"}),
+        Series("d", [0], [1.0], {}),
+    ]
+    tracks = tracks_by_robot(series, "system_id", "CPU", "cpu_temp")
+    assert sorted(tracks) == ["35-2300-006", "35-2300-013"]
+    assert tracks["35-2300-013"].values == [40.0, 41.0, 42.0] and tracks["35-2300-013"].name == "CPU"
+    assert window_stats(tracks["35-2300-013"], 0, 45_000) == (40.0, 41.0, 41.0)
+    assert window_stats(tracks["35-2300-013"], 100_000, 200_000) is None

@@ -17,7 +17,7 @@ from typing import Callable, Optional
 from logfather.core.grafana import DatasourceRef, Series
 from logfather.data import grafana_client
 from logfather.data.data_inventory import inventory_days
-from logfather.data.elastic_schema import ROBOT_ID_PREFIX
+from logfather.core.telemetry import normalise_robot_id
 from logfather.data.settings_store import Settings
 
 # Mimir (Grafana Cloud Metrics) stores a sample in roughly 1-2 bytes once
@@ -48,14 +48,6 @@ class GrafanaInventory:
     @property
     def retained_bytes(self) -> Optional[float]:
         return None if self.retained_samples is None else self.retained_samples * BYTES_PER_SAMPLE
-
-
-def normalise_robot_id(label: str) -> str:
-    """Argus 2 systems sometimes report just the three digits ("018")."""
-    text = (label or "").strip()
-    if text.isdigit() and len(text) == 3:
-        return f"{ROBOT_ID_PREFIX}{text}"
-    return text
 
 
 def utc_midnight_ms(day: date) -> int:

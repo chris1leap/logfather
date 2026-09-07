@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Overview temperatures (Chris, 2026-09-07): a Temperatures menu next to
+  Systems ticks which readings to show (CPU, RCU, GPU, brake resistor,
+  hottest motor); any ticked adds a strip under every system's lane with
+  those lines over the visible window, the range in °C at the left, the
+  latest values in the right column and min/max/latest on hover. One
+  Grafana query per reading for the whole fleet; live mode refreshes
+  every five minutes, a chosen span loads once. The choice is remembered.
 - Data window: choose a date (Chris, 2026-09-07). "Last 14 days" and a
   calendar "Choose days…" button (a day or a span, newest 90 days at
   most) next to Systems; Elastic, Grafana and CCTV are all fetched for

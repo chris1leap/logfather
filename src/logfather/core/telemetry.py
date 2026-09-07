@@ -214,3 +214,62 @@ def value_range(tracks: Iterable[Track]) -> tuple[float, float]:
         return lo - 1.0, hi + 1.0
     pad = (hi - lo) * 0.08
     return lo - pad, hi + pad
+
+
+# ---- fleet-wide temperatures for the Overview (Chris, 2026-09-07) --------
+# (key, label) in menu order; "motor_temp" is the hottest fitted motor.
+TEMPERATURE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("cpu_temp", "CPU"),
+    ("rcu_temp", "RCU"),
+    ("gpu_temp", "GPU"),
+    ("brake_temp", "Brake resistor"),
+    ("motor_temp", "Hottest motor"),
+)
+TEMPERATURE_COLOURS = {"cpu_temp": "#5e9bff", "rcu_temp": "#ff8a65", "gpu_temp": "#2ecc71", "brake_temp": "#f1c40f", "motor_temp": "#d46bff"}
+ROBOT_ID_LABELS = ("leap_robot_id", "system_id")
+_ROBOT_PREFIX = "35-2300-"
+
+
+def normalise_robot_id(label: str) -> str:
+    """Argus 2 systems sometimes report just the three digits ("018")."""
+    text = (label or "").strip()
+    if text.isdigit() and len(text) == 3:
+        return f"{_ROBOT_PREFIX}{text}"
+    return text
+
+
+def fleet_query(spec: MetricSpec, label: str) -> str:
+    """One series per system for a metric, under one label scheme. Motors
+    collapse to the hottest fitted one (an unfitted slot reads 0)."""
+    if spec.per_motor:
+        return f'max by({label}) ({spec.metric}{{{label}!=""}} != 0)'
+    return f'max by({label}) ({spec.metric}{{{label}!=""}})'
+
+
+def tracks_by_robot(series_list: Iterable[Series], label: str, name: str, spec_key: str = "") -> dict[str, Track]:
+    """Series keyed by the robot id in `label`, merged per robot."""
+    parts: dict[str, list[Series]] = {}
+    for s in series_list:
+        robot = normalise_robot_id(s.labels.get(label, ""))
+        if robot:
+            parts.setdefault(robot, []).append(s)
+    out: dict[str, Track] = {}
+    for robot, group in parts.items():
+        times, values = merge_series(group)
+        if times:
+            out[robot] = Track(name, times, values, spec_key)
+    return out
+
+
+def window_stats(track: Track, t0_ms: int, t1_ms: int) -> Optional[tuple[float, float, float]]:
+    """(min, max, latest) of the samples inside [t0, t1], or None."""
+    lo = hi = last = None
+    for t, v in zip(track.times_ms, track.values):
+        if v is None or t < t0_ms or t > t1_ms:
+            continue
+        lo = v if lo is None else min(lo, v)
+        hi = v if hi is None else max(hi, v)
+        last = v
+    if lo is None:
+        return None
+    return lo, hi, last
