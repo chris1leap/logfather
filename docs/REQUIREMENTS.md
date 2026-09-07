@@ -48,6 +48,10 @@ Living record of agreed functionality: what is open, and what has shipped
   them. Choose days carries a calendar icon and is highlighted while a
   chosen day or span is shown, as Live is while live (Errors / Stops
   too).
+- Chart day axis (Chris): two lines instead of dd/mm per bar - the day
+  number under each bar (thinned when bars are narrow) and the month
+  name once per run of days, so 30+ days stay readable; both the Data
+  chart and the Errors / Stops charts.
 
 ### 2026-09-05
 

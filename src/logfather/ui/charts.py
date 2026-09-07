@@ -2,6 +2,7 @@
 and an optional click handler (Data window, Errors / Stops window)."""
 from __future__ import annotations
 
+import math
 import time
 from datetime import date
 from typing import Callable
@@ -207,7 +208,7 @@ class StackedBarChart(QWidget):
         rect = self.rect()
         painter.fillRect(rect, QColor(theme.BG_DEEP))
         self._segments = []
-        left, right, top, bottom = 76, 16, 30, 36
+        left, right, top, bottom = 76, 16, 30, 50  # two axis lines: day, month
         if self._grouped:
             top = 52  # room for the month / year line above the day headings
         plot_left = rect.left() + left
@@ -291,12 +292,7 @@ class StackedBarChart(QWidget):
                     Qt.AlignHCenter | Qt.AlignBottom,
                     self._fmt(total),
                 )
-            painter.setPen(QColor(theme.TEXT_MUTED))
-            painter.drawText(
-                QRectF(x - slot / 2, plot_bottom + 6, bar_w + slot, 20),
-                Qt.AlignHCenter | Qt.AlignTop,
-                day.strftime("%d/%m"),
-            )
+        self._paint_day_axis(painter, origin, slot, plot_bottom, plot_left, plot_right)
         painter.setClipping(False)
         painter.setPen(QPen(QColor(theme.BORDER_LIGHT)))
         painter.drawLine(plot_left, plot_bottom, plot_right, plot_bottom)
@@ -317,22 +313,51 @@ class StackedBarChart(QWidget):
             painter.drawRect(column)
             painter.setPen(QColor(theme.TEXT_MUTED))
             painter.drawText(column, Qt.AlignCenter, "loading" if slot >= 44 else "…")
-            painter.drawText(
-                QRectF(x - slot / 2, plot_bottom + 6, slot * 2, 20),
-                Qt.AlignHCenter | Qt.AlignTop,
-                day.strftime("%d/%m"),
-            )
 
-    def _paint_month_line(self, painter, origin, slot, y_top: float, visible_left: float, visible_right: float) -> None:
-        """'September 2026' over each run of days in one month, kept
-        inside the visible part of the run while scrolling; a faint tick
-        marks each month boundary (Chris, 2026-09-06)."""
+    def _month_runs(self) -> list[tuple[int, int]]:
         runs: list[tuple[int, int]] = []
         for i, day in enumerate(self._days):
             if runs and (self._days[runs[-1][0]].year, self._days[runs[-1][0]].month) == (day.year, day.month):
                 runs[-1] = (runs[-1][0], i)
             else:
                 runs.append((i, i))
+        return runs
+
+    def _paint_day_axis(self, painter, origin, slot, plot_bottom, visible_left: float, visible_right: float) -> None:
+        """Two axis lines (Chris, 2026-09-07: dd/mm per bar crowded once
+        past 14 days): the day number under each bar, thinned when bars
+        are narrow, and the month name once per run of days, kept inside
+        the visible part of the run."""
+        small = QFont(self.font().family(), max(8, self.font().pointSize() - 2))
+        painter.setFont(small)
+        every = max(1, int(math.ceil(24.0 / max(1.0, slot))))
+        painter.setPen(QColor(theme.TEXT_MUTED))
+        for i, day in enumerate(self._days):
+            x = origin + i * slot
+            if x + slot < visible_left or x > visible_right:
+                continue
+            if i % every:
+                continue
+            painter.drawText(QRectF(x - slot, plot_bottom + 4, slot * 3, 16), Qt.AlignHCenter | Qt.AlignTop, str(day.day))
+        for start, end in self._month_runs():
+            x0 = origin + start * slot
+            x1 = origin + (end + 1) * slot
+            lo, hi = max(x0, visible_left), min(x1, visible_right)
+            if hi - lo < 8:
+                continue
+            painter.setPen(QPen(QColor(theme.BORDER_LIGHT)))
+            if x0 >= visible_left:
+                painter.drawLine(int(x0), int(plot_bottom + 2), int(x0), int(plot_bottom + 34))
+            painter.setPen(QColor(theme.TEXT))
+            month = self._days[start]
+            label = month.strftime("%B %Y") if hi - lo >= 130 else (month.strftime("%b %Y") if hi - lo >= 60 else month.strftime("%b"))
+            painter.drawText(QRectF(lo, plot_bottom + 20, hi - lo, 16), Qt.AlignCenter, label)
+
+    def _paint_month_line(self, painter, origin, slot, y_top: float, visible_left: float, visible_right: float) -> None:
+        """'September 2026' over each run of days in one month, kept
+        inside the visible part of the run while scrolling; a faint tick
+        marks each month boundary (Chris, 2026-09-06)."""
+        runs = self._month_runs()
         bold = QFont(painter.font())
         bold.setBold(True)
         for start, end in runs:
@@ -389,9 +414,4 @@ class StackedBarChart(QWidget):
                     Qt.AlignHCenter | Qt.AlignBottom,
                     day_heading(day) if slot >= 64 else f"{day:%a} {day.day}",
                 )
-            painter.setPen(QColor(theme.TEXT_MUTED))
-            painter.drawText(
-                QRectF(x0 - slot / 2, plot_bottom + 6, cluster_w + slot, 20),
-                Qt.AlignHCenter | Qt.AlignTop,
-                day.strftime("%d/%m"),
-            )
+        self._paint_day_axis(painter, origin, slot, plot_bottom, visible_left, visible_right)
