@@ -43,6 +43,11 @@ Living record of agreed functionality: what is open, and what has shipped
   both tiles share the same spacing and the totals line up; the long
   summary lines under the tiles are gone, replaced by one short "Last 14
   days: ..." line at the foot of each tile.
+- Overview controls (Chris): Live and Choose days sit right after the
+  Systems button and never move; the Zoom 1h / 5h / All day trio follows
+  them. Choose days carries a calendar icon and is highlighted while a
+  chosen day or span is shown, as Live is while live (Errors / Stops
+  too).
 
 ### 2026-09-05
 

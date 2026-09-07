@@ -57,6 +57,7 @@ from logfather.data.ui_state_store import (
     update_ui_state,
 )
 from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
+from logfather.ui.icons import calendar_icon
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _OVERVIEW_HIDDEN_KEY = "overview_hidden_systems"
@@ -654,6 +655,11 @@ class OverviewWidget(QWidget):
         self.live_btn.setToolTip("Follow today's data live")
         self.live_btn.clicked.connect(self._on_live_clicked)
         self.pick_days_btn = QPushButton("Choose days…")
+        self.pick_days_btn.setIcon(calendar_icon())
+        self.pick_days_btn.setIconSize(QSize(18, 18))
+        # Highlighted while a chosen day / span is shown, as Live is while
+        # live (Chris, 2026-09-07); the click itself must not toggle it.
+        self.pick_days_btn.setCheckable(True)
         self.pick_days_btn.setToolTip(
             "Show all data for a chosen day or span of days"
         )
@@ -702,14 +708,16 @@ class OverviewWidget(QWidget):
         controls.setContentsMargins(0, 0, 0, 0)
         controls.addWidget(self.filter_btn)
         controls.addSpacing(12)
+        # Live and Choose days keep their place; the zoom trio follows
+        # them and hides for multi-day spans (Chris, 2026-09-07).
+        controls.addWidget(self.live_btn)
+        controls.addWidget(self.pick_days_btn)
+        controls.addSpacing(18)
         self._zoom_label = QLabel("Zoom")
         controls.addWidget(self._zoom_label)
         controls.addWidget(self.one_hour_btn)
         controls.addWidget(self.five_hour_btn)
         controls.addWidget(self.all_day_btn)
-        controls.addSpacing(18)
-        controls.addWidget(self.live_btn)
-        controls.addWidget(self.pick_days_btn)
         controls.addStretch(1)
         controls.addWidget(self.status_label)
         controls.addWidget(self.refresh_btn)
@@ -1077,10 +1085,12 @@ class OverviewWidget(QWidget):
         initial = self._filter_day_range or (today, today)
         dialog = DayRangeDialog(initial, self)
         if dialog.exec() != QDialog.Accepted:
+            self.pick_days_btn.setChecked(self._filter_day_range is not None)
             return
         start_day, end_day = dialog.selected_range()
         end_day = min(end_day, today)
         start_day = min(start_day, end_day)
+        self.pick_days_btn.setChecked(True)
         if self._filter_day_range == (start_day, end_day):
             return
         wanted = (start_day, end_day)
@@ -1127,6 +1137,7 @@ class OverviewWidget(QWidget):
 
     def _on_live_clicked(self):
         self.live_btn.setChecked(True)
+        self.pick_days_btn.setChecked(False)
         if self._filter_day_range is None:
             return
         self._filter_day_range = None

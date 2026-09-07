@@ -97,3 +97,29 @@ def question_block_icon(size: int = 40) -> QIcon:
                 px(ox + dx, oy + dy, pale)
     painter.end()
     return QIcon(pm)
+
+
+def calendar_icon(size: int = 24) -> QIcon:
+    """A small calendar page for the Choose days button (Chris,
+    2026-09-07): header bar, two rings, a grid of days."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    s = float(size)
+    ink = QColor(theme.TEXT_BRIGHT)
+    pen = QPen(ink)
+    pen.setWidthF(max(1.5, s * 0.08))
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(QRectF(s * 0.14, s * 0.2, s * 0.72, s * 0.66), s * 0.1, s * 0.1)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(ink)
+    painter.drawRect(QRectF(s * 0.14, s * 0.2, s * 0.72, s * 0.18))
+    for x in (0.34, 0.66):
+        painter.drawRoundedRect(QRectF(s * x - s * 0.045, s * 0.08, s * 0.09, s * 0.22), s * 0.04, s * 0.04)
+    for row in (0.5, 0.66):
+        for col in (0.3, 0.5, 0.7):
+            painter.drawRect(QRectF(s * col - s * 0.05, s * row, s * 0.1, s * 0.09))
+    painter.end()
+    return QIcon(pm)

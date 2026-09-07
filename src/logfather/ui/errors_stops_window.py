@@ -43,6 +43,7 @@ from logfather.data.software_history import system_display_name
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
 from logfather.ui.chart_scroll import ChartScroller
+from logfather.ui.icons import calendar_icon
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.day_range_dialog import MAX_RANGE_DAYS, DayRangeDialog, live_button_text
 from logfather.ui.qt_worker import JobSlot
@@ -132,6 +133,9 @@ class ErrorsStopsWindow(QDialog):
         self.live_btn.clicked.connect(self._on_live)
         controls.addWidget(self.live_btn)
         self.pick_days_btn = QPushButton("")
+        self.pick_days_btn.setIcon(calendar_icon())
+        self.pick_days_btn.setIconSize(QSize(18, 18))
+        self.pick_days_btn.setCheckable(True)
         self.pick_days_btn.setToolTip("Choose a day or a span of days")
         self.pick_days_btn.clicked.connect(self._on_pick_days)
         controls.addWidget(self.pick_days_btn)
@@ -282,6 +286,7 @@ class ErrorsStopsWindow(QDialog):
         today = datetime.now().date()
         live = start == end == today
         self.live_btn.setChecked(live)
+        self.pick_days_btn.setChecked(not live)
         self.live_btn.setText(live_button_text(today))
         if start == end:
             self.pick_days_btn.setText(start.strftime("%d/%m/%Y") if not live else "Choose days…")
@@ -299,6 +304,7 @@ class ErrorsStopsWindow(QDialog):
     def _on_pick_days(self):
         dialog = DayRangeDialog(self._day_range, self)
         if dialog.exec() != QDialog.Accepted:
+            self._refresh_labels()
             return
         start, end = dialog.selected_range()
         today = datetime.now().date()
