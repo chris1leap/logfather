@@ -211,6 +211,15 @@ class StackedBarChart(QWidget):
             super().contextMenuEvent(event)
             return
         pos = event.pos()
+        # Right-click on the label tag itself: delete it (Chris, 2026-09-07).
+        key = self._label_at(pos)
+        if key is not None:
+            menu = QMenu(self)
+            action = menu.addAction(f"Delete label: {key[0]}")
+            action.triggered.connect(lambda _checked=False, n=key[0], d=key[1]: self.toggle_label(n, d))
+            menu.exec(event.globalPos())
+            event.accept()
+            return
         for rect, name, day in self._segments:
             if rect.contains(pos):
                 menu = QMenu(self)
