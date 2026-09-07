@@ -38,6 +38,7 @@ from logfather.data.data_inventory import (
     ElasticInventory,
     INVENTORY_DAYS,
     fetch_elastic_inventory,
+    clamp_range,
     format_bytes,
     format_count,
     generation_rank,
@@ -59,7 +60,9 @@ from logfather.ui.elastic_catalog_dialog import ElasticCatalogDialog
 from logfather.ui.grafana_catalog_dialog import GrafanaCatalogDialog
 from logfather.data import grafana_client
 from logfather.data.grafana_inventory import GrafanaInventory, RETENTION_DAYS, fetch_grafana_inventory
-from logfather.ui.icons import question_block_icon
+from logfather.ui.icons import calendar_icon, question_block_icon
+from logfather.ui.day_range_dialog import DayRangeDialog
+from logfather.ui.day_selection import DaySelection
 from logfather.ui.pulse import Pulser
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
@@ -97,9 +100,11 @@ class DataInventoryDialog(QDialog):
         parent_dir_provider: Callable[[], Path | None],
         parent=None,
         gear_host=None,
+        day_selection: DaySelection | None = None,
     ):
         super().__init__(parent)
         self._gear_host = gear_host
+        self._day_selection = day_selection
         self.setWindowTitle("Data — fleet inventory")
         # A real resizable window with minimise/maximise, not a fixed
         # dialog (Chris, 2026-09-05); the chart stretches to fill it.
@@ -133,6 +138,10 @@ class DataInventoryDialog(QDialog):
         # How many trailing days are loaded; grows when the user scrolls
         # past the oldest day. Pending days are drawn hatched meanwhile.
         self._days_span = INVENTORY_DAYS
+        # Chosen end day (Chris, 2026-09-07: choose a date); None = today.
+        self._end_day: date | None = None
+        if day_selection is not None and day_selection.range is not None:
+            self._adopt_range(day_selection.range)
         self._pending: set[date] = set()
         self._extending = False
 
@@ -188,6 +197,23 @@ class DataInventoryDialog(QDialog):
         if self._hidden_systems:
             self._filter_btn.setText(f"Systems ({len(self._hidden_systems)} hidden)")
         controls.addWidget(self._filter_btn)
+        controls.addSpacing(12)
+        # Live (the last 14 days ending today) or a chosen day / span
+        # (Chris, 2026-09-07); the choice is shared with the Overview and
+        # Errors / Stops windows.
+        self._live_btn = QPushButton(f"Last {INVENTORY_DAYS} days")
+        self._live_btn.setCheckable(True)
+        self._live_btn.setToolTip(f"The last {INVENTORY_DAYS} days ending today")
+        self._live_btn.clicked.connect(self._on_live_clicked)
+        controls.addWidget(self._live_btn)
+        self._pick_days_btn = QPushButton("Choose days…")
+        self._pick_days_btn.setIcon(calendar_icon())
+        self._pick_days_btn.setIconSize(QSize(18, 18))
+        self._pick_days_btn.setCheckable(True)
+        self._pick_days_btn.setToolTip("Choose a day or a span of days")
+        self._pick_days_btn.clicked.connect(self._on_pick_days_clicked)
+        controls.addWidget(self._pick_days_btn)
+        self._refresh_day_labels()
         controls.addSpacing(12)
         controls.addWidget(QLabel("Show:"))
         self._metric_group = QButtonGroup(self)
@@ -282,6 +308,8 @@ class DataInventoryDialog(QDialog):
         self._legend.setWordWrap(True)
         box_layout.addWidget(self._legend)
 
+        if self._day_selection is not None:
+            self._day_selection.changed.connect(self._on_shared_day_range)
         self._chart = StackedBarChart()
         self._chart.set_detail_provider(self._detail_for)
         self._chart.set_click_handler(None)
@@ -340,15 +368,96 @@ class DataInventoryDialog(QDialog):
             self._status_label.setText(f"Showing the maximum of {MAX_INVENTORY_DAYS} days")
             return
         new_span = min(MAX_INVENTORY_DAYS, self._days_span + EXTEND_DAYS)
-        today = datetime.now().date()
-        old_days = set(inventory_days(today, self._days_span))
-        self._pending = set(inventory_days(today, new_span)) - old_days
+        old_days = set(self._day_list())
         self._days_span = new_span
+        self._pending = set(self._day_list()) - old_days
         self._extending = True
-        self._summary_box.setTitle(f"{self._days_span} day summary")
+        self._refresh_day_labels()
         self._rebuild_views()
         self._scroller.shift_prepended(len(self._pending))
         self.start(keep_view=True)
+
+    # ---- day choice --------------------------------------------------------
+
+    def _today(self) -> date:
+        return datetime.now().date()
+
+    def _day_list(self) -> list[date]:
+        return inventory_days(self._end_day or self._today(), self._days_span)
+
+    def _current_range(self) -> tuple[date, date]:
+        days = self._day_list()
+        return days[0], days[-1]
+
+    def _adopt_range(self, day_range: tuple[date, date] | None) -> None:
+        """Set the window's days from a (start, end) or back to live."""
+        if day_range is None:
+            self._end_day = None
+            self._days_span = INVENTORY_DAYS
+            return
+        start, end = clamp_range(day_range[0], day_range[1], self._today(), MAX_INVENTORY_DAYS)
+        self._end_day = None if end >= self._today() else end
+        self._days_span = (end - start).days + 1
+
+    def _refresh_day_labels(self) -> None:
+        live = self._end_day is None and self._days_span == INVENTORY_DAYS
+        self._live_btn.setChecked(live)
+        self._pick_days_btn.setChecked(not live)
+        start, end = self._current_range()
+        if live:
+            self._pick_days_btn.setText("Choose days…")
+            title = f"{INVENTORY_DAYS} day summary"
+        elif start == end:
+            self._pick_days_btn.setText(start.strftime("%d/%m/%Y"))
+            title = f"{start:%a %d %b %Y}"
+        else:
+            self._pick_days_btn.setText(f"{start:%d/%m} – {end:%d/%m/%Y}")
+            title = f"{start:%d %b} – {end:%d %b %Y} ({self._days_span} days)"
+        if hasattr(self, "_summary_box"):
+            self._summary_box.setTitle(title)
+
+    def _reload_for_days(self) -> None:
+        self._elastic = None
+        self._cctv = None
+        self._grafana = None
+        self._pending = set()
+        self._extending = False
+        self._refresh_day_labels()
+        self._rebuild_views()
+        self.start()
+
+    def _on_live_clicked(self) -> None:
+        was_live = self._end_day is None and self._days_span == INVENTORY_DAYS
+        self._adopt_range(None)
+        self._refresh_day_labels()
+        if not was_live:
+            self._reload_for_days()
+        self._broadcast(None)
+
+    def _on_pick_days_clicked(self) -> None:
+        dialog = DayRangeDialog(self._current_range(), self)
+        if dialog.exec() != QDialog.Accepted:
+            self._refresh_day_labels()
+            return
+        start, end = clamp_range(*dialog.selected_range(), self._today(), MAX_INVENTORY_DAYS)
+        self._adopt_range((start, end))
+        self._reload_for_days()
+        self._broadcast((start, end))
+
+    def _broadcast(self, day_range: tuple[date, date] | None) -> None:
+        if self._day_selection is not None:
+            self._day_selection.set(day_range, self)
+
+    def _on_shared_day_range(self, day_range, source) -> None:
+        if source is self:
+            return
+        before = (self._end_day, self._days_span)
+        self._adopt_range(day_range)
+        if (self._end_day, self._days_span) != before:
+            if self._started:
+                self._reload_for_days()
+            else:
+                self._refresh_day_labels()
 
     def _make_help_button(self, tip: str, handler) -> QToolButton:
         btn = QToolButton()
@@ -428,7 +537,7 @@ class DataInventoryDialog(QDialog):
         # Open on the saved figures when there are any; Refresh (pulsing
         # if they are not from today) fetches the days since.
         cache = load_inventory_cache()
-        cached = inventory_from_cache(cache, inventory_days(datetime.now().date(), self._days_span))
+        cached = inventory_from_cache(cache, self._day_list())
         if cached is None:
             self.start()
             return
@@ -446,11 +555,12 @@ class DataInventoryDialog(QDialog):
             self._scroller.fit_next()
         settings = self._settings_provider()
         span = self._days_span
+        end_day = self._end_day
         self._elastic_tile_foot.setText("Loading...")
         self._progress.show()
         self._status_label.setText("Querying Elastic and the CCTV share...")
         self._elastic_slot.start(
-            lambda job: fetch_elastic_inventory(settings, span, progress=job.emit_progress),
+            lambda job: fetch_elastic_inventory(settings, span, progress=job.emit_progress, end_day=end_day),
             on_result=self._on_elastic_fetched,
             on_error=self._on_elastic_error,
             on_progress=self._on_progress,
@@ -468,8 +578,9 @@ class DataInventoryDialog(QDialog):
             return
         self._grafana_tile_foot.setText("Querying Grafana...")
         span = self._days_span
+        end_day = self._end_day
         self._grafana_slot.start(
-            lambda job: fetch_grafana_inventory(settings, span, progress=job.emit_progress),
+            lambda job: fetch_grafana_inventory(settings, span, progress=job.emit_progress, end_day=end_day),
             on_result=self._on_grafana_result,
             on_error=lambda m: self._grafana_tile_foot.setText(f"Failed: {m}"),
             on_progress=self._on_progress,
@@ -520,12 +631,14 @@ class DataInventoryDialog(QDialog):
         else:
             self._cctv_tile_foot.setText("Scanning the share...")
             span = self._days_span
+            end_day = self._end_day
             self._cctv_slot.start(
                 lambda job: scan_cctv_inventory(
                     parent_dir,
                     span,
                     progress=job.emit_progress,
                     interrupted=job.interrupted,
+                    end_day=end_day,
                 ),
                 on_result=self._on_cctv_result,
                 on_error=self._on_cctv_error,
@@ -693,7 +806,7 @@ class DataInventoryDialog(QDialog):
         rows: dict[str, dict[date, float]] = {}
         inv = self._elastic
         if inv is None or (as_bytes and not inv.bytes_per_doc):
-            return inventory_days(datetime.now().date(), self._days_span), rows
+            return self._day_list(), rows
         for robot, per_day in inv.counts.items():
             factor = inv.bytes_factor(robot) if as_bytes else 1.0
             name = self._robot_to_system.get(robot, robot)
@@ -708,7 +821,7 @@ class DataInventoryDialog(QDialog):
         if self._metric in ("elastic", "elastic_bytes"):
             days, rows = self._elastic_rows(as_bytes=self._metric == "elastic_bytes")
         elif self._metric in ("grafana", "grafana_bytes"):
-            days = inventory_days(datetime.now().date(), self._days_span)
+            days = self._day_list()
             rows = {}
             if self._grafana is not None:
                 days = list(self._grafana.days)
@@ -719,7 +832,7 @@ class DataInventoryDialog(QDialog):
                     for day, n in per_day.items():
                         target[day] = target.get(day, 0.0) + n * factor
         else:
-            days = inventory_days(datetime.now().date(), self._days_span)
+            days = self._day_list()
             rows = {}
             if self._cctv is not None:
                 days = list(self._cctv.days)

@@ -396,6 +396,16 @@ def kibana_discover_url(kibana_base: str, robot_id: str, day: date, index_patter
     return f"{base}/app/discover#/?_g={quote(g, safe=safe)}&_a={quote(a, safe=safe)}"
 
 
+def clamp_range(start: date, end: date, today: date, max_days: int) -> tuple[date, date]:
+    """A chosen span, no later than today and no longer than max_days
+    (the newest days win)."""
+    end = min(end, today)
+    start = min(start, end)
+    if (end - start).days + 1 > max_days:
+        start = end - timedelta(days=max_days - 1)
+    return start, end
+
+
 def inventory_days(today: date, days: int = INVENTORY_DAYS) -> list[date]:
     """The trailing window ending today, oldest first."""
     span = max(1, int(days))
@@ -532,9 +542,16 @@ def fetch_elastic_inventory(
     progress: ProgressFn | None = None,
     cache_path: Path | None = None,
     use_cache: bool = True,
+    end_day: date | None = None,
 ) -> ElasticInventory:
+    """`end_day` (Chris, 2026-09-07: choose a date) ends the window on that
+    day instead of today; the queries then stop at its midnight."""
     now_local = datetime.now().astimezone()
-    day_list = inventory_days(now_local.date(), days)
+    day_list = inventory_days(end_day or now_local.date(), days)
+    if end_day is not None and end_day < now_local.date():
+        end_iso = datetime.combine(end_day, dt_time.max).astimezone().isoformat()
+    else:
+        end_iso = now_local.isoformat()
     inventory = ElasticInventory(days=day_list)
     cache = load_inventory_cache(cache_path) if use_cache else None
     cached_counts, complete = cached_day_counts(cache, day_list)
@@ -566,7 +583,7 @@ def fetch_elastic_inventory(
         body = {
             "size": 0,
             "track_total_hits": False,
-            "query": {"range": {"@timestamp": {"gte": start_iso, "lte": now_local.isoformat()}}},
+            "query": {"range": {"@timestamp": {"gte": start_iso, "lte": end_iso}}},
             "aggs": {
                 "per_day": {
                     "date_histogram": {
@@ -614,7 +631,7 @@ def fetch_elastic_inventory(
     pick_body = {
         "size": 0,
         "track_total_hits": False,
-        "query": {"bool": {"filter": [{"range": {"@timestamp": {"gte": pick_start_iso, "lte": now_local.isoformat()}}}],
+        "query": {"bool": {"filter": [{"range": {"@timestamp": {"gte": pick_start_iso, "lte": end_iso}}}],
                            "should": [{"match_phrase": {"message": "Picking products"}},
                                       {"match_phrase": {"message": "Successfully planned pick"}}],
                            "minimum_should_match": 1}},
@@ -640,7 +657,7 @@ def fetch_elastic_inventory(
     # Time switched on, idle included (Chris, 2026-09-07): any document
     # at all from the system in a five-minute slot, not just picks.
     run_body = {"size": 0, "track_total_hits": False,
-                "query": {"range": {"@timestamp": {"gte": pick_start_iso, "lte": now_local.isoformat()}}}}
+                "query": {"range": {"@timestamp": {"gte": pick_start_iso, "lte": end_iso}}}}
     run_body["aggs"] = {"slots": {"date_histogram": {"field": "@timestamp", "fixed_interval": f"{RUNNING_SLOT_MINUTES}m",
                                                      "time_zone": _tz_offset_string(now_local), "min_doc_count": 1},
                                   "aggs": {"per_robot": {"terms": {"field": "leap_robot_id.keyword", "size": 500}},
@@ -666,7 +683,7 @@ def fetch_elastic_inventory(
             progress("Elastic: which generation each system is...")
         window_start = datetime.combine(day_list[0], dt_time.min).astimezone().isoformat()
         body = {"size": 0, "track_total_hits": False,
-                "query": {"range": {"@timestamp": {"gte": window_start, "lte": now_local.isoformat()}}},
+                "query": {"range": {"@timestamp": {"gte": window_start, "lte": end_iso}}},
                 "aggs": {"per_robot": {"terms": {"field": "leap_robot_id.keyword", "size": 500}},
                          "per_system_id": {"terms": {"field": "system_id.keyword", "size": 500}}}}
         try:
@@ -830,9 +847,10 @@ def scan_cctv_inventory(
     days: int = INVENTORY_DAYS,
     progress: ProgressFn | None = None,
     interrupted: InterruptedFn | None = None,
+    end_day: date | None = None,
 ) -> CctvInventory:
     today = datetime.now().date()
-    day_list = inventory_days(today, days)
+    day_list = inventory_days(end_day or today, days)
     inventory = CctvInventory(days=day_list)
     try:
         system_roots = sorted(

@@ -1091,6 +1091,30 @@ class OverviewWidget(QWidget):
         end_day = min(end_day, today)
         start_day = min(start_day, end_day)
         self.pick_days_btn.setChecked(True)
+        self._apply_day_range(start_day, end_day)
+        self._broadcast_day_range((start_day, end_day))
+
+    def set_day_selection(self, selection) -> None:
+        """Share the chosen days with the other windows (Chris, 2026-09-07)."""
+        self._day_selection = selection
+        selection.changed.connect(self._on_shared_day_range)
+
+    def _broadcast_day_range(self, day_range) -> None:
+        selection = getattr(self, "_day_selection", None)
+        if selection is not None:
+            selection.set(day_range, self)
+
+    def _on_shared_day_range(self, day_range, source) -> None:
+        if source is self:
+            return
+        if day_range is None:
+            self._on_live_clicked()
+            return
+        self.live_btn.setChecked(False)
+        self.pick_days_btn.setChecked(True)
+        self._apply_day_range(*day_range)
+
+    def _apply_day_range(self, start_day, end_day) -> None:
         if self._filter_day_range == (start_day, end_day):
             return
         wanted = (start_day, end_day)
@@ -1145,6 +1169,7 @@ class OverviewWidget(QWidget):
         self._update_zoom_controls()
         self._reset_loaded_data()
         self.refresh(force_full=True)
+        self._broadcast_day_range(None)
 
     def _update_zoom_controls(self):
         multi_day = (

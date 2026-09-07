@@ -132,3 +132,15 @@ def test_running_minutes_from_five_minute_slots():
         {"key_as_string": "2026-09-06T00:00:00.000+01:00", "per_robot": {"buckets": []}, "per_system_id": {"buckets": [{"key": "35-2300-006", "doc_count": 2}]}},
     ]
     assert parse_running(buckets, [d1]) == {"35-2300-010": {d1: 10}, "35-2300-006": {d1: 5}}
+
+
+def test_clamp_range_caps_at_today_and_max_days():
+    from datetime import date, timedelta
+    from logfather.data.data_inventory import clamp_range
+
+    today = date(2026, 9, 7)
+    assert clamp_range(date(2026, 9, 1), date(2026, 9, 20), today, 90) == (date(2026, 9, 1), today)
+    assert clamp_range(date(2026, 9, 9), date(2026, 9, 8), today, 90) == (today, today)
+    start, end = clamp_range(date(2026, 1, 1), date(2026, 9, 7), today, 90)
+    assert end == today and (end - start).days + 1 == 90
+    assert clamp_range(date(2026, 9, 3), date(2026, 9, 5), today, 90) == (date(2026, 9, 3), date(2026, 9, 5))

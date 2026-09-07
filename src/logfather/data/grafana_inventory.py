@@ -99,8 +99,8 @@ def retained_from_usage(series_list: list[Series]) -> tuple[Optional[float], Opt
     return total, first
 
 
-def fetch_grafana_inventory(settings: Settings, days_span: int, progress: Optional[ProgressFn] = None) -> GrafanaInventory:
-    days = inventory_days(datetime.now().date(), days_span)
+def fetch_grafana_inventory(settings: Settings, days_span: int, progress: Optional[ProgressFn] = None, end_day: Optional[date] = None) -> GrafanaInventory:
+    days = inventory_days(end_day or datetime.now().date(), days_span)
     inv = GrafanaInventory(days=days)
     from_ms = utc_midnight_ms(days[0])
     to_ms = utc_midnight_ms(days[-1] + timedelta(days=1))

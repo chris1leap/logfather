@@ -38,6 +38,7 @@ from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import SystemPickerPopup, funnel_icon
 from logfather.ui.icons import calendar_icon
 from logfather.ui.gear_menu import build_gear_button
+from logfather.ui.day_selection import DaySelection
 from logfather.ui.telemetry_strip import TelemetryPanel
 from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
@@ -141,6 +142,10 @@ class MainWindow(QWidget):
         self._overview_nav_failsafe.setInterval(120_000)
         self._overview_nav_failsafe.timeout.connect(self._cancel_overview_navigation)
         self.viewer.settings_saved.connect(self._reload_settings_from_viewer)
+        # One date selection for the Overview, Errors / Stops and Data
+        # windows (Chris, 2026-09-07).
+        self.day_selection = DaySelection(self)
+        self.overview_widget.set_day_selection(self.day_selection)
         # Telemetry tab (Chris, 2026-09-07): the day's temperatures and
         # motor currents from Grafana, playhead drawn across them.
         self.telemetry_panel = TelemetryPanel()
@@ -638,6 +643,7 @@ class MainWindow(QWidget):
                 parent_dir_provider=lambda: self.date_picker.parent_dir,
                 parent=self,
                 gear_host=self,
+                day_selection=self.day_selection,
             )
         self._data_dialog.show()
         self._data_dialog.raise_()
@@ -660,6 +666,7 @@ class MainWindow(QWidget):
                 parent=self,
                 open_system=self._open_system_from_errors,
                 gear_host=self,
+                day_selection=self.day_selection,
             )
         self._errors_window.show()
         self._errors_window.raise_()

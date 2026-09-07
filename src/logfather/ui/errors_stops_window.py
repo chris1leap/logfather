@@ -78,9 +78,11 @@ class ErrorsStopsWindow(QDialog):
         parent=None,
         open_system: Callable[[str, date], None] | None = None,
         gear_host=None,
+        day_selection=None,
     ):
         super().__init__(parent)
         self._gear_host = gear_host
+        self._day_selection = day_selection
         self.setWindowTitle("Errors / Stops")
         self.setWindowFlags(Qt.Window | Qt.WindowTitleHint | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
         self.setSizeGripEnabled(True)
@@ -99,6 +101,13 @@ class ErrorsStopsWindow(QDialog):
         self._started = False
         today = datetime.now().date()
         self._day_range: tuple[date, date] = (today - timedelta(days=6), today)
+        # Follow a date already chosen in another window (Chris, 2026-09-07).
+        if day_selection is not None:
+            if day_selection.range is not None:
+                start, end = day_selection.range
+                end = min(end, today)
+                self._day_range = (min(start, end), end)
+            day_selection.changed.connect(self._on_shared_day_range)
         stored = load_ui_state().get(_HIDDEN_KEY)
         self._hidden: set[str] = {str(n) for n in stored if str(n).strip()} if isinstance(stored, list) else set()
         self._filter_dirty = False
@@ -306,6 +315,25 @@ class ErrorsStopsWindow(QDialog):
         self._day_range = (today, today)
         self._refresh_labels()
         self.start()
+        if self._day_selection is not None:
+            self._day_selection.set(None, self)
+
+    def _on_shared_day_range(self, day_range, source) -> None:
+        if source is self:
+            return
+        today = datetime.now().date()
+        if day_range is None:
+            wanted = (today, today)
+        else:
+            start, end = day_range
+            end = min(end, today)
+            wanted = (min(start, end), end)
+        if wanted == self._day_range:
+            return
+        self._day_range = wanted
+        self._refresh_labels()
+        if self.isVisible():
+            self.start()
 
     def _on_pick_days(self):
         dialog = DayRangeDialog(self._day_range, self)
@@ -319,6 +347,8 @@ class ErrorsStopsWindow(QDialog):
         self._day_range = (start, end)
         self._refresh_labels()
         self.start()
+        if self._day_selection is not None:
+            self._day_selection.set((start, end), self)
 
     def _groups(self) -> list[tuple[str, list[str]]]:
         settings = self._settings_provider()

@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Data window: choose a date (Chris, 2026-09-07). "Last 14 days" and a
+  calendar "Choose days…" button (a day or a span, newest 90 days at
+  most) next to Systems; Elastic, Grafana and CCTV are all fetched for
+  that span and the summary title names it. The date selection is shared:
+  choosing days in the Overview, Errors / Stops or Data sets the other two
+  the same (`ui/day_selection.py`); Live in any of them returns all to
+  live.
 - Overview opens on All Day instead of 1h (Chris, 2026-09-07); 1h and 5h
   remain a click away.
 - Settings window (Settings / Systems / Readme tabs) is a real window
