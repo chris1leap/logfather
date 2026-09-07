@@ -212,6 +212,21 @@ class MainWindow(QWidget):
         self.choose_date_btn.clicked.connect(self._show_day_popup)
         self._day_popup = DayPopup(self)
         self._day_popup.day_chosen.connect(self._on_popup_day_chosen)
+        # In System Replay the next choice pulses (Chris, 2026-09-07): the
+        # system button until a system is chosen, then the date button
+        # until a day is chosen.
+        pulse_style = (
+            f"QToolButton[pulse=\"true\"] {{ background-color: {theme.ACCENT_DIM};"
+            f" border: 1px solid {theme.ACCENT}; color: {theme.TEXT_BRIGHT}; }}"
+        )
+        self.choose_system_btn.setStyleSheet(pulse_style)
+        self.choose_date_btn.setStyleSheet(pulse_style)
+        self._chooser_pulse_target: QToolButton | None = None
+        self._chooser_pulse_timer = QTimer(self)
+        self._chooser_pulse_timer.setInterval(650)
+        self._chooser_pulse_timer.timeout.connect(self._chooser_pulse_tick)
+        self._chosen_root: Path | None = None
+        self._chosen_day: date | None = None
         self.viewer.add_playback_right_widget(self.stop_report_btn)
         self.viewer.add_playback_right_widget(self.time_picker.fit_btn)
         self.viewer.add_playback_right_widget(self.time_picker.refresh_btn)
@@ -817,6 +832,9 @@ class MainWindow(QWidget):
         self._refresh_chooser_buttons(pikpak_root, day)
 
     def _refresh_chooser_buttons(self, pikpak_root: Path | None, day: date | None) -> None:
+        self._chosen_root = pikpak_root if isinstance(pikpak_root, Path) else None
+        self._chosen_day = day if isinstance(day, date) else None
+        self._update_chooser_pulse()
         if isinstance(pikpak_root, Path):
             # Customer and system only; no line name (Chris, 2026-09-07).
             customer = display_customer_name(self.settings, pikpak_root.name)
@@ -827,6 +845,37 @@ class MainWindow(QWidget):
             self.choose_system_btn.setText(self.system_id_override or "Choose system")
             self.choose_date_btn.setEnabled(False)
             self.choose_date_btn.setText("Choose date")
+
+    def _update_chooser_pulse(self) -> None:
+        in_viewer = self.content_stack.currentWidget() is self.viewer
+        target = None
+        if in_viewer and not self.system_id_override:
+            if self._chosen_root is None:
+                target = self.choose_system_btn
+            elif self._chosen_day is None:
+                target = self.choose_date_btn
+        if target is self._chooser_pulse_target:
+            return
+        if self._chooser_pulse_target is not None:
+            self._apply_chooser_pulse(self._chooser_pulse_target, False)
+        self._chooser_pulse_target = target
+        if target is None:
+            self._chooser_pulse_timer.stop()
+        else:
+            self._apply_chooser_pulse(target, True)
+            self._chooser_pulse_timer.start()
+
+    def _chooser_pulse_tick(self) -> None:
+        btn = self._chooser_pulse_target
+        if btn is not None:
+            self._apply_chooser_pulse(btn, not bool(btn.property("pulse")))
+
+    @staticmethod
+    def _apply_chooser_pulse(btn: QToolButton, lit: bool) -> None:
+        btn.setProperty("pulse", bool(lit))
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+        btn.update()
 
     def _show_system_menu(self) -> None:
         menu = QMenu(self)
@@ -1664,6 +1713,7 @@ class MainWindow(QWidget):
         self.current_system_label.setVisible(False)
         self.choose_system_btn.setVisible(in_viewer)
         self.choose_date_btn.setVisible(in_viewer)
+        self._update_chooser_pulse()
 
     def _on_first_clip_opened(self, _path) -> None:
         if not self._viewer_tools_available:

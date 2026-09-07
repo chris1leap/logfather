@@ -30,6 +30,9 @@ Living record of agreed functionality: what is open, and what has shipped
   list on the left, and its hover-reveal, are gone; Choose system and
   Choose date in the top bar do that job. The panel's logic (share
   scan, day highlighting) still drives those buttons behind the scenes.
+- System Replay prompts (Chris): with no system chosen the Choose system
+  button pulses; once a system is chosen the Choose date button pulses
+  until a day is chosen; nothing pulses on the other screens.
 - Viewer retention warning (Chris): choosing a day more than 30 days old
   shows "CCTV footage is deleted after 30 days" with a crossed-out camera
   icon where the footage would play (`core/retention.py`, tested
