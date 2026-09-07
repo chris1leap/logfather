@@ -51,7 +51,11 @@ Living record of agreed functionality: what is open, and what has shipped
 - Chart day axis (Chris): two lines instead of dd/mm per bar - the day
   number under each bar (thinned when bars are narrow) and the month
   name once per run of days, so 30+ days stay readable; both the Data
-  chart and the Errors / Stops charts.
+  chart and the Errors / Stops charts (which keep their month line on
+  top and show day numbers only underneath).
+- Data chart order (Chris): Argus 1 systems first, then Argus 2, each in
+  the usual customer order; generation read from which id field carries
+  the bulk of a system's documents and kept in the local cache.
 
 ### 2026-09-05
 

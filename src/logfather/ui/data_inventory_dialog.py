@@ -40,6 +40,7 @@ from logfather.data.data_inventory import (
     fetch_elastic_inventory,
     format_bytes,
     format_count,
+    generation_rank,
     cache_saved_at,
     inventory_days,
     inventory_from_cache,
@@ -593,11 +594,23 @@ class DataInventoryDialog(QDialog):
                 for system, per_day in source.items():
                     rows[system] = {day: float(v) for day, v in per_day.items()}
         settings = self._settings_provider()
+        # Argus 1 systems first, then Argus 2, then the usual customer
+        # grouping within each (Chris, 2026-09-07).
         ordered = sorted(
             ((name, values) for name, values in rows.items() if name not in self._hidden_systems),
-            key=lambda kv: system_group_sort_key(settings, kv[0]),
+            key=lambda kv: (self._generation_rank(kv[0]), system_group_sort_key(settings, kv[0])),
         )
         return days, ordered
+
+    def _generation_rank(self, name: str) -> int:
+        if self._elastic is None:
+            return 2
+        robot = name if name.startswith("35-2300-") else robot_id_from_folder(name)
+        if not robot:
+            for r, system in self._robot_to_system.items():
+                if system == name:
+                    robot = r
+        return generation_rank(self._elastic.generation.get(robot or ""))
 
     def _value_formatter(self) -> Callable[[float], str]:
         if self._metric in ("bytes", "elastic_bytes"):

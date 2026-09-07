@@ -78,6 +78,9 @@ class ElasticInventory:
     # (planner payloads vs heartbeats), so a single fleet factor would
     # just redraw the document chart at another scale.
     bytes_per_doc_by_robot: dict[str, float] = field(default_factory=dict)
+    # robot -> "Argus 1" / "Argus 2", from which id field carries the bulk
+    # of its documents (Chris, 2026-09-07: Argus 1 systems listed first).
+    generation: dict[str, str] = field(default_factory=dict)
 
     def bytes_factor(self, robot: str) -> float:
         value = self.bytes_per_doc_by_robot.get(robot)
@@ -241,6 +244,7 @@ def merge_inventory_cache(
         "total_bytes": inventory.total_bytes if inventory.total_bytes is not None else old.get("total_bytes"),
         "bytes_per_doc": inventory.bytes_per_doc if inventory.bytes_per_doc is not None else old.get("bytes_per_doc"),
         "bytes_basis": inventory.bytes_basis or str(old.get("bytes_basis") or ""),
+        "generation": {**{str(k): str(v) for k, v in (old.get("generation") or {}).items()}, **inventory.generation},
     }
 
 
@@ -293,6 +297,7 @@ def inventory_from_cache(cache: dict | None, days: list[date]) -> "ElasticInvent
     window_docs = {r: sum(v.values()) for r, v in inventory.counts.items()}
     real = inventory.bytes_per_doc if inventory.bytes_basis.startswith("index store") else None
     inventory.bytes_per_doc_by_robot = scale_robot_factors(sampled, window_docs, real)
+    inventory.generation = {str(k): str(v) for k, v in (cache.get("generation") or {}).items()}
     return inventory
 
 
@@ -317,6 +322,24 @@ def inventory_days(today: date, days: int = INVENTORY_DAYS) -> list[date]:
     """The trailing window ending today, oldest first."""
     span = max(1, int(days))
     return [today - timedelta(days=span - 1 - i) for i in range(span)]
+
+
+def parse_generations(per_day_buckets: list) -> dict[str, str]:
+    """robot -> generation: Argus 1 logs under leap_robot_id, Argus 2 under
+    system_id; the field with more documents decides (a few Argus 1
+    documents carry both)."""
+    under: dict[str, dict[str, int]] = {}
+    for bucket in per_day_buckets or []:
+        for agg_name, gen in (("per_robot", "Argus 1"), ("per_system_id", "Argus 2")):
+            for sub in ((bucket.get(agg_name) or {}).get("buckets") or []):
+                robot = str(sub.get("key") or "").strip()
+                if robot:
+                    under.setdefault(robot, {})[gen] = under.setdefault(robot, {}).get(gen, 0) + int(sub.get("doc_count") or 0)
+    return {robot: max(counts.items(), key=lambda kv: kv[1])[0] for robot, counts in under.items()}
+
+
+def generation_rank(generation: str | None) -> int:
+    return {"Argus 1": 0, "Argus 2": 1}.get(str(generation or ""), 2)
 
 
 def parse_histogram(
@@ -490,6 +513,7 @@ def fetch_elastic_inventory(
             raise
         buckets = ((data.get("aggregations") or {}).get("per_day") or {}).get("buckets") or []
         inventory.counts = parse_histogram(buckets, fetch_days)
+        inventory.generation = parse_generations(buckets)
         last_error = None
         break
     if last_error is not None:
@@ -498,6 +522,25 @@ def fetch_elastic_inventory(
         target = inventory.counts.setdefault(robot, {})
         for day, n in per_day.items():
             target[day] = target.get(day, 0) + n
+    for robot, gen in ((cache or {}).get("generation") or {}).items():
+        inventory.generation.setdefault(str(robot), str(gen))
+    unknown = set(inventory.counts) - set(inventory.generation)
+    if unknown:
+        # Robots seen only on cached days: one cheap query over the whole
+        # window says which id field carries their documents.
+        if progress:
+            progress("Elastic: which generation each system is...")
+        window_start = datetime.combine(day_list[0], dt_time.min).astimezone().isoformat()
+        body = {"size": 0, "track_total_hits": False,
+                "query": {"range": {"@timestamp": {"gte": window_start, "lte": now_local.isoformat()}}},
+                "aggs": {"per_robot": {"terms": {"field": "leap_robot_id.keyword", "size": 500}},
+                         "per_system_id": {"terms": {"field": "system_id.keyword", "size": 500}}}}
+        try:
+            data = _post(body, timeout=90)
+            for robot, gen in parse_generations([data.get("aggregations") or {}]).items():
+                inventory.generation.setdefault(robot, gen)
+        except Exception:
+            pass
 
     if progress:
         progress("Elastic: total document count and oldest record...")

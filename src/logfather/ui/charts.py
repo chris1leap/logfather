@@ -323,7 +323,7 @@ class StackedBarChart(QWidget):
                 runs.append((i, i))
         return runs
 
-    def _paint_day_axis(self, painter, origin, slot, plot_bottom, visible_left: float, visible_right: float) -> None:
+    def _paint_day_axis(self, painter, origin, slot, plot_bottom, visible_left: float, visible_right: float, months: bool = True) -> None:
         """Two axis lines (Chris, 2026-09-07: dd/mm per bar crowded once
         past 14 days): the day number under each bar, thinned when bars
         are narrow, and the month name once per run of days, kept inside
@@ -339,6 +339,8 @@ class StackedBarChart(QWidget):
             if i % every:
                 continue
             painter.drawText(QRectF(x - slot, plot_bottom + 4, slot * 3, 16), Qt.AlignHCenter | Qt.AlignTop, str(day.day))
+        if not months:
+            return
         for start, end in self._month_runs():
             x0 = origin + start * slot
             x1 = origin + (end + 1) * slot
@@ -414,4 +416,4 @@ class StackedBarChart(QWidget):
                     Qt.AlignHCenter | Qt.AlignBottom,
                     day_heading(day) if slot >= 64 else f"{day:%a} {day.day}",
                 )
-        self._paint_day_axis(painter, origin, slot, plot_bottom, visible_left, visible_right)
+        self._paint_day_axis(painter, origin, slot, plot_bottom, visible_left, visible_right, months=False)

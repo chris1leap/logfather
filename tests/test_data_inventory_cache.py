@@ -88,3 +88,21 @@ def test_inventory_from_cache_rebuilds_window():
     assert inventory_from_cache(None, inventory_days(today, 3)) is None
     assert cache_saved_at({"saved_at": "2026-09-04T10:00:00+00:00"}).date() == date(2026, 9, 4)
     assert cache_saved_at({}) is None
+
+
+def test_generation_from_id_fields_and_cache_round_trip():
+    from logfather.data.data_inventory import generation_rank, parse_generations
+
+    buckets = [
+        {"per_robot": {"buckets": [{"key": "35-2300-010", "doc_count": 900}]},
+         "per_system_id": {"buckets": [{"key": "35-2300-010", "doc_count": 60}, {"key": "35-2300-006", "doc_count": 500}]}},
+    ]
+    gens = parse_generations(buckets)
+    assert gens == {"35-2300-010": "Argus 1", "35-2300-006": "Argus 2"}
+    assert [generation_rank(g) for g in ("Argus 1", "Argus 2", None)] == [0, 1, 2]
+    today = date(2026, 9, 5)
+    inv = ElasticInventory(days=inventory_days(today, 3), generation=gens)
+    merged = merge_inventory_cache({"generation": {"35-2300-003": "Argus 2"}}, inv, [today], today, {}, datetime.now(timezone.utc))
+    assert merged["generation"] == {"35-2300-003": "Argus 2", "35-2300-010": "Argus 1", "35-2300-006": "Argus 2"}
+    merged["counts"] = {"35-2300-010": {today.isoformat(): 1}}
+    assert inventory_from_cache(merged, inventory_days(today, 3)).generation["35-2300-010"] == "Argus 1"
