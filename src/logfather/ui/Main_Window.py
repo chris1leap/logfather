@@ -202,6 +202,8 @@ class MainWindow(QWidget):
         self.choose_system_btn.setIcon(funnel_icon())
         self.choose_system_btn.setIconSize(QSize(18, 18))
         self.choose_system_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.choose_system_btn.setMinimumWidth(240)
+        self.choose_system_btn.setStyleSheet("QToolButton { font-size: 16px; padding: 6px 14px; }")
         self.choose_system_btn.setToolTip("Pick the system to view")
         self.choose_system_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.choose_system_btn.clicked.connect(self._show_system_menu)
@@ -210,6 +212,8 @@ class MainWindow(QWidget):
         self.choose_date_btn.setIcon(calendar_icon())
         self.choose_date_btn.setIconSize(QSize(18, 18))
         self.choose_date_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.choose_date_btn.setMinimumWidth(200)
+        self.choose_date_btn.setStyleSheet("QToolButton { font-size: 16px; padding: 6px 14px; }")
         self.choose_date_btn.setToolTip("Pick the day to look at")
         self.choose_date_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.choose_date_btn.clicked.connect(self._show_day_popup)
@@ -855,6 +859,13 @@ class MainWindow(QWidget):
 
     def _show_system_menu(self) -> None:
         menu = QMenu(self)
+        # Roomier, larger entries (Chris, 2026-09-07).
+        menu.setStyleSheet(
+            "QMenu { font-size: 17px; min-width: 340px; padding: 6px 0; }"
+            "QMenu::item { padding: 8px 32px 8px 24px; }"
+            f"QMenu::item:selected {{ background-color: {theme.BG_HOVER}; }}"
+            f"QMenu::item:disabled {{ color: {theme.TEXT_BRIGHT}; font-weight: bold; }}"
+        )
         parent_dir = self.date_picker.parent_dir
         subdirs: list[Path] = []
         if isinstance(parent_dir, Path):
