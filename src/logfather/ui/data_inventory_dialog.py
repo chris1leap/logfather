@@ -201,20 +201,22 @@ class DataInventoryDialog(QDialog):
         # Live (the last 14 days ending today) or a chosen day / span
         # (Chris, 2026-09-07); the choice is shared with the Overview and
         # Errors / Stops windows.
+        # They sit in a "Days" box on the second row so the date is never
+        # squeezed (Chris, 2026-09-07: the row cut part of it off).
         self._live_btn = QPushButton(f"Last {INVENTORY_DAYS} days")
         self._live_btn.setCheckable(True)
         self._live_btn.setToolTip(f"The last {INVENTORY_DAYS} days ending today")
+        self._live_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._live_btn.clicked.connect(self._on_live_clicked)
-        controls.addWidget(self._live_btn)
         self._pick_days_btn = QPushButton("Choose days…")
         self._pick_days_btn.setIcon(calendar_icon())
         self._pick_days_btn.setIconSize(QSize(18, 18))
         self._pick_days_btn.setCheckable(True)
         self._pick_days_btn.setToolTip("Choose a day or a span of days")
+        self._pick_days_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._pick_days_btn.setMinimumWidth(self._pick_days_btn.fontMetrics().horizontalAdvance("00/00 – 00/00/0000") + 56)
         self._pick_days_btn.clicked.connect(self._on_pick_days_clicked)
-        controls.addWidget(self._pick_days_btn)
         self._refresh_day_labels()
-        controls.addSpacing(12)
         controls.addWidget(QLabel("Show:"))
         self._metric_group = QButtonGroup(self)
         self._metric_group.setExclusive(True)
@@ -258,7 +260,16 @@ class DataInventoryDialog(QDialog):
             self._norm_buttons[key] = btn
             y_axis_layout.addWidget(btn)
         self._norm_buttons["total"].setChecked(True)
+        days_box = QGroupBox("Days")
+        days_box.setStyleSheet(y_axis_box.styleSheet())
+        days_layout = QHBoxLayout(days_box)
+        days_layout.setContentsMargins(6, 4, 6, 4)
+        days_layout.setSpacing(6)
+        days_layout.addWidget(self._live_btn)
+        days_layout.addWidget(self._pick_days_btn)
         y_axis_row = QHBoxLayout()
+        y_axis_row.addWidget(days_box)
+        y_axis_row.addSpacing(12)
         y_axis_row.addWidget(y_axis_box)
         y_axis_row.addStretch(1)
         # Second row (Chris, 2026-09-07: one row squeezed the buttons until
