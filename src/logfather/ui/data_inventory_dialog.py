@@ -271,15 +271,20 @@ class DataInventoryDialog(QDialog):
         # (Chris, 2026-09-07); labels are remembered per user.
         self._chart.set_labels_enabled(True)
         stored_labels = load_ui_state().get(_LABELS_KEY)
-        labels = set()
+        labels = {}
         for entry in stored_labels if isinstance(stored_labels, list) else []:
             try:
-                labels.add((str(entry[0]), date.fromisoformat(str(entry[1]))))
+                dx = float(entry[2]) if len(entry) > 2 else 0.0
+                dy = float(entry[3]) if len(entry) > 3 else 0.0
+                labels[(str(entry[0]), date.fromisoformat(str(entry[1])))] = (dx, dy)
             except (TypeError, ValueError, IndexError):
                 continue
         self._chart.set_labels(labels)
+        # Saved with the drag offset, so a moved label stays where it was put.
         self._chart.labels_changed.connect(
-            lambda labels: update_ui_state({_LABELS_KEY: sorted([n, d.isoformat()] for n, d in labels)})
+            lambda labels: update_ui_state({_LABELS_KEY: sorted(
+                [n, d.isoformat(), round(off[0], 1), round(off[1], 1)] for (n, d), off in labels.items()
+            )})
         )
         # Sideways scrolling with arrows and zoom, as on Errors / Stops
         # (Chris, 2026-09-07); the left edge loads older days.

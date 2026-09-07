@@ -43,8 +43,14 @@ class StackedBarChart(QWidget):
         self.setMinimumHeight(320)
         self._min_slot = 0.0
         self._offset = 0.0
-        self._labels: set[tuple[str, date]] = set()
+        # (name, day) -> (dx, dy): the tag's drag offset from its default
+        # place (Chris, 2026-09-07: labels can be moved once added).
+        self._labels: dict[tuple[str, date], tuple[float, float]] = {}
         self._labels_enabled = False
+        self._label_rects: list[tuple[QRectF, tuple[str, date]]] = []
+        self._drag_label: tuple[str, date] | None = None
+        self._drag_start: QPointF | None = None
+        self._drag_origin: tuple[float, float] = (0.0, 0.0)
         self._pending: set[date] = set()
         self._last_edge = 0.0
         self._last_scroll_state: tuple[int, int, int] | None = None
@@ -156,11 +162,22 @@ class StackedBarChart(QWidget):
         self._labels_enabled = bool(enabled)
 
     def set_labels(self, labels) -> None:
-        self._labels = {(str(n), d) for n, d in (labels or ()) if isinstance(d, date)}
+        """Accepts (name, day) pairs or (name, day, dx, dy) with a drag
+        offset, or a {(name, day): (dx, dy)} mapping."""
+        out: dict[tuple[str, date], tuple[float, float]] = {}
+        items = labels.items() if isinstance(labels, dict) else [(entry, None) for entry in (labels or ())]
+        for entry, offset in items:
+            entry = tuple(entry)
+            if len(entry) < 2 or not isinstance(entry[1], date):
+                continue
+            if offset is None:
+                offset = (float(entry[2]), float(entry[3])) if len(entry) >= 4 else (0.0, 0.0)
+            out[(str(entry[0]), entry[1])] = (float(offset[0]), float(offset[1]))
+        self._labels = out
         self.update()
 
-    def labels(self) -> set[tuple[str, date]]:
-        return set(self._labels)
+    def labels(self) -> dict[tuple[str, date], tuple[float, float]]:
+        return dict(self._labels)
 
     def has_label(self, name: str, day: date) -> bool:
         return (name, day) in self._labels
@@ -168,11 +185,26 @@ class StackedBarChart(QWidget):
     def toggle_label(self, name: str, day: date) -> None:
         key = (name, day)
         if key in self._labels:
-            self._labels.discard(key)
+            self._labels.pop(key)
         else:
-            self._labels.add(key)
+            self._labels[key] = (0.0, 0.0)
         self.update()
-        self.labels_changed.emit(set(self._labels))
+        self.labels_changed.emit(dict(self._labels))
+
+    def _label_at(self, pos) -> tuple[str, date] | None:
+        for rect, key in self._label_rects:
+            if rect.contains(pos):
+                return key
+        return None
+
+    def mouseReleaseEvent(self, event):
+        if self._drag_label is not None:
+            self._drag_label = None
+            self._drag_start = None
+            self.labels_changed.emit(dict(self._labels))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event):
         if not self._labels_enabled:
@@ -194,6 +226,7 @@ class StackedBarChart(QWidget):
         to the segment; several labels on one day stack upwards."""
         if not self._labels:
             return
+        self._label_rects = []
         by_day: dict[date, list[tuple[QRectF, str]]] = {}
         bar_top: dict[date, float] = {}
         for rect, name, day in self._segments:
@@ -213,18 +246,38 @@ class StackedBarChart(QWidget):
                 y = top - 22 - i * (h + 4)
                 if y - h >= 2:
                     tag = QRectF(cx - w / 2, y - h, w, h)
-                    anchor = QPointF(cx, tag.bottom())
                 else:
                     # No room above a tall bar: hang the tag beside it.
                     tag = QRectF(rect.right() + 8, plot_top + 4 + i * (h + 4), w, h)
-                    anchor = QPointF(tag.left(), tag.center().y())
+                dx, dy = self._labels.get((name, day), (0.0, 0.0))
+                tag.translate(dx, dy)
+                # Keep the tag inside the widget however far it was dragged.
+                tag.moveLeft(min(max(tag.left(), 2.0), max(2.0, self.width() - w - 2)))
+                tag.moveTop(min(max(tag.top(), 2.0), max(2.0, self.height() - h - 2)))
+                self._label_rects.append((tag, (name, day)))
+                target = QPointF(cx, rect.center().y())
+                anchor = self._edge_point(tag, target)
                 painter.setPen(QPen(QColor(theme.ACCENT)))
-                painter.drawLine(anchor, QPointF(cx, rect.center().y()))
+                painter.drawLine(anchor, target)
                 painter.setBrush(QBrush(QColor(theme.ACCENT)))
                 painter.setPen(Qt.NoPen)
                 painter.drawRoundedRect(tag, 4, 4)
                 painter.setPen(QColor("#081018"))
                 painter.drawText(tag, Qt.AlignCenter, name)
+
+    @staticmethod
+    def _edge_point(tag: QRectF, target: QPointF) -> QPointF:
+        """Where the line from the tag's centre to the target leaves the
+        tag, so the leader starts on its edge wherever it was dragged."""
+        c = tag.center()
+        dx, dy = target.x() - c.x(), target.y() - c.y()
+        if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+            return c
+        hw, hh = tag.width() / 2, tag.height() / 2
+        tx = hw / abs(dx) if dx else float("inf")
+        ty = hh / abs(dy) if dy else float("inf")
+        t = min(tx, ty, 1.0)
+        return QPointF(c.x() + dx * t, c.y() + dy * t)
 
     def set_click_handler(self, fn: Callable[[str, date], None] | None) -> None:
         self._click_fn = fn
@@ -232,6 +285,15 @@ class StackedBarChart(QWidget):
             self.unsetCursor()
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._labels:
+            key = self._label_at(event.position())
+            if key is not None:
+                self._drag_label = key
+                self._drag_start = event.position()
+                self._drag_origin = self._labels.get(key, (0.0, 0.0))
+                self.setCursor(Qt.ClosedHandCursor)
+                event.accept()
+                return
         if event.button() == Qt.LeftButton and self._click_fn is not None:
             pos = event.position()
             for rect, name, day in self._segments:
@@ -257,6 +319,17 @@ class StackedBarChart(QWidget):
 
     def mouseMoveEvent(self, event):
         pos = event.position()
+        if self._drag_label is not None and self._drag_start is not None:
+            dx = self._drag_origin[0] + (pos.x() - self._drag_start.x())
+            dy = self._drag_origin[1] + (pos.y() - self._drag_start.y())
+            self._labels[self._drag_label] = (dx, dy)
+            self.update()
+            event.accept()
+            return
+        if self._labels and self._label_at(pos) is not None:
+            self.setCursor(Qt.OpenHandCursor)
+            QToolTip.showText(event.globalPosition().toPoint(), "Drag to move this label", self)
+            return
         hit = None
         for index, (rect, _name, _day) in enumerate(self._segments):
             if rect.contains(pos):

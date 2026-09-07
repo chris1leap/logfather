@@ -74,8 +74,9 @@ Living record of agreed functionality: what is open, and what has shipped
 - Data chart labels (Chris): right-click a bar segment for "Add label:
   PikPakNNN" / "Remove label"; a labelled segment gets an accent tag
   with the system name above its bar and a leader line down to it (tags
-  stack when a day has several); the hover text says which applies.
-  Labels are remembered per user.
+  stack when a day has several); the hover text says which applies. A
+  tag can be dragged anywhere on the chart and its leader line follows;
+  labels and their positions are remembered per user.
 - Data chart order (Chris): Argus 1 systems first, then Argus 2, each in
   the usual customer order; generation read from which id field carries
   the bulk of a system's documents and kept in the local cache.
