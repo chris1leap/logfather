@@ -31,6 +31,9 @@ Living record of agreed functionality: what is open, and what has shipped
   latest values in the right column and min/max/latest on hover. One
   Grafana query per reading for the whole fleet; live mode refreshes
   every five minutes, a chosen span loads once. The choice is remembered.
+  The button is "Temps" with a thermometer icon, a colour key appears
+  beside it while any reading is on, and dragging a strip's bottom line
+  stretches every strip (16 to 240 px, remembered).
 - Data window: choose a date (Chris, 2026-09-07). "Last 14 days" and a
   calendar "Choose days…" button (a day or a span, newest 90 days at
   most) next to Systems; Elastic, Grafana and CCTV are all fetched for

@@ -53,6 +53,30 @@ def gear_icon(size: int = 24) -> QIcon:
     return QIcon(pm)
 
 
+def thermometer_icon(size: int = 24) -> QIcon:
+    """A thermometer: stem with a bulb, half filled (Chris, 2026-09-07:
+    the Temps button on the Overview)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    s = float(size)
+    outline = QPen(QColor(theme.TEXT_BRIGHT))
+    outline.setWidthF(s * 0.09)
+    painter.setPen(outline)
+    painter.setBrush(Qt.NoBrush)
+    stem = QRectF(s * 0.40, s * 0.10, s * 0.20, s * 0.55)
+    painter.drawRoundedRect(stem, s * 0.10, s * 0.10)
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    painter.drawEllipse(QPointF(s * 0.50, s * 0.76), s * 0.17, s * 0.17)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#ff8a65"))
+    painter.drawRect(QRectF(s * 0.455, s * 0.38, s * 0.09, s * 0.30))
+    painter.drawEllipse(QPointF(s * 0.50, s * 0.76), s * 0.11, s * 0.11)
+    painter.end()
+    return QIcon(pm)
+
+
 def arrow_icon(direction: str, size: int = 24) -> QIcon:
     """A clear left / right chevron for the step-through-time buttons
     (Chris, 2026-09-06: the style's stock arrow was too faint)."""

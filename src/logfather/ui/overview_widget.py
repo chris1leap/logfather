@@ -58,7 +58,7 @@ from logfather.data.ui_state_store import (
     update_ui_state,
 )
 from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
-from logfather.ui.icons import calendar_icon
+from logfather.ui.icons import calendar_icon, thermometer_icon
 from logfather.core.telemetry import TEMPERATURE_CHOICES, TEMPERATURE_COLOURS, window_stats
 from logfather.data import grafana_client
 from logfather.data.telemetry_loader import fetch_fleet_temperatures
@@ -66,7 +66,12 @@ from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _OVERVIEW_HIDDEN_KEY = "overview_hidden_systems"
 _OVERVIEW_TEMPS_KEY = "overview_temperatures"
-OVERVIEW_TEMP_STRIP_HEIGHT = 26
+_OVERVIEW_TEMP_STRIP_KEY = "overview_temp_strip_height"
+OVERVIEW_TEMP_STRIP_HEIGHT = 44
+# With temperatures on, the state lane gives up height to the strip
+# (Chris, 2026-09-07).
+OVERVIEW_ROW_HEIGHT_WITH_TEMPS = 36
+OVERVIEW_TEMP_STRIP_MIN, OVERVIEW_TEMP_STRIP_MAX = 16, 240
 OVERVIEW_TEMPS_REFRESH = timedelta(minutes=5)
 _OVERVIEW_CUSTOMER_ORDER_KEY = "overview_customer_order"
 _OVERVIEW_SYSTEM_ORDER_KEY = "overview_system_order"
@@ -720,7 +725,20 @@ class OverviewWidget(QWidget):
         self._temps_keys_loaded: tuple[str, ...] = ()
         self._temps_fetched_local: datetime | None = None
         self._temps_slot = JobSlot(self)
+        stored_h = load_ui_state().get(_OVERVIEW_TEMP_STRIP_KEY)
+        try:
+            self._temp_strip_h = int(min(OVERVIEW_TEMP_STRIP_MAX, max(OVERVIEW_TEMP_STRIP_MIN, int(stored_h))))
+        except (TypeError, ValueError):
+            self._temp_strip_h = OVERVIEW_TEMP_STRIP_HEIGHT
+        # (edge y, x0, x1) per row in scene coordinates: dragging the strip's
+        # bottom line stretches every strip (Chris, 2026-09-07).
+        self._temp_edge_bands: list[tuple[float, float, float]] = []
+        self._temp_resize: tuple[float, int] | None = None
+        self._temp_edge_hover = False
         self.temps_btn = QToolButton()
+        self.temps_btn.setIcon(thermometer_icon())
+        self.temps_btn.setIconSize(QSize(18, 18))
+        self.temps_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.temps_btn.setPopupMode(QToolButton.InstantPopup)
         self.temps_btn.setToolTip("Which temperatures to draw under each system (from Grafana)")
         self.temps_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -737,12 +755,17 @@ class OverviewWidget(QWidget):
         temps_menu.addAction("Show all", lambda: self._set_all_temps(True))
         temps_menu.addAction("Hide all", lambda: self._set_all_temps(False))
         self.temps_btn.setMenu(temps_menu)
+        # The key: a swatch per ticked reading, shown only when any is on.
+        self._temps_key = QLabel("")
+        self._temps_key.setTextFormat(Qt.RichText)
+        self._temps_key.setStyleSheet(theme.MUTED_LABEL)
         self._refresh_temps_label()
 
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.addWidget(self.filter_btn)
         controls.addWidget(self.temps_btn)
+        controls.addWidget(self._temps_key)
         controls.addSpacing(12)
         # Live and Choose days keep their place; the zoom trio follows
         # them and hides for multi-day spans (Chris, 2026-09-07).
@@ -937,7 +960,51 @@ class OverviewWidget(QWidget):
                 return band if x < self._hover_timeline_x else None
         return None
 
+    def _temp_edge_at(self, scene_pos) -> bool:
+        x, y = float(scene_pos.x()), float(scene_pos.y())
+        return any(abs(y - edge) <= 5 and x0 <= x <= x1 for edge, x0, x1 in self._temp_edge_bands)
+
+    def _handle_temp_resize(self, event) -> bool:
+        """Dragging the bottom line of a temperature strip stretches the
+        strips (Chris, 2026-09-07: to see the traces more easily)."""
+        event_type = event.type()
+        if self._temp_resize is not None:
+            if event_type == QEvent.MouseMove:
+                press_y, start_h = self._temp_resize
+                delta = (float(self.view.mapToScene(event.pos()).y()) - press_y) / max(0.1, theme.zoom_factor())
+                new_h = int(min(OVERVIEW_TEMP_STRIP_MAX, max(OVERVIEW_TEMP_STRIP_MIN, start_h + delta)))
+                if new_h != self._temp_strip_h:
+                    self._temp_strip_h = new_h
+                    self._schedule_redraw()
+                return True
+            if event_type == QEvent.MouseButtonRelease:
+                self._temp_resize = None
+                self.view.viewport().unsetCursor()
+                self._temp_edge_hover = False
+                update_ui_state({_OVERVIEW_TEMP_STRIP_KEY: int(self._temp_strip_h)})
+                return True
+            return True
+        if not self._temp_edge_bands or self._drag_candidate is not None:
+            return False
+        if event_type == QEvent.MouseMove:
+            over = self._temp_edge_at(self.view.mapToScene(event.pos()))
+            if over != self._temp_edge_hover:
+                self._temp_edge_hover = over
+                if over:
+                    self.view.viewport().setCursor(Qt.SizeVerCursor)
+                else:
+                    self.view.viewport().unsetCursor()
+            return False
+        if event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if self._temp_edge_at(self.view.mapToScene(event.pos())):
+                self._temp_resize = (float(self.view.mapToScene(event.pos()).y()), int(self._temp_strip_h))
+                self.hide_thumbnail_preview()
+                return True
+        return False
+
     def _handle_drag_event(self, event) -> bool:
+        if self._handle_temp_resize(event):
+            return True
         event_type = event.type()
         if event_type == QEvent.MouseButtonPress:
             if event.button() != Qt.LeftButton:
@@ -1104,7 +1171,13 @@ class OverviewWidget(QWidget):
 
     def _refresh_temps_label(self):
         n = len(self._temp_keys)
-        self.temps_btn.setText("Temperatures" if not n else f"Temperatures ({n})")
+        self.temps_btn.setText("Temps" if not n else f"Temps ({n})")
+        bits = [
+            f'<span style="background-color:{TEMPERATURE_COLOURS[key]};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{label}'
+            for key, label in TEMPERATURE_CHOICES if key in self._temp_keys
+        ]
+        self._temps_key.setText("&nbsp;&nbsp;".join(bits))
+        self._temps_key.setVisible(bool(bits))
 
     def _set_all_temps(self, on: bool):
         for action in self._temp_actions.values():
@@ -2265,8 +2338,9 @@ class OverviewWidget(QWidget):
         zoom = theme.zoom_factor()
         top_pad = int(46 * zoom)
         bottom_pad = 18
-        row_height = int(OVERVIEW_ROW_HEIGHT * zoom)
-        strip_h = int(OVERVIEW_TEMP_STRIP_HEIGHT * zoom) if self._temp_keys else 0
+        row_height = int((OVERVIEW_ROW_HEIGHT_WITH_TEMPS if self._temp_keys else OVERVIEW_ROW_HEIGHT) * zoom)
+        strip_h = int(self._temp_strip_h * zoom) if self._temp_keys else 0
+        self._temp_edge_bands = []
         row_step = row_height + strip_h
         header_height = int(36 * zoom)
         display_rows: list[tuple[str, object]] = []
@@ -2593,6 +2667,7 @@ class OverviewWidget(QWidget):
             if strip_h:
                 strip_rect = QRectF(timeline_x, y + row_height - 4, timeline_width, strip_h - 2)
                 self._draw_temperature_strip(state, strip_rect, window_start, window_end, scene_width, right_pad)
+                self._temp_edge_bands.append((strip_rect.bottom(), strip_rect.left(), strip_rect.right()))
             self._row_bands.append(
                 (y, y + row_step, "system", state.name,
                  display_customer_name(self.settings, state.name), None)
