@@ -85,8 +85,9 @@ class ElasticInventory:
     # "Successfully planned pick" on Argus 1), so the chart can be shown
     # per pick (Chris, 2026-09-07).
     picks: dict[str, dict[date, int]] = field(default_factory=dict)
-    # robot -> day -> minutes running: five-minute slots with at least one
-    # pick, times five (Chris, 2026-09-07: chart per hour running).
+    # robot -> day -> minutes switched on: five-minute slots with any
+    # document from the system, times five (Chris, 2026-09-07: chart per
+    # hour on, idle time included).
     running: dict[str, dict[date, int]] = field(default_factory=dict)
 
     def bytes_factor(self, robot: str) -> float:
@@ -301,7 +302,7 @@ def merge_inventory_cache(
         "bytes_basis": inventory.bytes_basis or str(old.get("bytes_basis") or ""),
         "generation": {**{str(k): str(v) for k, v in (old.get("generation") or {}).items()}, **inventory.generation},
         "picks": _merge_day_map(old.get("picks") or {}, inventory.picks, fetched | set(d for per in inventory.picks.values() for d in per), floor),
-        "running": _merge_day_map(old.get("running") or {}, inventory.running, fetched | set(d for per in inventory.running.values() for d in per), floor),
+        "on_minutes": _merge_day_map(old.get("on_minutes") or {}, inventory.running, fetched | set(d for per in inventory.running.values() for d in per), floor),
     }
 
 
@@ -345,7 +346,7 @@ def inventory_from_cache(cache: dict | None, days: list[date]) -> "ElasticInvent
                 continue
             if day in wanted:
                 inventory.picks.setdefault(str(robot), {})[day] = int(n or 0)
-    for robot, per_day in (cache.get("running") or {}).items():
+    for robot, per_day in (cache.get("on_minutes") or {}).items():
         if not isinstance(per_day, dict):
             continue
         for raw, n in per_day.items():
@@ -606,7 +607,7 @@ def fetch_elastic_inventory(
     # Complete days cached before picks / running existed have none: in
     # that case count the whole window (cheap), else only the fetched days.
     cached_picks, _complete_picks = cached_day_counts(cache, day_list, "picks")
-    cached_running, _complete_running = cached_day_counts(cache, day_list, "running")
+    cached_running, _complete_running = cached_day_counts(cache, day_list, "on_minutes")
     covered_pick_days = {d for per_day in cached_picks.values() for d in per_day} & {d for per_day in cached_running.values() for d in per_day}
     pick_days = fetch_days if all(d in covered_pick_days for d in day_list if d not in fetch_days) else list(day_list)
     pick_start_iso = datetime.combine(pick_days[0], dt_time.min).astimezone().isoformat()
@@ -636,7 +637,10 @@ def fetch_elastic_inventory(
     # Running time: five-minute slots with a pick, for the fetched days.
     if progress:
         progress("Elastic: running time per day and system...")
-    run_body = dict(pick_body)
+    # Time switched on, idle included (Chris, 2026-09-07): any document
+    # at all from the system in a five-minute slot, not just picks.
+    run_body = {"size": 0, "track_total_hits": False,
+                "query": {"range": {"@timestamp": {"gte": pick_start_iso, "lte": now_local.isoformat()}}}}
     run_body["aggs"] = {"slots": {"date_histogram": {"field": "@timestamp", "fixed_interval": f"{RUNNING_SLOT_MINUTES}m",
                                                      "time_zone": _tz_offset_string(now_local), "min_doc_count": 1},
                                   "aggs": {"per_robot": {"terms": {"field": "leap_robot_id.keyword", "size": 500}},

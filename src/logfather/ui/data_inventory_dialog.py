@@ -200,7 +200,7 @@ class DataInventoryDialog(QDialog):
         for key, label, tip in (
             ("total", "Total", "Each day's whole figure"),
             ("pick", "Per pick", "Divided by that system's pick movements that day"),
-            ("hour", "Per hour running", "Divided by the hours that system was picking that day (five-minute slots with a pick)"),
+            ("hour", "Per hour on", "Divided by the hours that system was switched on that day, idle time included (five-minute slots with any log)"),
         ):
             btn = QPushButton(label)
             btn.setCheckable(True)
@@ -797,7 +797,7 @@ class DataInventoryDialog(QDialog):
                 per = f"{docs / hours:,.0f} documents"
                 if est_bytes:
                     per += f" ≈ {format_bytes(est_bytes / hours)}"
-                lines.append(f"{minutes // 60}h {minutes % 60:02d}m running · {per} per hour")
+                lines.append(f"{minutes // 60}h {minutes % 60:02d}m on · {per} per hour")
             if docs:
                 lines.append("<i>Click to open these documents in Kibana</i>")
         cctv = None if showing_elastic else self._cctv
@@ -810,7 +810,7 @@ class DataInventoryDialog(QDialog):
                 lines.append(f"{picks:,} picks · {format_bytes(est / picks)} per pick")
             minutes = self._running_minutes_for(name, day)
             if minutes and est:
-                lines.append(f"{minutes // 60}h {minutes % 60:02d}m running · {format_bytes(est / (minutes / 60.0))} per hour")
+                lines.append(f"{minutes // 60}h {minutes % 60:02d}m on · {format_bytes(est / (minutes / 60.0))} per hour")
             lines.append("<i>Click to open this day's folder</i>")
             oldest = cctv.oldest_day.get(name)
             folders = cctv.day_folders.get(name)

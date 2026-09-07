@@ -62,13 +62,13 @@ Living record of agreed functionality: what is open, and what has shipped
   without git skip the check (`core/app_version.py`, tested).
 - Data chart Total / Per pick / Per hour running (Chris): per pick
   divides each system's daily figure (documents, Elastic size, clips,
-  CCTV size) by its pick movements that day; per hour running divides by
-  the hours it was picking (five-minute slots containing a pick, times
-  five); hover shows picks, running time and both per-unit figures. Picks come from "Picking products"
+  CCTV size) by its pick movements that day; per hour on divides by the
+  hours the system was switched on that day, idle included (five-minute
+  slots containing any document from it, times five; Chris, 2026-09-07); hover shows picks, running time and both per-unit figures. Picks come from "Picking products"
   (Argus 2) and "Successfully planned pick" (Argus 1) and are cached
   with the counts.
 - Data window controls on two rows (Chris): Systems, Show metrics and
-  Total / Per pick / Per hour running on the first; hint, status, Last
+  Total / Per pick / Per hour on on the first; hint, status, Last
   updated, Refresh and Zoom on the second. Every button is fixed to its
   text width so nothing is cut off, "(1 hidden)" included.
 - Data chart order (Chris): Argus 1 systems first, then Argus 2, each in
