@@ -7,13 +7,6 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ## Open
 
-- Grafana telemetry in System Replay (Chris, 2026-09-07): a strip under
-  the log panel showing the chosen metrics (servo temperatures, motor
-  currents) for the selected system and day with the playhead across it.
-  Blocked on a Grafana service-account token; the groundwork (settings,
-  client, check script) shipped 2026-09-07. First target: dashboard
-  `ge98whx` "Actuators issues" on leapmonitoring.grafana.net.
-
 - Elastic real on-disk sizes in the Data window (2026-09-05): needs the
   app's API key granted the `view_index_metadata` (or `monitor`) index
   privilege on `logstash-*,pikpak,pikpak-*`; the code already prefers
@@ -31,6 +24,15 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Telemetry tab in System Replay (Chris, 2026-09-07): choosing a system
+  and day fetches that robot's day from Grafana Cloud's Prometheus (CPU,
+  RCU, GPU and brake-resistor temperatures; per-motor temperature and
+  current; 30 s samples) through Grafana's query API, and draws one chart
+  per group with the playhead across it and a hover readout. Unfitted
+  motors (flat zero) are dropped; Argus 2 runs are stitched into one
+  track. `core/telemetry.py` (pure), `data/telemetry_loader.py`,
+  `ui/telemetry_strip.py`. The Data sources Grafana Test also probes the
+  telemetry source and names the permission to grant when it is denied.
 - Gear menu on every window (Chris, 2026-09-07): the top-right button on
   the main window, Errors / Stops, Data and Software is the same gear
   (`ui/gear_menu.py`) with Data sources, Settings, Systems, Readme, the

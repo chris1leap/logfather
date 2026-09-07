@@ -25,6 +25,14 @@ from logfather.data.elastic_client import get_thread_session
 from logfather.data.settings_store import GRAFANA_URL_DEFAULT, Settings
 
 TOKEN_ENV = "LOGFATHER_GRAFANA_TOKEN"
+# Where the robot telemetry lives (found from the Actuators issues dashboard,
+# 2026-09-07): Grafana Cloud's Prometheus. Metrics: sensors_cpu_temperature,
+# sensors_rcu_temperature, sensors_gpu_temperature,
+# sensors_brake_resistor_temperature (label leap_robot_id on Argus 1,
+# system_id on Argus 2), actuators_motor_temperature and
+# actuators_motor_current (labels system_id, motor_id).
+TELEMETRY_DATASOURCE = DatasourceRef(uid="grafanacloud-prom", type="prometheus")
+TELEMETRY_DATASOURCE_NAME = "grafanacloud-leapmonitoring-prom"
 
 
 class GrafanaError(Exception):
@@ -119,3 +127,29 @@ def query(
 
 def query_series(settings: Settings, datasource: DatasourceRef, text: str, from_ms: int, to_ms: int, **kwargs) -> list[Series]:
     return frames_to_series(query(settings, datasource, text, from_ms, to_ms, **kwargs))
+
+
+def telemetry_probe(settings: Settings, *, minutes: int = 30) -> str:
+    """One sentence on whether the telemetry data source answers: runs a
+    tiny query against the Prometheus source the dashboards use. Raises
+    GrafanaError only for transport failures; access problems come back as
+    text so a Test button can show them."""
+    import time
+
+    now = int(time.time() * 1000)
+    try:
+        series = query_series(settings, TELEMETRY_DATASOURCE, "sensors_cpu_temperature", now - minutes * 60_000, now, max_points=10)
+    except GrafanaError as exc:
+        text = str(exc)
+        if "403" in text:
+            return (
+                f"telemetry source denied (403): give the service account Query permission on "
+                f"{TELEMETRY_DATASOURCE_NAME} (Connections, Data sources, Permissions)."
+            )
+        if "404" in text or "400" in text:
+            return f"telemetry source not found or query rejected: {text}"
+        raise
+    robots = sorted({s.labels.get("leap_robot_id") or s.labels.get("system_id") or "?" for s in series})
+    if not series:
+        return f"telemetry source OK but no CPU temperature samples in the last {minutes} minutes."
+    return f"telemetry source OK: {len(series)} systems reporting ({', '.join(robots[:6])}{'…' if len(robots) > 6 else ''})."

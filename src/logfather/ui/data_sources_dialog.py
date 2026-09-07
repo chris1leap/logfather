@@ -64,7 +64,8 @@ def _test_grafana(url: str, token: str) -> str:
     if not token:
         return f"Reachable (Grafana {info.get('version', '')}), but no token set."
     org = grafana_client.org(probe)
-    return f"OK: Grafana {info.get('version', '')}, org {org.get('name', '')}."
+    head = f"Token OK (Grafana {info.get('version', '')}, org {org.get('name', '')})"
+    return f"{head}; {grafana_client.telemetry_probe(probe)}"
 
 
 class DataSourcesDialog(QDialog):

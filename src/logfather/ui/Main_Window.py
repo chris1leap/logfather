@@ -38,6 +38,10 @@ from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import SystemPickerPopup, funnel_icon
 from logfather.ui.icons import calendar_icon
 from logfather.ui.gear_menu import build_gear_button
+from logfather.ui.telemetry_strip import TelemetryPanel
+from logfather.data import grafana_client
+from logfather.data.elastic_schema import robot_id_from_folder
+from logfather.data.telemetry_loader import fetch_telemetry_day
 from logfather.ui.pulse import Pulser
 from logfather.ui.Time_Picker import (
     TimePicker,
@@ -136,6 +140,12 @@ class MainWindow(QWidget):
         self._overview_nav_failsafe.setInterval(120_000)
         self._overview_nav_failsafe.timeout.connect(self._cancel_overview_navigation)
         self.viewer.settings_saved.connect(self._reload_settings_from_viewer)
+        # Telemetry tab (Chris, 2026-09-07): the day's temperatures and
+        # motor currents from Grafana, playhead drawn across them.
+        self.telemetry_panel = TelemetryPanel()
+        self.viewer.right_tabs.addTab(self.telemetry_panel, "Telemetry")
+        self.viewer.current_time_changed.connect(self.telemetry_panel.set_playhead)
+        self._telemetry_slot = JobSlot(self)
         # Allow timeline expansion in non-maximised windows by reducing
         # the viewer's minimum height constraint.
         self.viewer.setMinimumSize(980, 120)
@@ -773,10 +783,32 @@ class MainWindow(QWidget):
         self.time_picker.show_times(pikpak_root, day)
         self.time_picker.clear_clip_target_rate_heat()
         self._update_current_system_label(pikpak_root, day)
+        self._load_telemetry(pikpak_root, day)
         if self.date_picker.parent_dir:
             self.overview_widget.set_parent_dir(self.date_picker.parent_dir)
         self._overlay_controller.clear()
         self._overlay_controller.reload_calibration()
+
+    def _load_telemetry(self, pikpak_root: Path | None, day: date | None) -> None:
+        panel = self.telemetry_panel
+        panel.set_playhead(None)
+        if not isinstance(pikpak_root, Path) or day is None:
+            panel.set_data(None, "Choose a system and a day.")
+            return
+        robot = robot_id_from_folder(pikpak_root.name)
+        if not robot:
+            panel.set_data(None, f"No robot id for {pikpak_root.name}.")
+            return
+        if not grafana_client.is_configured(self.settings):
+            panel.set_data(None, "Grafana is not set up: gear menu, Data sources, then a Grafana token.")
+            return
+        panel.set_data(None, f"Loading telemetry for {robot} on {day:%a %d %b}…")
+        settings = self.settings
+        self._telemetry_slot.start(
+            lambda job: fetch_telemetry_day(settings, robot, day, job),
+            on_result=lambda data: panel.set_data(data),
+            on_error=lambda message: panel.set_data(None, f"Telemetry failed: {message}"),
+        )
 
     def _update_current_system_label(self, pikpak_root: Path | None, day: date | None = None):
         if not isinstance(pikpak_root, Path):

@@ -52,6 +52,11 @@ def main(argv: list[str]) -> int:
         print(f"  {s.get('name'):<32} {s.get('type'):<28} uid={s.get('uid')}{flag}")
 
     try:
+        print("\nTelemetry: " + gc.telemetry_probe(settings))
+    except gc.GrafanaError as exc:
+        print(f"\nTelemetry: FAIL: {exc}")
+
+    try:
         dash = gc.get_dashboard(settings, uid)
     except gc.GrafanaError as exc:
         print(f"\nFAIL loading dashboard {uid}: {exc}")
