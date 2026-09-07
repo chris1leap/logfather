@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Settings window (Settings / Systems / Readme tabs) is a real window
+  with a title-bar close, a Close button, a size grip, and opens sized to
+  the screen and centred over the main window (Chris, 2026-09-07: it ran
+  off the page with no way to close).
 - Data window, Grafana (Chris, 2026-09-07): a third tile between Elastic
   and CCTV with the telemetry retained in Grafana Cloud (13-month
   retention, from the stack's own samples-per-second history), active

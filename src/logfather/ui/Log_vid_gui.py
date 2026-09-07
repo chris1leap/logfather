@@ -965,9 +965,21 @@ class VideoLogViewer(QWidget):
         self._config_tabs.addTab(ReadmePanel(), "Readme")
         self._config_dialog = QDialog(self)
         self._config_dialog.setWindowTitle("Settings")
+        # A real window with a title-bar close and a Close button, sized to
+        # the screen when it opens (Chris, 2026-09-07: it ran off the page
+        # and had no way to close).
+        self._config_dialog.setWindowFlags(Qt.Window | Qt.WindowTitleHint | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
+        self._config_dialog.setSizeGripEnabled(True)
         config_layout = QVBoxLayout(self._config_dialog)
         config_layout.setContentsMargins(8, 8, 8, 8)
-        config_layout.addWidget(self._config_tabs)
+        config_layout.addWidget(self._config_tabs, 1)
+        config_buttons = QHBoxLayout()
+        config_buttons.addStretch(1)
+        config_close = QPushButton("Close")
+        config_close.setDefault(True)
+        config_close.clicked.connect(self._config_dialog.hide)
+        config_buttons.addWidget(config_close)
+        config_layout.addLayout(config_buttons)
         self._config_dialog.resize(560, 720)
         self._hover_reveal_enabled = True
         self._right_reveal_px = 12
@@ -996,9 +1008,22 @@ class VideoLogViewer(QWidget):
         self.right_tabs.setCornerWidget(corner, Qt.TopRightCorner)
 
     def _open_config_dialog(self):
-        self._config_dialog.show()
-        self._config_dialog.raise_()
-        self._config_dialog.activateWindow()
+        dlg = self._config_dialog
+        if not dlg.isVisible():
+            # Fit the screen the main window is on and sit centred over it.
+            screen = self.window().screen()
+            if screen is not None:
+                avail = screen.availableGeometry()
+                width = min(640, max(420, avail.width() - 80))
+                height = min(760, max(360, avail.height() - 80))
+                dlg.resize(width, height)
+                centre = self.window().frameGeometry().center()
+                x = min(max(avail.left(), centre.x() - width // 2), avail.right() - width)
+                y = min(max(avail.top(), centre.y() - height // 2), avail.bottom() - height)
+                dlg.move(x, y)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def open_config_tab(self, name: str) -> None:
         """Open the Settings dialog on the named tab (gear menu, 2026-09-07)."""
