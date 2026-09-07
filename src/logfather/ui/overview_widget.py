@@ -1219,7 +1219,9 @@ class OverviewWidget(QWidget):
             label_item.setDefaultTextColor(QColor(theme.TEXT_FAINT))
             label_item.setPos(rect.left() - 30, y_pos)
             label_item.setZValue(4)
-        latest = " · ".join(f"{label} {stats[2]:.0f}°" for _k, label, _t, stats in chosen)
+        short = {"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Motor"}
+        latest = " · ".join(f"{short.get(label, label)} {stats[2]:.0f}°" for _k, label, _t, stats in chosen)
+        latest = self._fit_text(latest, right_pad - 20, QFontMetrics(small)) or latest
         latest_item = self.scene.addText(latest, small)
         latest_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
         latest_item.setPos(scene_width - right_pad + 8, rect.top() - 4)
