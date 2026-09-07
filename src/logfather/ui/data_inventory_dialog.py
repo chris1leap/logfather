@@ -60,6 +60,7 @@ from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _HIDDEN_SYSTEMS_KEY = "data_hidden_systems"
+_LABELS_KEY = "data_chart_labels"
 # The chart opens on the last 14 days; scrolling past the left edge loads
 # seven more, up to this many (Chris, 2026-09-07).
 MAX_INVENTORY_DAYS = 90
@@ -266,6 +267,20 @@ class DataInventoryDialog(QDialog):
         self._chart = StackedBarChart()
         self._chart.set_detail_provider(self._detail_for)
         self._chart.set_click_handler(None)
+        # Right-click a bar to add / remove a label naming its system
+        # (Chris, 2026-09-07); labels are remembered per user.
+        self._chart.set_labels_enabled(True)
+        stored_labels = load_ui_state().get(_LABELS_KEY)
+        labels = set()
+        for entry in stored_labels if isinstance(stored_labels, list) else []:
+            try:
+                labels.add((str(entry[0]), date.fromisoformat(str(entry[1]))))
+            except (TypeError, ValueError, IndexError):
+                continue
+        self._chart.set_labels(labels)
+        self._chart.labels_changed.connect(
+            lambda labels: update_ui_state({_LABELS_KEY: sorted([n, d.isoformat()] for n, d in labels)})
+        )
         # Sideways scrolling with arrows and zoom, as on Errors / Stops
         # (Chris, 2026-09-07); the left edge loads older days.
         self._scroller = ChartScroller([self._chart], self._rebuild_views, self)
@@ -821,4 +836,8 @@ class DataInventoryDialog(QDialog):
                 if oldest is not None:
                     extra.append(f"oldest {oldest:%d/%m/%Y}")
                 lines.append(" · ".join(extra))
+        lines.append(
+            "<i>Right-click to remove the label</i>" if self._chart.has_label(name, day)
+            else "<i>Right-click to add a label</i>"
+        )
         return "<br>".join(lines)

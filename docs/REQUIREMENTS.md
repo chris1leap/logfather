@@ -71,6 +71,11 @@ Living record of agreed functionality: what is open, and what has shipped
   Total / Per pick / Per hour on on the first; hint, status, Last
   updated, Refresh and Zoom on the second. Every button is fixed to its
   text width so nothing is cut off, "(1 hidden)" included.
+- Data chart labels (Chris): right-click a bar segment for "Add label:
+  PikPakNNN" / "Remove label"; a labelled segment gets an accent tag
+  with the system name above its bar and a leader line down to it (tags
+  stack when a day has several); the hover text says which applies.
+  Labels are remembered per user.
 - Data chart order (Chris): Argus 1 systems first, then Argus 2, each in
   the usual customer order; generation read from which id field carries
   the bulk of a system's documents and kept in the local cache.

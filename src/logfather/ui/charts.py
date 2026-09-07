@@ -7,9 +7,9 @@ import time
 from datetime import date
 from typing import Callable
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
+from PySide6.QtWidgets import QMenu, QSizePolicy, QToolTip, QWidget
 
 from logfather.ui import theme
 
@@ -33,12 +33,18 @@ class StackedBarChart(QWidget):
     # the wheel pushes past either end so more days can be loaded.
     scroll_changed = Signal(int, int, int)  # offset, maximum, page
     edge_reached = Signal(str)  # "older" | "newer"
+    # Labels (Chris, 2026-09-07): a segment can carry a tag naming its
+    # system, added or removed from its right-click menu. Emits the whole
+    # set of (name, day) pairs whenever it changes, for the owner to keep.
+    labels_changed = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(320)
         self._min_slot = 0.0
         self._offset = 0.0
+        self._labels: set[tuple[str, date]] = set()
+        self._labels_enabled = False
         self._pending: set[date] = set()
         self._last_edge = 0.0
         self._last_scroll_state: tuple[int, int, int] | None = None
@@ -145,6 +151,75 @@ class StackedBarChart(QWidget):
 
     def set_detail_provider(self, fn: DetailFn | None) -> None:
         self._detail_fn = fn
+
+    def set_labels_enabled(self, enabled: bool) -> None:
+        self._labels_enabled = bool(enabled)
+
+    def set_labels(self, labels) -> None:
+        self._labels = {(str(n), d) for n, d in (labels or ()) if isinstance(d, date)}
+        self.update()
+
+    def labels(self) -> set[tuple[str, date]]:
+        return set(self._labels)
+
+    def has_label(self, name: str, day: date) -> bool:
+        return (name, day) in self._labels
+
+    def toggle_label(self, name: str, day: date) -> None:
+        key = (name, day)
+        if key in self._labels:
+            self._labels.discard(key)
+        else:
+            self._labels.add(key)
+        self.update()
+        self.labels_changed.emit(set(self._labels))
+
+    def contextMenuEvent(self, event):
+        if not self._labels_enabled:
+            super().contextMenuEvent(event)
+            return
+        pos = event.pos()
+        for rect, name, day in self._segments:
+            if rect.contains(pos):
+                menu = QMenu(self)
+                action = menu.addAction("Remove label" if self.has_label(name, day) else f"Add label: {name}")
+                action.triggered.connect(lambda _checked=False, n=name, d=day: self.toggle_label(n, d))
+                menu.exec(event.globalPos())
+                event.accept()
+                return
+        super().contextMenuEvent(event)
+
+    def _paint_labels(self, painter: QPainter, plot_top: float) -> None:
+        """A tag above each labelled segment's bar with a leader line down
+        to the segment; several labels on one day stack upwards."""
+        if not self._labels:
+            return
+        by_day: dict[date, list[tuple[QRectF, str]]] = {}
+        bar_top: dict[date, float] = {}
+        for rect, name, day in self._segments:
+            bar_top[day] = min(bar_top.get(day, rect.top()), rect.top())
+            if (name, day) in self._labels:
+                by_day.setdefault(day, []).append((rect, name))
+        font = QFont(self.font().family(), max(8, self.font().pointSize() - 2))
+        font.setBold(True)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        for day, items in by_day.items():
+            top = bar_top.get(day, plot_top)
+            for i, (rect, name) in enumerate(items):
+                w = metrics.horizontalAdvance(name) + 12
+                h = metrics.height() + 4
+                cx = rect.center().x()
+                y = top - 22 - i * (h + 4)
+                y = max(plot_top - 26, y)
+                tag = QRectF(cx - w / 2, y - h, w, h)
+                painter.setPen(QPen(QColor(theme.ACCENT)))
+                painter.drawLine(QPointF(cx, tag.bottom()), QPointF(cx, rect.center().y()))
+                painter.setBrush(QBrush(QColor(theme.ACCENT)))
+                painter.setPen(Qt.NoPen)
+                painter.drawRoundedRect(tag, 4, 4)
+                painter.setPen(QColor("#081018"))
+                painter.drawText(tag, Qt.AlignCenter, name)
 
     def set_click_handler(self, fn: Callable[[str, date], None] | None) -> None:
         self._click_fn = fn
@@ -293,6 +368,7 @@ class StackedBarChart(QWidget):
                     self._fmt(total),
                 )
         self._paint_day_axis(painter, origin, slot, plot_bottom, plot_left, plot_right)
+        self._paint_labels(painter, plot_top)
         painter.setClipping(False)
         painter.setPen(QPen(QColor(theme.BORDER_LIGHT)))
         painter.drawLine(plot_left, plot_bottom, plot_right, plot_bottom)
@@ -417,3 +493,4 @@ class StackedBarChart(QWidget):
                     day_heading(day) if slot >= 64 else f"{day:%a} {day.day}",
                 )
         self._paint_day_axis(painter, origin, slot, plot_bottom, visible_left, visible_right, months=False)
+        self._paint_labels(painter, plot_bottom - plot_h)
