@@ -24,6 +24,18 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Data window, Grafana (Chris, 2026-09-07): a third tile between Elastic
+  and CCTV with the telemetry retained in Grafana Cloud (13-month
+  retention, from the stack's own samples-per-second history), active
+  series, metric count and a last-14-days foot line; "Grafana samples"
+  and "Grafana size" chart views per system per day (a 30 s subquery over
+  count_over_time), click a bar to open the Actuators issues dashboard on
+  that system and day. Sizes are samples × 1.5 bytes and say "estimated".
+  A ? on the tile opens "What is stored in Grafana": every metric with a
+  system label, its family and meaning, series per generation; click a
+  metric for its series over the last day (min, average, max, latest).
+  `data/grafana_inventory.py`, `data/grafana_catalog.py`,
+  `ui/grafana_catalog_dialog.py`.
 - Telemetry tab in System Replay (Chris, 2026-09-07): choosing a system
   and day fetches that robot's day from Grafana Cloud's Prometheus (CPU,
   RCU, GPU and brake-resistor temperatures; per-motor temperature and

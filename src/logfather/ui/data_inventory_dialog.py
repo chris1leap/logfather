@@ -56,6 +56,9 @@ from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.chart_scroll import ChartScroller
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.elastic_catalog_dialog import ElasticCatalogDialog
+from logfather.ui.grafana_catalog_dialog import GrafanaCatalogDialog
+from logfather.data import grafana_client
+from logfather.data.grafana_inventory import GrafanaInventory, RETENTION_DAYS, fetch_grafana_inventory
 from logfather.ui.icons import question_block_icon
 from logfather.ui.pulse import Pulser
 from logfather.ui.qt_worker import JobSlot
@@ -71,6 +74,8 @@ EXTEND_DAYS = 7
 _METRICS = (
     ("elastic", "Elastic documents"),
     ("elastic_bytes", "Elastic size"),
+    ("grafana", "Grafana samples"),
+    ("grafana_bytes", "Grafana size"),
     ("clips", "CCTV clips"),
     ("bytes", "CCTV size"),
 )
@@ -111,8 +116,10 @@ class DataInventoryDialog(QDialog):
         self._parent_dir_provider = parent_dir_provider
         self._elastic: ElasticInventory | None = None
         self._cctv: CctvInventory | None = None
+        self._grafana: GrafanaInventory | None = None
         self._elastic_slot = JobSlot(self)
         self._cctv_slot = JobSlot(self)
+        self._grafana_slot = JobSlot(self)
         self._metric = "elastic"
         self._started = False
         # robot id -> system folder, once the CCTV scan names the folders.
@@ -147,26 +154,23 @@ class DataInventoryDialog(QDialog):
         tiles.setSpacing(12)
         # A big ? in the Elastic tile's corner opens the catalogue of what
         # Elastic stores (Chris, 2026-09-06).
-        self._help_btn = QToolButton()
-        self._help_btn.setIcon(question_block_icon(44))
-        self._help_btn.setIconSize(QSize(44, 44))
-        self._help_btn.setToolTip("What kinds of data are stored in Elastic")
-        self._help_btn.setFixedSize(48, 48)
-        self._help_btn.setCursor(Qt.PointingHandCursor)
-        self._help_btn.setStyleSheet(
-            "QToolButton { border: none; background: transparent; padding: 0; }"
-            f"QToolButton:hover {{ background: {theme.BG_HOVER}; border-radius: 6px; }}"
-        )
-        self._help_btn.clicked.connect(self._open_catalog)
+        self._help_btn = self._make_help_button("What kinds of data are stored in Elastic", self._open_catalog)
         self._catalog_dialog: ElasticCatalogDialog | None = None
+        # Grafana between Elastic and CCTV (Chris, 2026-09-07), with its
+        # own ? opening the metric catalogue.
+        self._grafana_help_btn = self._make_help_button("What is stored in Grafana", self._open_grafana_catalog)
+        self._grafana_catalog_dialog: GrafanaCatalogDialog | None = None
         self._elastic_tile, self._elastic_tile_value, self._elastic_tile_sub, self._elastic_tile_foot = self._make_tile("Elastic total")
+        self._grafana_tile, self._grafana_tile_value, self._grafana_tile_sub, self._grafana_tile_foot = self._make_tile("Grafana total")
         self._cctv_tile, self._cctv_tile_value, self._cctv_tile_sub, self._cctv_tile_foot = self._make_tile("CCTV total")
-        # The ? floats in the Elastic tile's corner, outside the layout, so
-        # both tiles keep identical spacing (Chris, 2026-09-07).
-        self._help_btn.setParent(self._elastic_tile)
-        self._help_btn.raise_()
-        self._elastic_tile.installEventFilter(self)
+        # The ? floats in the tile's corner, outside the layout, so all
+        # tiles keep identical spacing (Chris, 2026-09-07).
+        for btn, tile in ((self._help_btn, self._elastic_tile), (self._grafana_help_btn, self._grafana_tile)):
+            btn.setParent(tile)
+            btn.raise_()
+            tile.installEventFilter(self)
         tiles.addWidget(self._elastic_tile, 1)
+        tiles.addWidget(self._grafana_tile, 1)
         tiles.addWidget(self._cctv_tile, 1)
         layout.addLayout(tiles)
 
@@ -332,6 +336,20 @@ class DataInventoryDialog(QDialog):
         self._scroller.shift_prepended(len(self._pending))
         self.start(keep_view=True)
 
+    def _make_help_button(self, tip: str, handler) -> QToolButton:
+        btn = QToolButton()
+        btn.setIcon(question_block_icon(44))
+        btn.setIconSize(QSize(44, 44))
+        btn.setToolTip(tip)
+        btn.setFixedSize(48, 48)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(
+            "QToolButton { border: none; background: transparent; padding: 0; }"
+            f"QToolButton:hover {{ background: {theme.BG_HOVER}; border-radius: 6px; }}"
+        )
+        btn.clicked.connect(handler)
+        return btn
+
     @staticmethod
     def _make_tile(title: str):
         frame = QFrame()
@@ -365,9 +383,20 @@ class DataInventoryDialog(QDialog):
         return frame, value_label, sub_label, foot_label
 
     def eventFilter(self, obj, event):
-        if obj is self._elastic_tile and event.type() in (QEvent.Resize, QEvent.Show):
-            self._help_btn.move(self._elastic_tile.width() - self._help_btn.width() - 12, 10)
+        if event.type() in (QEvent.Resize, QEvent.Show):
+            if obj is self._elastic_tile:
+                self._help_btn.move(self._elastic_tile.width() - self._help_btn.width() - 12, 10)
+            elif obj is self._grafana_tile:
+                self._grafana_help_btn.move(self._grafana_tile.width() - self._grafana_help_btn.width() - 12, 10)
         return super().eventFilter(obj, event)
+
+    def _open_grafana_catalog(self) -> None:
+        if self._grafana_catalog_dialog is None:
+            self._grafana_catalog_dialog = GrafanaCatalogDialog(self._settings_provider, parent=self)
+        self._grafana_catalog_dialog.show()
+        self._grafana_catalog_dialog.raise_()
+        self._grafana_catalog_dialog.activateWindow()
+        self._grafana_catalog_dialog.start_if_needed()
 
     def _open_catalog(self) -> None:
         if self._catalog_dialog is None:
@@ -394,6 +423,7 @@ class DataInventoryDialog(QDialog):
         self._set_last_updated(cache_saved_at(cache))
         self._progress.show()
         self._start_cctv_scan()
+        self._start_grafana()
         self._on_any_finished()
 
     def start(self, keep_view: bool = False) -> None:
@@ -413,6 +443,44 @@ class DataInventoryDialog(QDialog):
             on_finished=self._on_any_finished,
         )
         self._start_cctv_scan()
+        self._start_grafana()
+
+    def _start_grafana(self) -> None:
+        settings = self._settings_provider()
+        if not grafana_client.is_configured(settings):
+            self._grafana_tile_value.setText("—")
+            self._grafana_tile_sub.setText("not set up")
+            self._grafana_tile_foot.setText("Gear menu, Data sources: add a Grafana token")
+            return
+        self._grafana_tile_foot.setText("Querying Grafana...")
+        span = self._days_span
+        self._grafana_slot.start(
+            lambda job: fetch_grafana_inventory(settings, span, progress=job.emit_progress),
+            on_result=self._on_grafana_result,
+            on_error=lambda m: self._grafana_tile_foot.setText(f"Failed: {m}"),
+            on_progress=self._on_progress,
+            on_finished=self._on_any_finished,
+        )
+
+    def _on_grafana_result(self, inventory: GrafanaInventory) -> None:
+        self._grafana = inventory
+        recent = set(inventory.days[-INVENTORY_DAYS:])
+        recent_samples = sum(n for per_day in inventory.samples.values() for day, n in per_day.items() if day in recent)
+        self._grafana_tile_foot.setText(f"Last {INVENTORY_DAYS} days: {format_count(recent_samples)} samples ≈ {format_bytes(inventory.bytes_for(recent_samples))}")
+        if inventory.retained_bytes is not None:
+            self._grafana_tile_value.setText(format_bytes(inventory.retained_bytes))
+            since = f"{inventory.retained_since:%d %b %Y}" if inventory.retained_since else f"{RETENTION_DAYS // 30} months"
+            bits = [f"since {since}", f"{format_count(inventory.retained_samples)} samples"]
+            if inventory.active_series:
+                bits.append(f"{inventory.active_series:,} active series")
+            if inventory.metric_count:
+                bits.append(f"{inventory.metric_count} metrics")
+            bits.append("estimated")
+            self._grafana_tile_sub.setText(" · ".join(bits))
+        else:
+            self._grafana_tile_value.setText("—")
+            self._grafana_tile_sub.setText("stack usage unavailable")
+        self._rebuild_views()
 
     def _on_elastic_fetched(self, inventory: ElasticInventory) -> None:
         self._on_elastic_result(inventory)
@@ -454,8 +522,11 @@ class DataInventoryDialog(QDialog):
     def shutdown(self) -> None:
         self._elastic_slot.shutdown()
         self._cctv_slot.shutdown()
+        self._grafana_slot.shutdown()
         if self._catalog_dialog is not None:
             self._catalog_dialog.shutdown()
+        if self._grafana_catalog_dialog is not None:
+            self._grafana_catalog_dialog.shutdown()
 
     def closeEvent(self, event):
         # Hide rather than destroy: reopening shows the last results.
@@ -468,7 +539,7 @@ class DataInventoryDialog(QDialog):
         self._status_label.setText(str(message or ""))
 
     def _on_any_finished(self) -> None:
-        if not self._elastic_slot.is_running() and not self._cctv_slot.is_running():
+        if not self._elastic_slot.is_running() and not self._cctv_slot.is_running() and not self._grafana_slot.is_running():
             self._progress.hide()
             self._status_label.setText("Done")
 
@@ -622,6 +693,17 @@ class DataInventoryDialog(QDialog):
         joined onto their folder; unknown robots keep their id)."""
         if self._metric in ("elastic", "elastic_bytes"):
             days, rows = self._elastic_rows(as_bytes=self._metric == "elastic_bytes")
+        elif self._metric in ("grafana", "grafana_bytes"):
+            days = inventory_days(datetime.now().date(), self._days_span)
+            rows = {}
+            if self._grafana is not None:
+                days = list(self._grafana.days)
+                factor = self._grafana.bytes_for(1.0) if self._metric == "grafana_bytes" else 1.0
+                for robot, per_day in self._grafana.samples.items():
+                    name = self._robot_to_system.get(robot, robot)
+                    target = rows.setdefault(name, {})
+                    for day, n in per_day.items():
+                        target[day] = target.get(day, 0.0) + n * factor
         else:
             days = inventory_days(datetime.now().date(), self._days_span)
             rows = {}
@@ -651,7 +733,7 @@ class DataInventoryDialog(QDialog):
 
     def _value_formatter(self) -> Callable[[float], str]:
         suffix = {"pick": "/pick", "hour": "/h"}.get(self._norm_mode(), "")
-        if self._metric in ("bytes", "elastic_bytes"):
+        if self._metric in ("bytes", "elastic_bytes", "grafana_bytes"):
             return lambda v: format_bytes(v) + suffix
         if self._metric == "clips":
             return (lambda v: f"{v:,.2f}{suffix}") if suffix else (lambda v: f"{int(round(v)):,}")
@@ -713,6 +795,8 @@ class DataInventoryDialog(QDialog):
         empty = {
             "elastic": "Elastic data not loaded",
             "elastic_bytes": "Elastic size unavailable",
+            "grafana": "Grafana data not loaded",
+            "grafana_bytes": "Grafana data not loaded",
             "clips": "CCTV data not loaded",
             "bytes": "CCTV data not loaded",
         }[self._metric]
@@ -726,7 +810,9 @@ class DataInventoryDialog(QDialog):
         # Elastic bars open Kibana Discover on that system and day
         # (Chris, 2026-09-05).
         self._chart.set_click_handler(
-            self._open_day_folder if self._metric in ("clips", "bytes") else self._open_in_kibana
+            self._open_day_folder if self._metric in ("clips", "bytes")
+            else self._open_in_grafana if self._metric in ("grafana", "grafana_bytes")
+            else self._open_in_kibana
         )
         legend_bits = [
             f'<span style="background-color:{colour.name()};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{name}'
@@ -758,6 +844,23 @@ class DataInventoryDialog(QDialog):
         try:
             webbrowser.open(url)
             self._status_label.setText(f"Opened Kibana for {name} on {day:%d/%m/%Y}")
+        except Exception as exc:
+            self._status_label.setText(f"Could not open the browser: {exc}")
+
+    def _open_in_grafana(self, name: str, day: date) -> None:
+        """The Actuators issues dashboard on that system and day."""
+        robot = self._system_to_robot(name)
+        if not robot:
+            self._status_label.setText(f"No robot id known for {name}")
+            return
+        settings = self._settings_provider()
+        start = datetime(day.year, day.month, day.day).astimezone()
+        from_ms = int(start.timestamp() * 1000)
+        to_ms = from_ms + 86_400_000 - 1
+        url = f"{grafana_client.base_url(settings)}/d/ge98whx/actuators-issues?from={from_ms}&to={to_ms}&var-SystemId={robot}"
+        try:
+            webbrowser.open(url)
+            self._status_label.setText(f"Opened Grafana for {name} on {day:%d/%m/%Y}")
         except Exception as exc:
             self._status_label.setText(f"Could not open the browser: {exc}")
 
@@ -807,7 +910,19 @@ class DataInventoryDialog(QDialog):
                 lines.append(f"{minutes // 60}h {minutes % 60:02d}m on · {per} per hour")
             if docs:
                 lines.append("<i>Click to open these documents in Kibana</i>")
-        cctv = None if showing_elastic else self._cctv
+        if self._metric in ("grafana", "grafana_bytes") and self._grafana is not None:
+            samples = 0
+            for robot, per_day in self._grafana.samples.items():
+                if self._robot_to_system.get(robot, robot) == name:
+                    samples += int(per_day.get(day, 0))
+            lines.append(f"Grafana: {format_count(samples)} samples ≈ {format_bytes(self._grafana.bytes_for(samples))} (est.)")
+            robot = self._robot_for(name)
+            series = self._grafana.series_now.get(robot or "")
+            if series:
+                lines.append(f"{series:,} series reporting today")
+            if samples:
+                lines.append("<i>Click to open this day in Grafana</i>")
+        cctv = self._cctv if self._metric in ("clips", "bytes") else None
         if cctv is not None and name in cctv.clips:
             clips = int(cctv.clips[name].get(day, 0))
             est = int(cctv.est_bytes.get(name, {}).get(day, 0))
