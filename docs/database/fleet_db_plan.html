@@ -1,0 +1,532 @@
+<title>PikPak Fleet Database Plan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f5f6f3; --bg-2: #eceee9; --panel: #ffffff; --ink: #1b2430; --ink-2: #4a5563; --ink-3: #7b8592;
+    --rule: #d6dad3; --accent: #1f6f8b; --accent-ink: #145a72; --accent-bg: #e3eff3;
+    --ok: #2f8f5b; --warn: #c98a1a; --mono-bg: #e9ecf1;
+    --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1418; --bg-2: #161c22; --panel: #1a2128; --ink: #e6eaee; --ink-2: #aab3bd; --ink-3: #7d8792;
+      --rule: #2b343d; --accent: #5fb3d3; --accent-ink: #8ccbe3; --accent-bg: #16303a; --ok: #5cc98b; --warn: #e2a53a; --mono-bg: #242c35;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1418; --bg-2: #161c22; --panel: #1a2128; --ink: #e6eaee; --ink-2: #aab3bd; --ink-3: #7d8792;
+    --rule: #2b343d; --accent: #5fb3d3; --accent-ink: #8ccbe3; --accent-bg: #16303a; --ok: #5cc98b; --warn: #e2a53a; --mono-bg: #242c35;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.55; margin: 0; }
+  main { max-width: 1080px; margin: 0 auto; padding: 40px 28px 80px; }
+  h1, h2, h3, h4 { font-family: var(--font-display); text-wrap: balance; line-height: 1.1; margin: 0; }
+  h1 { font-size: 44px; font-weight: 700; letter-spacing: -0.01em; }
+  h2 { font-size: 27px; font-weight: 600; margin-top: 60px; padding-top: 18px; border-top: 2px solid var(--ink); }
+  h3 { font-size: 19px; font-weight: 600; margin-top: 30px; }
+  h4 { font-size: 16px; font-weight: 600; margin-top: 18px; color: var(--ink-2); }
+  p { max-width: 70ch; margin: 12px 0; }
+  ul, ol { max-width: 72ch; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .lede { font-size: 19px; color: var(--ink-2); max-width: 64ch; margin-top: 14px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+  code { font-family: var(--font-mono); font-size: 0.88em; background: var(--mono-bg); padding: 1px 6px; border-radius: 3px; }
+  pre { font-family: var(--font-mono); font-size: 13.5px; background: var(--mono-bg); padding: 14px 16px; border-radius: 4px; overflow-x: auto; line-height: 1.45; }
+  .decision { border-left: 4px solid var(--accent); background: var(--panel); padding: 14px 20px; margin: 22px 0; max-width: 80ch; }
+  .decision p { margin: 6px 0; }
+  .toc { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 22px 0 0; font-size: 14.5px; }
+  .toc a, a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+  .diagram { background: var(--panel); border: 1px solid var(--rule); padding: 18px; overflow-x: auto; margin: 16px 0; }
+  pre.mermaid { margin: 0; background: transparent; padding: 0; font-family: var(--font-body); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  .tablewrap { overflow-x: auto; margin: 14px 0; }
+  th { text-align: left; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--ink); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td.k { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+  .ticket { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 16px; margin: 10px 0; }
+  .ticket .id { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent-ink); }
+  .ticket .t { font-weight: 600; }
+  .ticket .meta { font-size: 13px; color: var(--ink-3); margin-top: 2px; }
+  .ticket ul { margin: 6px 0 0; font-size: 14.5px; }
+  .epic { margin-top: 26px; }
+  .cost { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 16px 0; }
+  .cost div { background: var(--panel); border: 1px solid var(--rule); padding: 12px 14px; }
+  .cost .n { font-family: var(--font-display); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .cost .l { font-size: 13.5px; color: var(--ink-2); }
+  .note { color: var(--ink-2); font-size: 14px; }
+  footer { margin-top: 70px; color: var(--ink-3); font-size: 13.5px; border-top: 1px solid var(--rule); padding-top: 14px; }
+  @media (max-width: 640px) { h1 { font-size: 34px; } main { padding: 26px 16px 60px; } }
+</style>
+
+<main>
+  <div class="eyebrow">Plan · Leap / PikPak · drafted 7 Sep 2026 · engine decided: PostgreSQL</div>
+  <h1>PikPak Fleet Database Plan</h1>
+  <p class="lede">Replacing the spreadsheets with one company database in Azure that holds the fleet, its customers, SKUs, trays, maintenance, issues and root causes, what was packed each day, and the telemetry (temperatures, currents) in the same database; trackable to the row, and backs itself up.</p>
+  <nav class="toc" aria-label="Sections">
+    <a href="#shape">How the system works</a>
+    <a href="#engine">The engine</a>
+    <a href="#keys">Keys and conventions</a>
+    <a href="#schema">The tables</a>
+    <a href="#ddl">DDL sketch</a>
+    <a href="#tickets">Epics and tickets</a>
+    <a href="#trial">Hands-on trial</a>
+    <a href="#telemetry">Telemetry</a>
+    <a href="#cost">Cost and timeline</a>
+  </nav>
+
+  <h2 id="shape">How the system works</h2>
+  <p>Three layers, each replaceable on its own.</p>
+  <ol>
+    <li><strong>One database, the source of truth.</strong> Azure Database for PostgreSQL holds every record: the relational tables, JSON where a record is naturally a document (a SKU's recipe, a run's counters), and the time series through the TimescaleDB extension. Spreadsheets become read-only views of it, never the other way round.</li>
+    <li><strong>One entry app.</strong> A small internal web app for adding and editing records, with sign-in through the company Microsoft account, roles, and a full change history on every row. Phase one is a generated admin interface, not bespoke screens.</li>
+    <li><strong>Consumers.</strong> Excel and Power BI read from views with a read-only login. Grafana reads the telemetry tables directly. The Logfather reads customers, lines, systems and SKUs from the database instead of its settings file, writes what each system packed each day into it, and can raise an issue from the Errors / Stops window with the system and day filled in.</li>
+  </ol>
+  <div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  classDef box fill:#e3eff3,stroke:#1f6f8b,color:#1b2430
+  classDef src fill:#e9ecf1,stroke:#7b8592,color:#1b2430
+  X[Existing spreadsheets]:::src -->|one-off import + reconciliation| DB[(Azure Database for PostgreSQL<br/>tables + JSON + TimescaleDB time series<br/>PITR backups, weekly dumps to Blob)]:::box
+  SENS[Robot telemetry<br/>temperatures, currents, pressures]:::src -->|stream or batch| DB
+  APP[Entry app<br/>Django admin on App Service<br/>Microsoft sign-in, roles]:::box <--> DB
+  BLOB[(Blob Storage<br/>photos, clips, PDFs, dumps)]:::box --- APP
+  DB --> XL[Excel / Power BI<br/>read-only views]:::src
+  DB --> GF[Grafana<br/>dashboards]:::src
+  DB <--> LF[The Logfather<br/>master data in, production + software history out]:::src
+  ES[(Elastic + CCTV share)]:::src -.->|references by time window| LF
+</pre>
+  </div>
+  <p><strong>What "trackable" means here.</strong> Every table carries who created and last changed a row and when, and the entry app writes a history row for every change on the core tables, so "what did this system's line assignment look like on 3 March" is a single query. Nothing is ever hard-deleted; rows are retired with an end date.</p>
+  <p><strong>What "easy to back up" means here.</strong> The managed service takes automatic backups with point-in-time restore for up to 35 days, optionally copied to a second region. For years-long retention a weekly logical dump goes to Blob Storage with a lifecycle rule, which is one small scheduled job. A restore drill is a ticket, not an afterthought.</p>
+
+  <h2 id="engine">The engine</h2>
+  <div class="decision">
+    <p><strong>Decided: Azure Database for PostgreSQL Flexible Server, with the TimescaleDB extension, one database for everything.</strong></p>
+    <p>Relational tables for the fleet, JSONB columns where a record is naturally a document, and TimescaleDB hypertables for the telemetry, all under one backup, one sign-in and one connection string. Django speaks PostgreSQL natively, Grafana has a first-class PostgreSQL data source, and Excel and Power BI connect through the PostgreSQL connector.</p>
+    <p>What we give up against Azure SQL: built-in temporal tables (row history comes from the app layer instead), the Excel "SQL Server" connector everyone has seen before (the PostgreSQL one needs a one-time driver install), and built-in long-term backup retention (a weekly dump job covers it). What we gain: no second store for telemetry, no cross-store joins, no KQL, and a smaller bill.</p>
+  </div>
+  <p>Not recommended: Dataverse or SharePoint lists (licensing per user, weak relational model, hard to query from outside), a separate NoSQL store (this is relational data with many-to-one links everywhere), or a separate time-series service now that Timescale lives inside the same database.</p>
+
+  <h2 id="keys">Keys and conventions</h2>
+  <ul>
+    <li><strong>Surrogate primary keys everywhere:</strong> <code>&lt;table&gt;_id</code>, <code>bigint generated always as identity</code>. Serial numbers, tray numbers and SKU codes are human identifiers that get retyped, reissued and occasionally corrected, so they must not be what foreign keys point at.</li>
+    <li><strong>Natural keys as unique constraints:</strong> <code>system.serial_number</code> (with <code>display_name</code> "PikPak 007" unique too, but only ever a label), <code>tray.unique_number</code>, <code>sku.code</code>, <code>(package_id, software_release.git_commit)</code>. Duplicates are rejected at the database, not by convention.</li>
+    <li><strong>Human references</strong> on things people talk about: <code>ISS-0001</code>, <code>MNT-0001</code>, <code>RC-0001</code>, generated from the id and shown everywhere. They are labels, not keys.</li>
+    <li><strong>History as date ranges, not overwrites.</strong> Where a system is, which component is fitted, which software runs: each is a row with <code>from</code> and <code>to</code> dates. The current state is the row whose <code>to</code> is null, and only one such row is allowed per subject (partial unique index).</li>
+    <li><strong>Lookups are tables, not free text.</strong> Statuses, severities, event types, component types and issue categories are small tables, so a report can group by them and a new value is a row, not a code change.</li>
+    <li><strong>Audit columns on every table:</strong> <code>created_at</code>, <code>created_by</code>, <code>updated_at</code>, <code>updated_by</code>; plus a history table per core entity written by the app on every change (django-simple-history), giving the same "as of" queries a temporal table would.</li>
+    <li><strong>Time series are hypertables.</strong> Wide rows keyed by time, system and component, partitioned by time automatically, compressed after 30 days, kept for years.</li>
+    <li><strong>Names:</strong> singular snake_case table names, UTC timestamps (<code>timestamptz</code>), a <code>notes</code> column where people will inevitably want one.</li>
+  </ul>
+
+  <h2 id="schema">The tables</h2>
+  <p>Eight areas, each a box below, left to right; the eighth holds the telemetry itself, in the same database. An arrow means "belongs to": it points from the many side to the one it hangs off. The <code>system</code> table is the hub; every other area attaches to it or to <code>customer</code>.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Area</th><th>Tables</th><th>What it answers</th></tr></thead>
+    <tbody>
+      <tr><td>1 · Customers and people</td><td class="k">customer, site, site_contact, production_line, person</td><td>Who our customers are, where their sites and lines are, who to call.</td></tr>
+      <tr><td>2 · Fleet</td><td class="k">system, system_deployment, component_type, component, system_component</td><td>Every PikPak, where it is and was, what is fitted in it.</td></tr>
+      <tr><td>3 · Products and trays</td><td class="k">sku, sku_attachment, tray</td><td>Every product line, its pictures, and the tray it is packed in. A SKU is the same wherever it is packed, so it belongs to no one customer.</td></tr>
+      <tr><td>4 · Maintenance</td><td class="k">maintenance_event, maintenance_action, maintenance_schedule</td><td>What was done to each system, by whom, and what is due.</td></tr>
+      <tr><td>5 · Issues and root causes</td><td class="k">issue, root_cause, issue_attachment, issue_maintenance</td><td>What went wrong, why, and what fixed it.</td></tr>
+      <tr><td>6 · Software</td><td class="k">software_package, software_release, system_software</td><td>Which release each system runs and which are approved.</td></tr>
+      <tr><td>7 · Production</td><td class="k">production_run, production_day</td><td>Which SKU went into which tray on which system on which day, and how many. Fed from Elastic, not typed.</td></tr>
+      <tr><td>8 · Telemetry</td><td class="k">telemetry (hypertable), telemetry_day</td><td>Every temperature, current and pressure reading, and the daily summary per component that issues and maintenance planning use.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  classDef t fill:#e3eff3,stroke:#1f6f8b,color:#1b2430
+  classDef hub fill:#1f6f8b,stroke:#145a72,color:#ffffff,font-weight:bold
+
+  subgraph A["1 · Customers and people"]
+    direction TB
+    customer --> site --> production_line
+    person --> site_contact --> site
+  end
+  subgraph B["2 · Fleet"]
+    direction TB
+    system_deployment --> system
+    component_type --> component --> system_component --> system
+  end
+  subgraph C["3 · Products and trays"]
+    direction TB
+    sku_attachment --> sku --> tray
+  end
+  subgraph D["4 · Maintenance"]
+    direction TB
+    maintenance_action --> maintenance_event
+    maintenance_schedule
+  end
+  subgraph E["5 · Issues and root causes"]
+    direction TB
+    issue_attachment --> issue --> root_cause
+    issue_maintenance
+  end
+  subgraph F["6 · Software"]
+    direction TB
+    software_package --> software_release --> system_software
+  end
+  subgraph G["7 · Production"]
+    direction TB
+    production_run --> production_day
+  end
+  subgraph H["8 · Telemetry"]
+    direction TB
+    telemetry --> telemetry_day
+  end
+
+  A ~~~ B ~~~ C ~~~ D ~~~ E ~~~ F ~~~ G ~~~ H
+  production_line --> system_deployment
+  customer --> tray
+  system --> maintenance_event
+  system --> issue
+  system --> system_software
+  system --> production_day
+  sku --> production_day
+  system_component --> telemetry_day
+  person --> maintenance_event
+  issue_maintenance --> issue
+  issue_maintenance --> maintenance_event
+  tray -.-> issue
+
+  class customer,site,site_contact,production_line,person,system_deployment,component_type,component,system_component,sku,sku_attachment,tray,maintenance_event,maintenance_action,maintenance_schedule,issue,root_cause,issue_attachment,issue_maintenance,software_package,software_release,system_software,production_run,production_day,telemetry,telemetry_day t
+  class system hub
+</pre>
+  </div>
+  <p class="note">Dashed: optional link (an issue may involve a tray). The two arrows out of <code>issue_maintenance</code> make it the join table between issues and the maintenance that fixed them.</p>
+
+  <h3>Fleet and customers</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Primary key</th><th>Unique / natural key</th><th>Columns worth naming</th></tr></thead>
+    <tbody>
+      <tr><td class="k">customer</td><td class="k">customer_id</td><td class="k">name</td><td>short_code (EVG, LWS), status, account owner (person_id), notes</td></tr>
+      <tr><td class="k">site</td><td class="k">site_id</td><td class="k">(customer_id, name)</td><td>address, timezone, notes</td></tr>
+      <tr><td class="k">site_contact</td><td class="k">site_contact_id</td><td class="k">(site_id, person_id, role)</td><td>The customer's people at a site: person_id (a person row with organisation = customer), role (production manager, maintenance lead, IT, quality, commercial), is_primary, phone / email overrides if they differ from the person record, active_from, active_to. A person can hold roles at several sites; a site can list many contacts.</td></tr>
+      <tr><td class="k">production_line</td><td class="k">line_id</td><td class="k">(site_id, name)</td><td>name ("Line 6"), description, shift pattern</td></tr>
+      <tr><td class="k">system</td><td class="k">system_id</td><td class="k">serial_number ("35-2300-007"), display_name ("PikPak 007"), folder_name ("PikPak007")</td><td>The serial number is the identity; display_name is what every screen and report shows; folder_name is the CCTV share folder, kept separate so a rename never breaks the footage path. Plus generation (Argus 1 / 2), build_date, status_id (in build, FAT, installed, workshop, decommissioned), notes</td></tr>
+      <tr><td class="k">system_deployment</td><td class="k">deployment_id</td><td>one open row per system</td><td>system_id, line_id, installed_on, removed_on, reason. Answers "where was PikPak 007 in March".</td></tr>
+      <tr><td class="k">component_type</td><td class="k">component_type_id</td><td class="k">name</td><td>servo, drive, camera, PSU, IO card, PC, gripper, conveyor motor...</td></tr>
+      <tr><td class="k">component</td><td class="k">component_id</td><td class="k">serial_number (nullable), part_number</td><td>component_type_id, supplier, purchased_on, warranty_until, status</td></tr>
+      <tr><td class="k">system_component</td><td class="k">system_component_id</td><td>one open row per (system, position)</td><td>system_id, component_id, position ("servo 2", "pick camera"), fitted_on, removed_on, maintenance_event_id that fitted it. The telemetry joins to this row, so a reading is attributed to the exact servo that was in that slot at the time.</td></tr>
+      <tr><td class="k">person</td><td class="k">person_id</td><td class="k">email</td><td>name, phone, organisation (own / customer / contractor), customer_id when they belong to a customer, job title, active. Used by site_contact, maintenance_event.performed_by and issue.reported_by alike.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Products and trays</h3>
+  <p>No separate tray-type table: most trays are unique with subtle differences, so a shared design record would be one row per tray anyway. A SKU points at the tray it is packed in. No recipe-version table either: a SKU never changes once defined and is the same for every customer that packs it, so the SKU row is the whole definition and the code alone identifies it.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Primary key</th><th>Unique / natural key</th><th>Columns worth naming</th></tr></thead>
+    <tbody>
+      <tr><td class="k">tray</td><td class="k">tray_id</td><td class="k">unique_number</td><td>Each tray is its own design with subtle differences, so the design lives on the tray itself: dimensions, cavity layout, material, supplier, drawing reference; plus customer_id, site_id, status (in service, damaged, retired), commissioned_on, retired_on. A damaged tray is not a separate log: it is an issue with the tray linked, and the root cause says why.</td></tr>
+      <tr><td class="k">sku</td><td class="k">sku_id</td><td class="k">code</td><td>code as logged in Elastic ("EVG_picc…"), description, product dimensions and weight, products per pick, tray_id (the tray it is packed in), config (jsonb, the recipe), status. Not owned by a customer. The code matches the <code>sku.name</code> field in Elastic so runs can be joined.</td></tr>
+      <tr><td class="k">sku_attachment</td><td class="k">attachment_id</td><td></td><td>sku_id, kind (photo, drawing, spec sheet), blob_url, caption, sort_order, uploaded_by. One SKU can carry several pictures; files live in Blob Storage like issue attachments.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Maintenance</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Primary key</th><th>Unique / natural key</th><th>Columns worth naming</th></tr></thead>
+    <tbody>
+      <tr><td class="k">maintenance_event</td><td class="k">event_id</td><td class="k">reference (MNT-0001)</td><td>system_id, event_type_id (planned service, breakdown, part replacement, software update, calibration, inspection, FAT), started_at, ended_at, downtime_minutes, performed_by (person_id), summary, external ticket</td></tr>
+      <tr><td class="k">maintenance_action</td><td class="k">action_id</td><td></td><td>event_id, description, component removed (component_id), component fitted (component_id), labour_hours, parts cost</td></tr>
+      <tr><td class="k">maintenance_schedule</td><td class="k">schedule_id</td><td class="k">(system_id, task)</td><td>task, interval (days or picks), last done, next due. Optional in phase one; it is what turns the table into a planner.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Issues and root causes</h3>
+  <p>Kept deliberately simple for now: a root cause is an entry in a catalogue with its own number, and an issue points at one. No workflow states, no analysis records; those can be added later without changing what is here.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Primary key</th><th>Unique / natural key</th><th>Columns worth naming</th></tr></thead>
+    <tbody>
+      <tr><td class="k">root_cause</td><td class="k">root_cause_id</td><td class="k">reference (RC-0001), name</td><td>The catalogue of every known root cause: name ("Vacuum solenoid stuck"), description, category_id (mechanical, electrical, software, operator, product, tray, environment), active. Grows as new causes are found; never deleted, only retired.</td></tr>
+      <tr><td class="k">issue</td><td class="k">issue_id</td><td class="k">reference (ISS-0001)</td><td>system_id (nullable for site-level), site_id, tray_id (nullable: the tray involved, e.g. a damaged one), reported_at, reported_by, title, description, severity_id, root_cause_id (nullable until the cause is known), grafana_url (the dashboard and time window), jira_key, notes</td></tr>
+      <tr><td class="k">issue_attachment</td><td class="k">attachment_id</td><td></td><td>issue_id, kind (photo, clip, log export, document), blob_url, caption, uploaded_by</td></tr>
+      <tr><td class="k">issue_maintenance</td><td class="k">(issue_id, event_id)</td><td></td><td>links an issue to the maintenance that fixed it</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Software</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Primary key</th><th>Unique / natural key</th><th>Columns worth naming</th></tr></thead>
+    <tbody>
+      <tr><td class="k">software_package</td><td class="k">package_id</td><td class="k">name</td><td>argus, planner, targeting, actuators, sensors, infeed, crate_change, behaviour, and firmware packages</td></tr>
+      <tr><td class="k">software_release</td><td class="k">release_id</td><td class="k">(package_id, git_commit)</td><td>version, branch, released_on, approved, release notes. This is where "which commits are approved for the fleet" lives.</td></tr>
+      <tr><td class="k">system_software</td><td class="k">system_software_id</td><td>one open row per (system, package)</td><td>system_id, package_id, release_id, installed_at, removed_at, source (manual / Elastic). The Logfather's Software window already computes this from Elastic and can write it here.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Production</h3>
+  <p>What was actually packed. Nobody types this: the Logfather already reads runs, SKUs and the pick-and-place counters from Elastic and writes them here nightly, so the database can answer "how many of SKU X did PikPak 012 pack last Tuesday, and in which tray" without a query against Elastic.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Primary key</th><th>Unique / natural key</th><th>Columns worth naming</th></tr></thead>
+    <tbody>
+      <tr><td class="k">production_run</td><td class="k">run_id</td><td class="k">elastic_run_id</td><td>system_id, sku_id, tray_id (from the SKU's tray unless overridden), started_at, ended_at, products_packed, trays_packed, products_seen, products_rejected, pick_movements, counters (jsonb, the raw Pick-n-place update), source (Elastic / manual). One row per run as the behaviour node starts and stops it (Argus 2 has run ids; Argus 1 runs are cut at SKU changes).</td></tr>
+      <tr><td class="k">production_day</td><td class="k">production_day_id</td><td class="k">(system_id, day, sku_id, tray_id)</td><td>The daily roll-up of the runs: products_packed, trays_packed, products_rejected, pick_movements, run_count, minutes_running, minutes_on. This is the table reports and Excel use; runs are the detail behind it.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="telemetry">Telemetry</h3>
+  <p>Raw readings and their daily summary live in the same database as everything else, joined to the fleet tables by plain foreign keys. The raw table is a TimescaleDB hypertable: it looks like an ordinary table but is partitioned by time behind the scenes, compresses chunks older than 30 days, and drops chunks past the retention we set.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Table</th><th>Key</th><th>Columns worth naming</th></tr></thead>
+    <tbody>
+      <tr><td class="k">telemetry</td><td class="k">(time, system_id, position, metric)</td><td>time (timestamptz), system_id, position ("servo 2", "brake resistor", "PSU 48V"), metric (temperature, current, voltage, pressure, vacuum), value (double), unit, source (Grafana backend, Elastic, robot). Hypertable on time; compression after 30 days; retention 5 years. Indexed on (system_id, position, metric, time desc) so a Grafana panel for one servo is instant.</td></tr>
+      <tr><td class="k">telemetry_day</td><td class="k">(system_id, position, metric, day)</td><td>system_component_id (the fitting in place that day), min_value, avg_value, max_value, minutes_above_threshold, threshold_used, sample_count. A Timescale continuous aggregate refreshed nightly; the table issues and maintenance planning read.</td></tr>
+      <tr><td class="k">telemetry_threshold</td><td class="k">(component_type_id, metric)</td><td>warning and alarm levels per component type and metric, so "minutes above threshold" changes with a row edit, not a code change.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Lookups</h3>
+  <p>Each is <code>(id, code, label, sort_order, active)</code>: <code>system_status</code>, <code>component_status</code>, <code>tray_status</code>, <code>event_type</code>, <code>issue_category</code> (shared by root causes), <code>issue_severity</code>, <code>organisation_kind</code>.</p>
+
+  <h3>Views for Excel, Power BI and Grafana</h3>
+  <ul>
+    <li><code>v_fleet_current</code>: every system with its customer, site, line and status today.</li>
+    <li><code>v_site_contacts</code>: each site's contacts with role, phone and email, primary first.</li>
+    <li><code>v_system_components_current</code>: what is fitted where, with serial numbers.</li>
+    <li><code>v_maintenance_log</code>: events with system, customer, type, downtime, technician.</li>
+    <li><code>v_issue_register</code>: issues with their root cause and linked maintenance.</li>
+    <li><code>v_software_current</code>: the release each system runs per package, with approved flag.</li>
+    <li><code>v_production_day</code>: per system per day per SKU, with customer, line and tray names, ready for a pivot table.</li>
+    <li><code>v_telemetry_day</code>: per component per day per metric, with the component serial and its system's customer and line.</li>
+    <li><code>v_telemetry_labelled</code>: raw readings joined to display_name, customer and the fitted component; the view Grafana dashboards select from.</li>
+  </ul>
+
+  <h2 id="ddl">DDL sketch</h2>
+  <p>The shape of the core, to make the conventions concrete. The full migration set is a ticket.</p>
+<pre>CREATE TABLE system (
+  system_id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  serial_number text NOT NULL UNIQUE,     -- 35-2300-007, the identity
+  display_name  text NOT NULL UNIQUE,     -- PikPak 007, what people see
+  folder_name   text NOT NULL UNIQUE,     -- PikPak007, the CCTV share folder
+  generation    text NOT NULL,            -- Argus 1 / Argus 2
+  status_id     int  NOT NULL REFERENCES system_status(status_id),
+  build_date    date,
+  notes         text,
+  created_at timestamptz NOT NULL DEFAULT now(), created_by text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(), updated_by text NOT NULL
+);
+-- row history: one table per core entity, written by the app on every change
+
+CREATE TABLE system_deployment (
+  deployment_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  system_id     bigint NOT NULL REFERENCES system(system_id),
+  line_id       bigint NOT NULL REFERENCES production_line(line_id),
+  installed_on  date NOT NULL,
+  removed_on    date,
+  reason        text
+);
+-- only one current placement per system
+CREATE UNIQUE INDEX ux_deployment_current ON system_deployment(system_id) WHERE removed_on IS NULL;
+
+CREATE TABLE root_cause (
+  root_cause_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  reference     text GENERATED ALWAYS AS ('RC-' || lpad(root_cause_id::text, 4, '0')) STORED UNIQUE,
+  name          text NOT NULL UNIQUE,
+  description   text,
+  category_id   int NOT NULL REFERENCES issue_category(category_id),
+  active        boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE issue (
+  issue_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  reference     text GENERATED ALWAYS AS ('ISS-' || lpad(issue_id::text, 4, '0')) STORED UNIQUE,
+  system_id     bigint REFERENCES system(system_id),
+  tray_id       bigint REFERENCES tray(tray_id),          -- a damaged tray is an issue
+  site_id       bigint NOT NULL REFERENCES site(site_id),
+  reported_at   timestamptz NOT NULL,
+  reported_by   bigint NOT NULL REFERENCES person(person_id),
+  title         text NOT NULL,
+  description   text,
+  severity_id   int NOT NULL REFERENCES issue_severity(severity_id),
+  root_cause_id bigint REFERENCES root_cause(root_cause_id),  -- null until known
+  grafana_url   text,
+  jira_key      text,
+  notes         text
+);
+
+-- telemetry: an ordinary table turned into a hypertable
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE TABLE telemetry (
+  time      timestamptz NOT NULL,
+  system_id bigint NOT NULL REFERENCES system(system_id),
+  position  text NOT NULL,       -- servo 2, brake resistor, PSU 48V
+  metric    text NOT NULL,       -- temperature, current, voltage, pressure, vacuum
+  value     double precision NOT NULL,
+  unit      text,
+  source    text
+);
+SELECT create_hypertable('telemetry', 'time');
+CREATE INDEX ON telemetry (system_id, position, metric, time DESC);
+ALTER TABLE telemetry SET (timescaledb.compress, timescaledb.compress_segmentby = 'system_id, position, metric');
+SELECT add_compression_policy('telemetry', INTERVAL '30 days');
+SELECT add_retention_policy('telemetry', INTERVAL '5 years');</pre>
+
+  <h2 id="tickets">Epics and tickets</h2>
+  <p>Ten epics, fifty-five tickets, in dependency order. Epic 0.5 is the hands-on trial: nobody here has used a managed PostgreSQL yet, so it comes before any infrastructure is written. Epic 8 (telemetry) runs after Epic 4 and can overlap Epic 7. Estimates are working days for one person and assume the Logfather-style loop: small change, test, ship. Every ticket has acceptance criteria so it can be closed without discussion.</p>
+
+  <div class="epic"><h3>Epic 0 · Discovery and decisions (1 week)</h3>
+    <div class="ticket"><div class="id">DB-001</div><div class="t">Inventory every spreadsheet</div><div class="meta">2 days · owner: Chris</div><ul><li>List each workbook and sheet, its owner, row count, update frequency, and which entity it holds.</li><li>Flag columns that are free text but mean a lookup (status, category).</li><li>Output: a one-page inventory in the repo under docs/database/.</li></ul></div>
+    <div class="ticket"><div class="id">DB-002</div><div class="t">Name the data owners and the roles</div><div class="meta">1 day</div><ul><li>Who may create systems, close issues, approve releases; who is read-only.</li><li>Output: a roles table (admin, engineer, service, viewer) with permissions per entity.</li></ul></div>
+    <div class="ticket"><div class="id">DB-003</div><div class="t">Decision record: hosting</div><div class="meta">1 day</div><ul><li>Engine is decided (PostgreSQL Flexible Server with TimescaleDB). Record it, plus App Service vs Container Apps, region (UK South), subscription and resource group naming.</li><li>Output: a short ADR in the repo.</li></ul></div>
+    <div class="ticket"><div class="id">DB-004</div><div class="t">Agree identifiers</div><div class="meta">1 day</div><ul><li>Confirm serial-number format, tray numbering, SKU code source (Elastic's sku name), and the ISS / MNT / RC reference scheme.</li><li>Output: the Keys and conventions section signed off.</li></ul></div>
+  </div>
+
+  <div class="epic" id="trial"><h3>Epic 0.5 · Hands-on trial of Azure Database for PostgreSQL (2 to 3 days)</h3>
+    <p>Nobody on the team has used the managed PostgreSQL yet, so before any infrastructure code exists, build the smallest possible version by hand, put real PikPak rows in it, add a few telemetry readings to a hypertable, read it all back from every tool we care about, and break and restore it. Everything created here is thrown away at the end; the point is confidence and a written note of what was awkward.</p>
+    <div class="ticket"><div class="id">DB-005</div><div class="t">Create a trial server in the portal</div><div class="meta">0.5 day · owner: Chris</div><ul><li>Azure portal: Create a resource, Azure Database for PostgreSQL, Flexible Server. Resource group <code>rg-fleet-trial</code>, server <code>pg-fleet-trial</code> in UK South, PostgreSQL 16, Burstable B1ms, 32 GB, authentication "Microsoft Entra only" with yourself as admin, locally redundant backup for the trial.</li><li>Networking: Public access, add your client IP. Server parameters: add <code>timescaledb</code> to <code>azure.extensions</code> and <code>shared_preload_libraries</code>, then restart.</li><li>Acceptance: the server shows Ready and <code>SELECT version();</code> runs in the portal's Databases blade or Cloud Shell.</li></ul></div>
+    <div class="ticket"><div class="id">DB-006</div><div class="t">Connect from a desktop tool</div><div class="meta">0.5 day</div><ul><li>Install pgAdmin (free) or Azure Data Studio with its PostgreSQL extension. Connect to <code>pg-fleet-trial.postgres.database.azure.com</code>, database <code>fleet_trial</code>, SSL required, with an Entra token as the password (<code>az account get-access-token --resource-type oss-rdbms</code>).</li><li>Run the trial script below: it creates two fleet tables and a telemetry hypertable, inserts four real systems, one placement and some readings, and shows a summary query.</li><li>Acceptance: the SELECTs return the rows; the last INSERT is refused.</li></ul></div>
+    <div class="ticket"><div class="id">DB-007</div><div class="t">Read it from Excel, Grafana and Python</div><div class="meta">0.5 day</div><ul><li>Excel: install the PostgreSQL ODBC driver (psqlODBC) once; Data, Get Data, From Database, From PostgreSQL Database; server and database as above; pick the <code>system</code> table.</li><li>Grafana: add a PostgreSQL data source pointing at the trial, with TimescaleDB enabled; graph <code>telemetry</code> for servo 2.</li><li>Python: <code>pip install psycopg[binary]</code>; the snippet below prints the fleet. This is the path the Logfather will use.</li><li>Acceptance: all three show the same rows; note anything that took more than ten minutes.</li></ul></div>
+    <div class="ticket"><div class="id">DB-008</div><div class="t">Break it and restore it</div><div class="meta">0.5 day</div><ul><li>Delete a system row and note the time. In the portal, server blade, Restore: choose a point in time a minute earlier, restore to a new server <code>pg-fleet-trial-restored</code>. Connect and confirm the row is back.</li><li>Also run <code>pg_dump</code> to a file and restore it into an empty database, which is the weekly long-term backup path.</li><li>Acceptance: both restores succeed; the steps are written into docs/database/trial-notes.md.</li></ul></div>
+    <div class="ticket"><div class="id">DB-009</div><div class="t">Tear down and note</div><div class="meta">0.5 day</div><ul><li>Delete <code>rg-fleet-trial</code> (everything goes with it) and check the cost page shows pennies.</li><li>Write three lines in the ADR from DB-003: what was easy, what was awkward, anything that changes the plan.</li></ul></div>
+    <h4>Trial script for DB-006</h4>
+<pre>CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+CREATE TABLE system (
+  system_id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  serial_number text NOT NULL UNIQUE,   -- the identity
+  display_name  text NOT NULL UNIQUE,   -- PikPak 007
+  folder_name   text NOT NULL UNIQUE,   -- CCTV share folder
+  generation    text NOT NULL,
+  notes         text
+);
+
+CREATE TABLE system_deployment (
+  deployment_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  system_id     bigint NOT NULL REFERENCES system(system_id),
+  customer      text NOT NULL,   -- a real line table comes in DB-022
+  line_name     text NOT NULL,
+  installed_on  date NOT NULL,
+  removed_on    date
+);
+CREATE UNIQUE INDEX ux_deployment_current ON system_deployment(system_id) WHERE removed_on IS NULL;
+
+INSERT INTO system (serial_number, display_name, folder_name, generation) VALUES
+  ('35-2300-006', 'PikPak 006', 'PikPak006', 'Argus 2'),
+  ('35-2300-007', 'PikPak 007', 'PikPak007', 'Argus 2'),
+  ('35-2300-010', 'PikPak 010', 'PikPak010', 'Argus 1'),
+  ('35-2300-012', 'PikPak 012', 'PikPak012', 'Argus 1');
+
+INSERT INTO system_deployment (system_id, customer, line_name, installed_on)
+SELECT system_id, 'EVG', 'Line 6', '2026-03-24' FROM system WHERE serial_number = '35-2300-006';
+
+-- The fleet as it stands
+SELECT s.serial_number, s.display_name, s.generation, d.customer, d.line_name, d.installed_on
+FROM system s LEFT JOIN system_deployment d ON d.system_id = s.system_id AND d.removed_on IS NULL
+ORDER BY s.serial_number;
+
+-- Telemetry: a hypertable with an hour of fake servo temperatures
+CREATE TABLE telemetry (
+  time timestamptz NOT NULL, system_id bigint NOT NULL REFERENCES system(system_id),
+  position text NOT NULL, metric text NOT NULL, value double precision NOT NULL, unit text
+);
+SELECT create_hypertable('telemetry', 'time');
+INSERT INTO telemetry
+SELECT now() - (n || ' seconds')::interval, s.system_id, 'servo 2', 'temperature', 40 + 5 * sin(n / 300.0), 'C'
+FROM generate_series(0, 3600, 10) n, system s WHERE s.serial_number = '35-2300-007';
+
+-- Five-minute maxima, the shape of the daily summary
+SELECT time_bucket('5 minutes', time) AS bucket, max(value) AS max_c
+FROM telemetry GROUP BY bucket ORDER BY bucket DESC LIMIT 6;
+
+-- A second current placement for the same system is refused
+INSERT INTO system_deployment (system_id, customer, line_name, installed_on)
+SELECT system_id, 'EVG', 'Line 7', '2026-09-07' FROM system WHERE serial_number = '35-2300-006';</pre>
+    <h4>Python check for DB-007</h4>
+<pre>import subprocess, psycopg
+token = subprocess.check_output(
+    ["az", "account", "get-access-token", "--resource-type", "oss-rdbms", "--query", "accessToken", "-o", "tsv"],
+    text=True).strip()
+with psycopg.connect(host="pg-fleet-trial.postgres.database.azure.com", dbname="fleet_trial",
+                     user="you@company.com", password=token, sslmode="require") as conn:
+    for row in conn.execute("SELECT serial_number, display_name, generation FROM system ORDER BY 1"):
+        print(*row)</pre>
+  </div>
+
+  <div class="epic"><h3>Epic 1 · Azure foundation (1 week)</h3>
+    <div class="ticket"><div class="id">DB-010</div><div class="t">Resource group and infrastructure as code</div><div class="meta">2 days</div><ul><li>Bicep templates for resource group, PostgreSQL Flexible Server, storage account, Key Vault, App Service plan, Log Analytics.</li><li>Two environments: dev and prod, parameterised.</li><li>Acceptance: <code>az deployment</code> from a clean subscription produces both environments.</li></ul></div>
+    <div class="ticket"><div class="id">DB-011</div><div class="t">PostgreSQL server with backups and Timescale</div><div class="meta">1 day</div><ul><li>Flexible Server, PostgreSQL 16, Burstable B2s for prod (B1ms dev), 64 GB with auto-grow, <code>timescaledb</code> enabled, zone-redundant HA off for now.</li><li>Automatic backups with point-in-time restore 35 days, geo-redundant backup storage on; a weekly <code>pg_dump</code> to Blob with a lifecycle rule keeping monthly copies for 7 years.</li><li>Acceptance: a point-in-time restore to a new server succeeds and is documented; a dump restores into an empty database.</li></ul></div>
+    <div class="ticket"><div class="id">DB-012</div><div class="t">Sign-in and secrets</div><div class="meta">1 day</div><ul><li>Entra authentication on the server; an Entra group per role mapped to PostgreSQL roles; no shared passwords.</li><li>App identity (managed identity) for the entry app and the sync jobs; Key Vault for anything that must be a secret.</li><li>Acceptance: a viewer can query views from Excel and Grafana with their Microsoft login and nothing else.</li></ul></div>
+    <div class="ticket"><div class="id">DB-013</div><div class="t">Network and cost guard rails</div><div class="meta">1 day</div><ul><li>Firewall to office IPs plus Azure services; private endpoint later if needed.</li><li>Budget alert at £100 / month; Log Analytics retention 30 days.</li></ul></div>
+    <div class="ticket"><div class="id">DB-014</div><div class="t">Blob storage for attachments and dumps</div><div class="meta">0.5 day</div><ul><li>Containers per kind (photos, clips, documents, dumps), private access via SAS from the app, lifecycle rules to cool tier after 90 days.</li></ul></div>
+  </div>
+
+  <div class="epic"><h3>Epic 2 · Schema v1 (1.5 weeks)</h3>
+    <div class="ticket"><div class="id">DB-020</div><div class="t">Migration tooling</div><div class="meta">1 day</div><ul><li>Django models as the single definition; migrations generate the DDL; a CI job applies them to dev on every merge.</li></ul></div>
+    <div class="ticket"><div class="id">DB-021</div><div class="t">Lookup tables and seed data</div><div class="meta">1 day</div><ul><li>All lookups from the Lookups section, seeded from the spreadsheet inventory's real values.</li></ul></div>
+    <div class="ticket"><div class="id">DB-022</div><div class="t">Fleet and customer tables</div><div class="meta">1 day</div><ul><li>customer, site, site_contact, production_line, system, system_deployment, person, with the partial unique index for current placement.</li></ul></div>
+    <div class="ticket"><div class="id">DB-023</div><div class="t">Components</div><div class="meta">1 day</div><ul><li>component_type, component, system_component with fitted / removed history.</li></ul></div>
+    <div class="ticket"><div class="id">DB-024</div><div class="t">Products and trays</div><div class="meta">1 day</div><ul><li>tray (design on the tray itself), sku, sku_attachment.</li></ul></div>
+    <div class="ticket"><div class="id">DB-025</div><div class="t">Maintenance</div><div class="meta">1 day</div><ul><li>maintenance_event, maintenance_action, maintenance_schedule; MNT reference.</li></ul></div>
+    <div class="ticket"><div class="id">DB-026</div><div class="t">Issues and root causes</div><div class="meta">1 day</div><ul><li>root_cause catalogue, issue, issue_attachment, issue_maintenance; ISS and RC references; the catalogue seeded from the causes already named in the spreadsheets.</li></ul></div>
+    <div class="ticket"><div class="id">DB-027</div><div class="t">Software</div><div class="meta">0.5 day</div><ul><li>software_package, software_release, system_software.</li></ul></div>
+    <div class="ticket"><div class="id">DB-027a</div><div class="t">Production</div><div class="meta">0.5 day</div><ul><li>production_run, production_day, with the unique key on (system, day, sku, tray) and the daily view.</li></ul></div>
+    <div class="ticket"><div class="id">DB-028</div><div class="t">Row history and audit columns</div><div class="meta">1 day</div><ul><li>django-simple-history on system, system_deployment, sku, tray, issue, root_cause, maintenance_event, software_release; audit columns everywhere.</li><li>Acceptance: after an edit, the history shows the previous version with who and when, and "as of" a date returns it.</li></ul></div>
+    <div class="ticket"><div class="id">DB-029</div><div class="t">Reporting views</div><div class="meta">1 day</div><ul><li>The views above, granted to the viewer role only.</li></ul></div>
+  </div>
+
+  <div class="epic"><h3>Epic 3 · Data migration (1.5 weeks)</h3>
+    <div class="ticket"><div class="id">DB-030</div><div class="t">Column mapping per sheet</div><div class="meta">2 days</div><ul><li>For every sheet from DB-001: source column to target table.column, transformation, lookup mapping, what to do with blanks.</li></ul></div>
+    <div class="ticket"><div class="id">DB-031</div><div class="t">Import scripts with validation</div><div class="meta">3 days</div><ul><li>Python (pandas + psycopg) importers, idempotent, producing a validation report: rows imported, rejected and why (unknown customer, duplicate serial, bad date).</li><li>Acceptance: a dry run rejects nothing unexpected; every rejection has an owner.</li></ul></div>
+    <div class="ticket"><div class="id">DB-032</div><div class="t">Reconciliation</div><div class="meta">1 day</div><ul><li>Counts and spot checks per entity against the spreadsheets, signed off by each data owner.</li></ul></div>
+    <div class="ticket"><div class="id">DB-033</div><div class="t">Backfill from Elastic</div><div class="meta">2 days</div><ul><li>Systems, generations and SKU codes seen in Elastic; software_release and system_software history from the Logfather's software history module.</li></ul></div>
+  </div>
+
+  <div class="epic"><h3>Epic 4 · Entry app (2.5 weeks)</h3>
+    <div class="ticket"><div class="id">DB-040</div><div class="t">App skeleton</div><div class="meta">2 days</div><ul><li>Django on App Service (Linux, B1), psycopg, Entra sign-in, managed identity to PostgreSQL, health endpoint, CI deploy from main.</li></ul></div>
+    <div class="ticket"><div class="id">DB-041</div><div class="t">Admin screens: fleet</div><div class="meta">2 days</div><ul><li>Customers, sites with their contacts inline, lines, systems, deployments, components, people; inline history per record; search by serial.</li></ul></div>
+    <div class="ticket"><div class="id">DB-042</div><div class="t">Admin screens: products and trays</div><div class="meta">1 day</div><ul><li>SKUs with their pictures inline (upload to Blob, thumbnails in the list); trays with bulk import of a number range.</li></ul></div>
+    <div class="ticket"><div class="id">DB-043</div><div class="t">Admin screens: maintenance</div><div class="meta">2 days</div><ul><li>Event with actions inline, component swap picker that closes the old fitting and opens the new one, downtime auto-calculated.</li></ul></div>
+    <div class="ticket"><div class="id">DB-044</div><div class="t">Admin screens: issues and root causes</div><div class="meta">2 days</div><ul><li>Issue form with attachments to Blob, root cause chosen from the catalogue (with "add a new cause" inline), link to maintenance; a root cause list screen with issue counts per cause.</li></ul></div>
+    <div class="ticket"><div class="id">DB-045</div><div class="t">Roles and permissions</div><div class="meta">1 day</div><ul><li>Entra groups map to Django groups from DB-002; viewers see, engineers edit, admins approve releases and edit the root cause catalogue.</li></ul></div>
+    <div class="ticket"><div class="id">DB-046</div><div class="t">Read-only JSON API</div><div class="meta">1 day</div><ul><li>Endpoints for fleet, SKUs and lookups with a token, for the Logfather and future tools.</li></ul></div>
+  </div>
+
+  <div class="epic"><h3>Epic 5 · Excel and Power BI (0.5 week)</h3>
+    <div class="ticket"><div class="id">DB-050</div><div class="t">Excel templates</div><div class="meta">1 day</div><ul><li>Power Query workbooks on the views through the PostgreSQL connector, one per old spreadsheet, refresh-on-open; a one-page "install the driver" note.</li></ul></div>
+    <div class="ticket"><div class="id">DB-051</div><div class="t">Power BI fleet dashboard</div><div class="meta">2 days</div><ul><li>Fleet map by customer, open issues by severity, maintenance downtime per system per month, software approval coverage.</li></ul></div>
+  </div>
+
+  <div class="epic"><h3>Epic 6 · Logfather integration (1.5 weeks)</h3>
+    <div class="ticket"><div class="id">DB-060</div><div class="t">Master data from the database</div><div class="meta">2 days</div><ul><li>Customers, lines and system names come from the API (cached locally with a fallback), replacing the settings-file mapping; the Software window reads approved releases and flags unapproved commits.</li></ul></div>
+    <div class="ticket"><div class="id">DB-061</div><div class="t">Raise an issue from Errors / Stops</div><div class="meta">2 days</div><ul><li>Right-click a bar: "Raise issue" pre-fills the system, site, date, a link to the CCTV folder in the notes and the Grafana URL for that day.</li></ul></div>
+    <div class="ticket"><div class="id">DB-063</div><div class="t">Production sync from Elastic</div><div class="meta">3 days</div><ul><li>Nightly job (the Logfather's data module, run headless): runs from the behaviour node's start / stop states and run ids, SKU from the run's sku name, counts from the "Pick-n-place update" counters and pick movements, written to production_run and rolled up into production_day; idempotent per day so a re-run corrects rather than duplicates.</li><li>Back-fill from Elastic's retention (since March 2022) in monthly chunks.</li><li>Acceptance: a day's products_packed matches the Overview's figure for that system to within 1%.</li></ul></div>
+    <div class="ticket"><div class="id">DB-062</div><div class="t">Software history sync</div><div class="meta">1 day</div><ul><li>The Software window's spans are written to system_software nightly (source = Elastic), so the database knows what every system runs without anyone typing it.</li></ul></div>
+  </div>
+
+  <div class="epic"><h3>Epic 8 · Telemetry (2 weeks, after Epic 4)</h3>
+    <p>Starts once the fleet tables are live, because every reading is keyed to a system and, through the summary, to the component fitted at the time. Independent of the spreadsheet cutover, so it can slip without holding Epic 7 up.</p>
+    <div class="ticket"><div class="id">DB-080</div><div class="t">Where does Grafana read from today?</div><div class="meta">1 day · owner: Chris</div><ul><li>Name the backend (Prometheus, InfluxDB, Elastic, something on the robot), its retention, how far back data still exists, and the metric names and units per component.</li><li>Output: a metrics inventory, the telemetry counterpart of DB-001.</li></ul></div>
+    <div class="ticket"><div class="id">DB-081</div><div class="t">Hypertable, compression and retention</div><div class="meta">1 day</div><ul><li>The <code>telemetry</code> table from the DDL sketch as a hypertable; compression after 30 days; retention 5 years; the <code>telemetry_threshold</code> table seeded from DB-080.</li><li>Acceptance: a year of synthetic readings for one servo queries in under a second for a day and under five for a month.</li></ul></div>
+    <div class="ticket"><div class="id">DB-082</div><div class="t">Ingestion</div><div class="meta">3 days</div><ul><li>From the DB-080 backend into <code>telemetry</code>: a small always-on collector on the App Service plan if the source can be polled or subscribed to, otherwise a scheduled export and batch <code>COPY</code>. Batches of rows, never one insert per reading.</li><li>Back-fill as far as the backend still has; note where the history starts.</li><li>Acceptance: last week's readings for PikPak 007's servo temperatures match Grafana's existing graph.</li></ul></div>
+    <div class="ticket"><div class="id">DB-083</div><div class="t">Labelled view for Grafana</div><div class="meta">1 day</div><ul><li><code>v_telemetry_labelled</code> joining readings to display_name, customer, line and the component fitted at the reading's time (from system_component's date range).</li></ul></div>
+    <div class="ticket"><div class="id">DB-084</div><div class="t">Grafana on the database</div><div class="meta">2 days</div><ul><li>PostgreSQL data source with TimescaleDB enabled; re-point the existing dashboards; add customer / line / component-serial variables; keep the old source until the history is confirmed.</li></ul></div>
+    <div class="ticket"><div class="id">DB-085</div><div class="t">Daily summaries</div><div class="meta">2 days</div><ul><li><code>telemetry_day</code> as a Timescale continuous aggregate refreshed nightly: min, avg, max, minutes above the threshold per component per metric, attributed to the system_component in place that day.</li><li>Acceptance: the summary for a known hot day matches the raw data.</li></ul></div>
+    <div class="ticket"><div class="id">DB-086</div><div class="t">Telemetry on issues</div><div class="meta">1 day</div><ul><li>An issue's Grafana URL opens the dashboard at the right window; the issue screen shows that day's telemetry_day rows for the system underneath the description.</li></ul></div>
+  </div>
+
+  <div class="epic"><h3>Epic 7 · Operations and cutover (1 week)</h3>
+    <div class="ticket"><div class="id">DB-070</div><div class="t">Restore drill and runbook</div><div class="meta">1 day</div><ul><li>Restore prod to a point in time onto a scratch server, verify, delete; restore last week's dump into an empty database; document the steps and who can do them.</li></ul></div>
+    <div class="ticket"><div class="id">DB-071</div><div class="t">Monitoring and alerts</div><div class="meta">0.5 day</div><ul><li>App health, failed sign-ins, CPU and storage, backup failures, dump job failures, budget.</li></ul></div>
+    <div class="ticket"><div class="id">DB-072</div><div class="t">Training and parallel run</div><div class="meta">2 days over 2 weeks</div><ul><li>Two weeks where the database is primary and the spreadsheets are frozen read-only; issues found go on this epic.</li></ul></div>
+    <div class="ticket"><div class="id">DB-073</div><div class="t">Retire the spreadsheets</div><div class="meta">0.5 day</div><ul><li>Archive the workbooks, replace them with the Excel templates from DB-050, announce.</li></ul></div>
+  </div>
+
+  <h2 id="cost">Cost and timeline</h2>
+  <div class="cost">
+    <div><div class="n">£15–45</div><div class="l">per month: PostgreSQL Flexible Server, Burstable B1ms dev / B2s prod, 64 GB, backups included</div></div>
+    <div><div class="n">£12</div><div class="l">per month: App Service B1 for the entry app and the sync jobs</div></div>
+    <div><div class="n">£2–8</div><div class="l">per month: Blob storage incl. weekly dumps, Key Vault, Log Analytics</div></div>
+    <div><div class="n">+£10–40</div><div class="l">per month once telemetry lands: storage growth and a step up to a General Purpose D2 tier if ingest needs it</div></div>
+    <div><div class="n">~13 weeks</div><div class="l">one person, epics in order incl. the trial, production sync and telemetry; Epics 5, 6 and 8 can overlap</div></div>
+  </div>
+  <p>Everything together stays around £100 a month, which is the budget alert in DB-013. The largest cost is people, not Azure.</p>
+  <p><strong>Order of value.</strong> After Epic 2 and the fleet part of Epic 3, the database already answers the questions the spreadsheets cannot: where each system is and was, what is fitted in it, and what it runs. Issues and the root cause catalogue (DB-026, DB-044) are the next most valuable and the most used day to day. Production and telemetry follow, fed by jobs rather than typing.</p>
+  <p><strong>Risks.</strong> Spreadsheet data that does not reconcile (DB-032 exists for this). Two sources of truth during the parallel run (freeze the spreadsheets). Entra group management landing with nobody (name an owner in DB-002). Telemetry volume outgrowing the burstable tier (watch CPU in DB-071; the step up is a portal change, not a migration). The temptation to build bespoke screens before the generated admin has been used for a month (resist it).</p>
+
+  <footer>Drafted 7 Sep 2026 from the Logfather work and what Elastic shows about the fleet (system ids, SKU names, packages, run ids). Engine decision the same day: Azure Database for PostgreSQL with TimescaleDB, one database for records and telemetry. Estimates are working days for one engineer and will move once DB-001 has counted the rows.</footer>
+</main>
