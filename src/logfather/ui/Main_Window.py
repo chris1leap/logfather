@@ -36,7 +36,7 @@ from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
 from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import funnel_icon
-from logfather.ui.icons import zoom_glyph_icon
+from logfather.ui.icons import calendar_icon, zoom_glyph_icon
 from logfather.ui.Time_Picker import (
     TimePicker,
     TimelineItem,
@@ -206,6 +206,9 @@ class MainWindow(QWidget):
         self.choose_system_btn.clicked.connect(self._show_system_menu)
         self.choose_date_btn = QToolButton()
         self.choose_date_btn.setText("Choose date")
+        self.choose_date_btn.setIcon(calendar_icon())
+        self.choose_date_btn.setIconSize(QSize(18, 18))
+        self.choose_date_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.choose_date_btn.setToolTip("Pick the day to look at")
         self.choose_date_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.choose_date_btn.setEnabled(False)
