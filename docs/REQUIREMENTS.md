@@ -67,6 +67,10 @@ Living record of agreed functionality: what is open, and what has shipped
   five); hover shows picks, running time and both per-unit figures. Picks come from "Picking products"
   (Argus 2) and "Successfully planned pick" (Argus 1) and are cached
   with the counts.
+- Data window controls on two rows (Chris): Systems, Show metrics and
+  Total / Per pick / Per hour running on the first; hint, status, Last
+  updated, Refresh and Zoom on the second. Every button is fixed to its
+  text width so nothing is cut off, "(1 hidden)" included.
 - Data chart order (Chris): Argus 1 systems first, then Argus 2, each in
   the usual customer order; generation read from which id field carries
   the bulk of a system's documents and kept in the local cache.

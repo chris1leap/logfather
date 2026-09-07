@@ -210,26 +210,30 @@ class DataInventoryDialog(QDialog):
             self._norm_buttons[key] = btn
             controls.addWidget(btn)
         self._norm_buttons["total"].setChecked(True)
-        controls.addSpacing(16)
-        self._days_label = QLabel("hover a bar for details · click a CCTV bar to open its folder")
-        self._days_label.setStyleSheet(theme.MUTED_LABEL)
-        controls.addWidget(self._days_label)
         controls.addStretch(1)
+        # Second row (Chris, 2026-09-07: one row squeezed the buttons until
+        # their text was cut off): hint, status, Last updated, Refresh, Zoom.
+        controls2 = QHBoxLayout()
+        controls2.setContentsMargins(0, 0, 0, 0)
+        self._days_label = QLabel("hover a bar for details · click a bar to open it")
+        self._days_label.setStyleSheet(theme.MUTED_LABEL)
+        controls2.addWidget(self._days_label)
+        controls2.addStretch(1)
         self._status_label = QLabel("")
         self._status_label.setStyleSheet(theme.MUTED_LABEL)
-        controls.addWidget(self._status_label)
+        controls2.addWidget(self._status_label)
         self._progress = QProgressBar()
         self._progress.setFixedWidth(140)
         self._progress.setFixedHeight(8)
         self._progress.setTextVisible(False)
         self._progress.setRange(0, 0)
         self._progress.hide()
-        controls.addWidget(self._progress)
+        controls2.addWidget(self._progress)
         # Last-updated stamp beside Refresh; the button pulses when the
         # figures are not from today (Chris, 2026-09-05).
         self._updated_label = QLabel("")
         self._updated_label.setStyleSheet(theme.MUTED_LABEL)
-        controls.addWidget(self._updated_label)
+        controls2.addWidget(self._updated_label)
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.clicked.connect(self.start)
         self._refresh_btn.setStyleSheet(
@@ -239,7 +243,7 @@ class DataInventoryDialog(QDialog):
         self._pulse_timer = QTimer(self)
         self._pulse_timer.setInterval(650)
         self._pulse_timer.timeout.connect(self._pulse_tick)
-        controls.addWidget(self._refresh_btn)
+        controls2.addWidget(self._refresh_btn)
         # The 14-day section - filter, metric toggle, key and chart - sits
         # in one framed box (Chris, 2026-09-05).
         summary_box = QGroupBox(f"{INVENTORY_DAYS} day summary")
@@ -253,6 +257,7 @@ class DataInventoryDialog(QDialog):
         box_layout = QVBoxLayout(summary_box)
         box_layout.setSpacing(8)
         box_layout.addLayout(controls)
+        box_layout.addLayout(controls2)
 
         self._legend = QLabel("")
         self._legend.setWordWrap(True)
@@ -277,10 +282,16 @@ class DataInventoryDialog(QDialog):
         zoom_label.setStyleSheet(theme.MUTED_LABEL)
         self._zoom_out_btn = self._scroller.zoom_button("minus", "Fewer pixels per day: more days on screen", -1)
         self._zoom_in_btn = self._scroller.zoom_button("plus", "More pixels per day: fewer days on screen", +1)
-        controls.insertSpacing(controls.indexOf(self._refresh_btn) + 1, 12)
-        controls.insertWidget(controls.indexOf(self._refresh_btn) + 2, zoom_label)
-        controls.insertWidget(controls.indexOf(self._refresh_btn) + 3, self._zoom_out_btn)
-        controls.insertWidget(controls.indexOf(self._refresh_btn) + 4, self._zoom_in_btn)
+        controls2.addSpacing(12)
+        controls2.addWidget(zoom_label)
+        controls2.addWidget(self._zoom_out_btn)
+        controls2.addWidget(self._zoom_in_btn)
+        # No button in either row may shrink below its text.
+        for row in (controls, controls2):
+            for i in range(row.count()):
+                w = row.itemAt(i).widget()
+                if isinstance(w, (QPushButton, QToolButton)):
+                    w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
     def _on_edge(self, direction: str) -> None:
         """Past the oldest day: load seven more (the newest day is today,
