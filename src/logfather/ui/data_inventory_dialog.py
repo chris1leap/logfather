@@ -191,6 +191,25 @@ class DataInventoryDialog(QDialog):
             self._metric_buttons[key] = btn
             controls.addWidget(btn)
         self._metric_buttons["elastic"].setChecked(True)
+        controls.addSpacing(10)
+        # Normalise (Chris, 2026-09-07): the data volume follows the picks
+        # and the hours run, so per pick / per hour show what differs.
+        self._norm_group = QButtonGroup(self)
+        self._norm_group.setExclusive(True)
+        self._norm_buttons: dict[str, QPushButton] = {}
+        for key, label, tip in (
+            ("total", "Total", "Each day's whole figure"),
+            ("pick", "Per pick", "Divided by that system's pick movements that day"),
+            ("hour", "Per hour running", "Divided by the hours that system was picking that day (five-minute slots with a pick)"),
+        ):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _checked=False: self._rebuild_views())
+            self._norm_group.addButton(btn)
+            self._norm_buttons[key] = btn
+            controls.addWidget(btn)
+        self._norm_buttons["total"].setChecked(True)
         controls.addSpacing(16)
         self._days_label = QLabel("hover a bar for details · click a CCTV bar to open its folder")
         self._days_label.setStyleSheet(theme.MUTED_LABEL)
@@ -613,14 +632,62 @@ class DataInventoryDialog(QDialog):
         return generation_rank(self._elastic.generation.get(robot or ""))
 
     def _value_formatter(self) -> Callable[[float], str]:
+        suffix = {"pick": "/pick", "hour": "/h"}.get(self._norm_mode(), "")
         if self._metric in ("bytes", "elastic_bytes"):
-            return lambda v: format_bytes(v)
+            return lambda v: format_bytes(v) + suffix
         if self._metric == "clips":
-            return lambda v: f"{int(round(v)):,}"
-        return lambda v: format_count(v)
+            return (lambda v: f"{v:,.2f}{suffix}") if suffix else (lambda v: f"{int(round(v)):,}")
+        return (lambda v: f"{v:,.0f}{suffix}") if suffix else (lambda v: format_count(v))
+
+    def _norm_mode(self) -> str:
+        for key, btn in self._norm_buttons.items():
+            if btn.isChecked():
+                return key
+        return "total"
+
+    def _robot_for(self, name: str) -> str | None:
+        robot = name if name.startswith("35-2300-") else robot_id_from_folder(name)
+        if not robot:
+            for r, system in self._robot_to_system.items():
+                if system == name:
+                    robot = r
+        return robot
+
+    def _running_minutes_for(self, name: str, day: date) -> int:
+        if self._elastic is None:
+            return 0
+        return int(self._elastic.running.get(self._robot_for(name) or "", {}).get(day, 0))
+
+    def _picks_for(self, name: str, day: date) -> int:
+        """Pick movements for a system (folder or robot id) on a day."""
+        if self._elastic is None:
+            return 0
+        robot = name if name.startswith("35-2300-") else robot_id_from_folder(name)
+        if not robot:
+            for r, system in self._robot_to_system.items():
+                if system == name:
+                    robot = r
+        return int(self._elastic.picks.get(robot or "", {}).get(day, 0))
+
+    def _normalise(self, rows: list[tuple[str, dict[date, float]]], mode: str) -> list[tuple[str, dict[date, float]]]:
+        out = []
+        for name, values in rows:
+            scaled = {}
+            for day, value in values.items():
+                if mode == "pick":
+                    divisor = float(self._picks_for(name, day))
+                else:
+                    divisor = self._running_minutes_for(name, day) / 60.0
+                if divisor > 0:
+                    scaled[day] = value / divisor
+            out.append((name, scaled))
+        return out
 
     def _rebuild_views(self) -> None:
         days, rows = self._row_names_and_values()
+        mode = self._norm_mode()
+        if mode != "total":
+            rows = self._normalise(rows, mode)
         fmt = self._value_formatter()
         series = [
             (name, _series_colour(i), values) for i, (name, values) in enumerate(rows)
@@ -707,6 +774,19 @@ class DataInventoryDialog(QDialog):
             if est_bytes and docs:
                 line += f" ≈ {format_bytes(est_bytes)} (avg {factor_used:.0f} B/doc)"
             lines.append(line)
+            picks = self._picks_for(name, day)
+            if picks:
+                per = f"{docs / picks:,.0f} documents"
+                if est_bytes:
+                    per += f" ≈ {format_bytes(est_bytes / picks)}"
+                lines.append(f"{picks:,} picks · {per} per pick")
+            minutes = self._running_minutes_for(name, day)
+            if minutes:
+                hours = minutes / 60.0
+                per = f"{docs / hours:,.0f} documents"
+                if est_bytes:
+                    per += f" ≈ {format_bytes(est_bytes / hours)}"
+                lines.append(f"{minutes // 60}h {minutes % 60:02d}m running · {per} per hour")
             if docs:
                 lines.append("<i>Click to open these documents in Kibana</i>")
         cctv = None if showing_elastic else self._cctv
@@ -714,6 +794,12 @@ class DataInventoryDialog(QDialog):
             clips = int(cctv.clips[name].get(day, 0))
             est = int(cctv.est_bytes.get(name, {}).get(day, 0))
             lines.append(f"CCTV: {clips:,} clips ≈ {format_bytes(est)} (est.)")
+            picks = self._picks_for(name, day)
+            if picks and est:
+                lines.append(f"{picks:,} picks · {format_bytes(est / picks)} per pick")
+            minutes = self._running_minutes_for(name, day)
+            if minutes and est:
+                lines.append(f"{minutes // 60}h {minutes % 60:02d}m running · {format_bytes(est / (minutes / 60.0))} per hour")
             lines.append("<i>Click to open this day's folder</i>")
             oldest = cctv.oldest_day.get(name)
             folders = cctv.day_folders.get(name)

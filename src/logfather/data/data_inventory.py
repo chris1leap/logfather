@@ -81,6 +81,13 @@ class ElasticInventory:
     # robot -> "Argus 1" / "Argus 2", from which id field carries the bulk
     # of its documents (Chris, 2026-09-07: Argus 1 systems listed first).
     generation: dict[str, str] = field(default_factory=dict)
+    # robot -> day -> pick movements ("Picking products" on Argus 2,
+    # "Successfully planned pick" on Argus 1), so the chart can be shown
+    # per pick (Chris, 2026-09-07).
+    picks: dict[str, dict[date, int]] = field(default_factory=dict)
+    # robot -> day -> minutes running: five-minute slots with at least one
+    # pick, times five (Chris, 2026-09-07: chart per hour running).
+    running: dict[str, dict[date, int]] = field(default_factory=dict)
 
     def bytes_factor(self, robot: str) -> float:
         value = self.bytes_per_doc_by_robot.get(robot)
@@ -136,9 +143,10 @@ def save_inventory_cache(cache: dict, path: Path | None = None) -> bool:
         return False
 
 
-def cached_day_counts(cache: dict | None, days: list[date]) -> tuple[dict[str, dict[date, int]], set[date]]:
+def cached_day_counts(cache: dict | None, days: list[date], key: str = "counts") -> tuple[dict[str, dict[date, int]], set[date]]:
     """(robot -> day -> docs, the days of `days` the cache holds complete).
-    A day is complete when it was counted on a later day."""
+    A day is complete when it was counted on a later day. `key` picks the
+    map: "counts" (documents) or "picks" (pick movements)."""
     if not cache:
         return {}, set()
     complete: set[date] = set()
@@ -149,7 +157,7 @@ def cached_day_counts(cache: dict | None, days: list[date]) -> tuple[dict[str, d
             continue
     wanted = complete & set(days)
     counts: dict[str, dict[date, int]] = {}
-    for robot, per_day in (cache.get("counts") or {}).items():
+    for robot, per_day in (cache.get(key) or {}).items():
         if not isinstance(per_day, dict):
             continue
         for raw, n in per_day.items():
@@ -160,6 +168,53 @@ def cached_day_counts(cache: dict | None, days: list[date]) -> tuple[dict[str, d
             if day in wanted:
                 counts.setdefault(str(robot), {})[day] = int(n or 0)
     return counts, wanted
+
+
+RUNNING_SLOT_MINUTES = 5
+
+
+def parse_running(slot_buckets: list, days: list[date], sub_aggs: tuple[str, ...] = ("per_robot", "per_system_id")) -> dict[str, dict[date, int]]:
+    """Fold a five-minute date_histogram of picks (robot terms sub-aggs)
+    into robot -> day -> minutes running: every slot with a pick counts
+    as five minutes."""
+    wanted = set(days)
+    out: dict[str, dict[date, int]] = {}
+    for bucket in slot_buckets or []:
+        key = str(bucket.get("key_as_string") or "")
+        try:
+            day = date.fromisoformat(key[:10])
+        except ValueError:
+            continue
+        if day not in wanted:
+            continue
+        for agg_name in sub_aggs:
+            for sub in ((bucket.get(agg_name) or {}).get("buckets") or []):
+                robot = str(sub.get("key") or "").strip()
+                if robot and int(sub.get("doc_count") or 0) > 0:
+                    per_day = out.setdefault(robot, {})
+                    per_day[day] = per_day.get(day, 0) + RUNNING_SLOT_MINUTES
+    return out
+
+
+def _merge_day_map(old_map: dict, new_map: dict[str, dict[date, int]], fetched: set[date], floor: date) -> dict[str, dict[str, int]]:
+    """Old cached day map (iso keys) updated by a fetch: fetched days are
+    replaced wholesale, days before the floor dropped."""
+    out: dict[str, dict[str, int]] = {}
+    for robot, per_day in (old_map or {}).items():
+        if isinstance(per_day, dict):
+            out[str(robot)] = {str(k): int(v or 0) for k, v in per_day.items()}
+    for robot in out:
+        for day in fetched:
+            out[robot].pop(day.isoformat(), None)
+    for robot, per_day in new_map.items():
+        target = out.setdefault(robot, {})
+        for day, n in per_day.items():
+            target[day.isoformat()] = int(n)
+    for robot in list(out):
+        out[robot] = {k: v for k, v in out[robot].items() if k >= floor.isoformat()}
+        if not out[robot]:
+            out.pop(robot)
+    return out
 
 
 def days_to_fetch(days: list[date], complete: set[date]) -> list[date]:
@@ -245,6 +300,8 @@ def merge_inventory_cache(
         "bytes_per_doc": inventory.bytes_per_doc if inventory.bytes_per_doc is not None else old.get("bytes_per_doc"),
         "bytes_basis": inventory.bytes_basis or str(old.get("bytes_basis") or ""),
         "generation": {**{str(k): str(v) for k, v in (old.get("generation") or {}).items()}, **inventory.generation},
+        "picks": _merge_day_map(old.get("picks") or {}, inventory.picks, fetched | set(d for per in inventory.picks.values() for d in per), floor),
+        "running": _merge_day_map(old.get("running") or {}, inventory.running, fetched | set(d for per in inventory.running.values() for d in per), floor),
     }
 
 
@@ -278,6 +335,26 @@ def inventory_from_cache(cache: dict | None, days: list[date]) -> "ElasticInvent
                 continue
             if day in wanted:
                 inventory.counts.setdefault(str(robot), {})[day] = int(n or 0)
+    for robot, per_day in (cache.get("picks") or {}).items():
+        if not isinstance(per_day, dict):
+            continue
+        for raw, n in per_day.items():
+            try:
+                day = date.fromisoformat(str(raw))
+            except ValueError:
+                continue
+            if day in wanted:
+                inventory.picks.setdefault(str(robot), {})[day] = int(n or 0)
+    for robot, per_day in (cache.get("running") or {}).items():
+        if not isinstance(per_day, dict):
+            continue
+        for raw, n in per_day.items():
+            try:
+                day = date.fromisoformat(str(raw))
+            except ValueError:
+                continue
+            if day in wanted:
+                inventory.running.setdefault(str(robot), {})[day] = int(n or 0)
     try:
         raw = str(cache.get("oldest_ts") or "")
         inventory.oldest_ts = datetime.fromisoformat(raw.replace("Z", "+00:00")) if raw else None
@@ -522,6 +599,59 @@ def fetch_elastic_inventory(
         target = inventory.counts.setdefault(robot, {})
         for day, n in per_day.items():
             target[day] = target.get(day, 0) + n
+    # Pick movements per robot per day for the fetched days, then the
+    # cached ones for the rest (Chris, 2026-09-07: chart per pick).
+    if progress:
+        progress("Elastic: counting picks per day and system...")
+    # Complete days cached before picks / running existed have none: in
+    # that case count the whole window (cheap), else only the fetched days.
+    cached_picks, _complete_picks = cached_day_counts(cache, day_list, "picks")
+    cached_running, _complete_running = cached_day_counts(cache, day_list, "running")
+    covered_pick_days = {d for per_day in cached_picks.values() for d in per_day} & {d for per_day in cached_running.values() for d in per_day}
+    pick_days = fetch_days if all(d in covered_pick_days for d in day_list if d not in fetch_days) else list(day_list)
+    pick_start_iso = datetime.combine(pick_days[0], dt_time.min).astimezone().isoformat()
+    pick_body = {
+        "size": 0,
+        "track_total_hits": False,
+        "query": {"bool": {"filter": [{"range": {"@timestamp": {"gte": pick_start_iso, "lte": now_local.isoformat()}}}],
+                           "should": [{"match_phrase": {"message": "Picking products"}},
+                                      {"match_phrase": {"message": "Successfully planned pick"}}],
+                           "minimum_should_match": 1}},
+        "aggs": {"per_day": {"date_histogram": {"field": "@timestamp", "calendar_interval": "1d",
+                                                "time_zone": _tz_offset_string(now_local), "min_doc_count": 1},
+                             "aggs": {"per_robot": {"terms": {"field": "leap_robot_id.keyword", "size": 500}},
+                                      "per_system_id": {"terms": {"field": "system_id.keyword", "size": 500}}}}},
+    }
+    try:
+        pick_data = _post(pick_body, timeout=90)
+        pick_buckets = ((pick_data.get("aggregations") or {}).get("per_day") or {}).get("buckets") or []
+        inventory.picks = parse_histogram(pick_buckets, pick_days)
+    except Exception:
+        inventory.picks = {}
+    for robot, per_day in cached_picks.items():
+        target = inventory.picks.setdefault(robot, {})
+        for day, n in per_day.items():
+            if day not in pick_days:
+                target[day] = target.get(day, 0) + n
+    # Running time: five-minute slots with a pick, for the fetched days.
+    if progress:
+        progress("Elastic: running time per day and system...")
+    run_body = dict(pick_body)
+    run_body["aggs"] = {"slots": {"date_histogram": {"field": "@timestamp", "fixed_interval": f"{RUNNING_SLOT_MINUTES}m",
+                                                     "time_zone": _tz_offset_string(now_local), "min_doc_count": 1},
+                                  "aggs": {"per_robot": {"terms": {"field": "leap_robot_id.keyword", "size": 500}},
+                                           "per_system_id": {"terms": {"field": "system_id.keyword", "size": 500}}}}}
+    try:
+        run_data = _post(run_body, timeout=120)
+        slot_buckets = ((run_data.get("aggregations") or {}).get("slots") or {}).get("buckets") or []
+        inventory.running = parse_running(slot_buckets, pick_days)
+    except Exception:
+        inventory.running = {}
+    for robot, per_day in cached_running.items():
+        target = inventory.running.setdefault(robot, {})
+        for day, n in per_day.items():
+            if day not in pick_days:
+                target[day] = target.get(day, 0) + n
     for robot, gen in ((cache or {}).get("generation") or {}).items():
         inventory.generation.setdefault(str(robot), str(gen))
     unknown = set(inventory.counts) - set(inventory.generation)

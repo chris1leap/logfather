@@ -106,3 +106,29 @@ def test_generation_from_id_fields_and_cache_round_trip():
     assert merged["generation"] == {"35-2300-003": "Argus 2", "35-2300-010": "Argus 1", "35-2300-006": "Argus 2"}
     merged["counts"] = {"35-2300-010": {today.isoformat(): 1}}
     assert inventory_from_cache(merged, inventory_days(today, 3)).generation["35-2300-010"] == "Argus 1"
+
+
+def test_picks_cached_alongside_counts():
+    today = date(2026, 9, 5)
+    d1 = today - timedelta(days=1)
+    inv = ElasticInventory(days=inventory_days(today, 2))
+    inv.counts = {"35-2300-007": {d1: 100, today: 5}}
+    inv.picks = {"35-2300-007": {d1: 40, today: 2}}
+    merged = merge_inventory_cache(None, inv, [d1, today], today, {}, datetime.now(timezone.utc))
+    assert merged["picks"] == {"35-2300-007": {d1.isoformat(): 40, today.isoformat(): 2}}
+    picks, complete = cached_day_counts(merged, [d1, today], "picks")
+    assert complete == {d1} and picks == {"35-2300-007": {d1: 40}}
+    back = inventory_from_cache(merged, inventory_days(today, 2))
+    assert back.picks == {"35-2300-007": {d1: 40, today: 2}}
+
+
+def test_running_minutes_from_five_minute_slots():
+    from logfather.data.data_inventory import parse_running
+
+    d1 = date(2026, 9, 5)
+    buckets = [
+        {"key_as_string": "2026-09-05T09:00:00.000+01:00", "per_robot": {"buckets": [{"key": "35-2300-010", "doc_count": 4}]}, "per_system_id": {"buckets": []}},
+        {"key_as_string": "2026-09-05T09:05:00.000+01:00", "per_robot": {"buckets": [{"key": "35-2300-010", "doc_count": 1}]}, "per_system_id": {"buckets": [{"key": "35-2300-006", "doc_count": 9}]}},
+        {"key_as_string": "2026-09-06T00:00:00.000+01:00", "per_robot": {"buckets": []}, "per_system_id": {"buckets": [{"key": "35-2300-006", "doc_count": 2}]}},
+    ]
+    assert parse_running(buckets, [d1]) == {"35-2300-010": {d1: 10}, "35-2300-006": {d1: 5}}

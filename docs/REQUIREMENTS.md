@@ -60,6 +60,13 @@ Living record of agreed functionality: what is open, and what has shipped
   says so. Restart pulls (fast-forward) when the new code is only on
   GitHub, closes cleanly, then starts the new instance. Frozen builds
   without git skip the check (`core/app_version.py`, tested).
+- Data chart Total / Per pick / Per hour running (Chris): per pick
+  divides each system's daily figure (documents, Elastic size, clips,
+  CCTV size) by its pick movements that day; per hour running divides by
+  the hours it was picking (five-minute slots containing a pick, times
+  five); hover shows picks, running time and both per-unit figures. Picks come from "Picking products"
+  (Argus 2) and "Successfully planned pick" (Argus 1) and are cached
+  with the counts.
 - Data chart order (Chris): Argus 1 systems first, then Argus 2, each in
   the usual customer order; generation read from which id field carries
   the bulk of a system's documents and kept in the local cache.
