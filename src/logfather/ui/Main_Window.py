@@ -37,6 +37,7 @@ from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import funnel_icon
 from logfather.ui.icons import calendar_icon, zoom_glyph_icon
+from logfather.ui.pulse import Pulser
 from logfather.ui.Time_Picker import (
     TimePicker,
     TimelineItem,
@@ -218,16 +219,7 @@ class MainWindow(QWidget):
         # In System Replay the next choice pulses (Chris, 2026-09-07): the
         # system button until a system is chosen, then the date button
         # until a day is chosen.
-        pulse_style = (
-            f"QToolButton[pulse=\"true\"] {{ background-color: {theme.ACCENT_DIM};"
-            f" border: 1px solid {theme.ACCENT}; color: {theme.TEXT_BRIGHT}; }}"
-        )
-        self.choose_system_btn.setStyleSheet(pulse_style)
-        self.choose_date_btn.setStyleSheet(pulse_style)
-        self._chooser_pulse_target: QToolButton | None = None
-        self._chooser_pulse_timer = QTimer(self)
-        self._chooser_pulse_timer.setInterval(650)
-        self._chooser_pulse_timer.timeout.connect(self._chooser_pulse_tick)
+        self._chooser_pulser = Pulser(self)
         self._chosen_root: Path | None = None
         self._chosen_day: date | None = None
         self.viewer.add_playback_right_widget(self.stop_report_btn)
@@ -857,28 +849,7 @@ class MainWindow(QWidget):
                 target = self.choose_system_btn
             elif self._chosen_day is None:
                 target = self.choose_date_btn
-        if target is self._chooser_pulse_target:
-            return
-        if self._chooser_pulse_target is not None:
-            self._apply_chooser_pulse(self._chooser_pulse_target, False)
-        self._chooser_pulse_target = target
-        if target is None:
-            self._chooser_pulse_timer.stop()
-        else:
-            self._apply_chooser_pulse(target, True)
-            self._chooser_pulse_timer.start()
-
-    def _chooser_pulse_tick(self) -> None:
-        btn = self._chooser_pulse_target
-        if btn is not None:
-            self._apply_chooser_pulse(btn, not bool(btn.property("pulse")))
-
-    @staticmethod
-    def _apply_chooser_pulse(btn: QToolButton, lit: bool) -> None:
-        btn.setProperty("pulse", bool(lit))
-        btn.style().unpolish(btn)
-        btn.style().polish(btn)
-        btn.update()
+        self._chooser_pulser.set_target(target)
 
     def _show_system_menu(self) -> None:
         menu = QMenu(self)

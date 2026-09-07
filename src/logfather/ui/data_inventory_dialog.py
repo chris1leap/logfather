@@ -56,6 +56,7 @@ from logfather.ui.chart_scroll import ChartScroller
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.elastic_catalog_dialog import ElasticCatalogDialog
 from logfather.ui.icons import question_block_icon
+from logfather.ui.pulse import Pulser
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
@@ -237,13 +238,7 @@ class DataInventoryDialog(QDialog):
         controls2.addWidget(self._updated_label)
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.clicked.connect(self.start)
-        self._refresh_btn.setStyleSheet(
-            f"QPushButton[pulse=\"true\"] {{ background-color: {theme.ACCENT_DIM};"
-            f" border: 1px solid {theme.ACCENT}; color: {theme.TEXT_BRIGHT}; }}"
-        )
-        self._pulse_timer = QTimer(self)
-        self._pulse_timer.setInterval(650)
-        self._pulse_timer.timeout.connect(self._pulse_tick)
+        self._pulser = Pulser(self)
         controls2.addWidget(self._refresh_btn)
         # The 14-day section - filter, metric toggle, key and chart - sits
         # in one framed box (Chris, 2026-09-05).
@@ -429,20 +424,7 @@ class DataInventoryDialog(QDialog):
         self._set_pulse(when.date() != today)
 
     def _set_pulse(self, on: bool) -> None:
-        if on and not self._pulse_timer.isActive():
-            self._pulse_timer.start()
-        elif not on:
-            self._pulse_timer.stop()
-            self._apply_pulse(False)
-
-    def _pulse_tick(self) -> None:
-        self._apply_pulse(not bool(self._refresh_btn.property("pulse")))
-
-    def _apply_pulse(self, lit: bool) -> None:
-        self._refresh_btn.setProperty("pulse", bool(lit))
-        self._refresh_btn.style().unpolish(self._refresh_btn)
-        self._refresh_btn.style().polish(self._refresh_btn)
-        self._refresh_btn.update()
+        self._pulser.set_target(self._refresh_btn if on else None)
 
     def _start_cctv_scan(self) -> None:
         parent_dir = self._parent_dir_provider()

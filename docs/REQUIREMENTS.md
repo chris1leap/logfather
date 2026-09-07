@@ -33,6 +33,10 @@ Living record of agreed functionality: what is open, and what has shipped
 - System Replay prompts (Chris): with no system chosen the Choose system
   button pulses; once a system is chosen the Choose date button pulses
   until a day is chosen; nothing pulses on the other screens.
+- Pulses breathe (Chris): the Choose system / Choose date prompts and
+  the Data window's stale Refresh fade between the raised ground and
+  the accent fill over about three seconds (shared `ui/pulse.py`)
+  instead of blinking on and off.
 - Viewer retention warning (Chris): choosing a day more than 30 days old
   shows "CCTV footage is deleted after 30 days" with a crossed-out camera
   icon where the footage would play (`core/retention.py`, tested
