@@ -201,9 +201,21 @@ class DataInventoryDialog(QDialog):
             self._metric_buttons[key] = btn
             controls.addWidget(btn)
         self._metric_buttons["elastic"].setChecked(True)
-        controls.addSpacing(10)
+        controls.addStretch(1)
+        if self._gear_host is not None:
+            controls.addWidget(build_gear_button(self, self._gear_host))
         # Normalise (Chris, 2026-09-07): the data volume follows the picks
-        # and the hours run, so per pick / per hour show what differs.
+        # and the hours run, so per pick / per hour show what differs. On
+        # their own row in a "Y axis" box (Chris, 2026-09-07).
+        y_axis_box = QGroupBox("Y axis")
+        y_axis_box.setStyleSheet(
+            f"QGroupBox {{ font-weight: normal; margin-top: 12px; padding: 8px 8px 6px 8px;"
+            f" border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
+            f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
+        )
+        y_axis_layout = QHBoxLayout(y_axis_box)
+        y_axis_layout.setContentsMargins(6, 4, 6, 4)
+        y_axis_layout.setSpacing(6)
         self._norm_group = QButtonGroup(self)
         self._norm_group.setExclusive(True)
         self._norm_buttons: dict[str, QPushButton] = {}
@@ -218,11 +230,11 @@ class DataInventoryDialog(QDialog):
             btn.clicked.connect(lambda _checked=False: self._rebuild_views())
             self._norm_group.addButton(btn)
             self._norm_buttons[key] = btn
-            controls.addWidget(btn)
+            y_axis_layout.addWidget(btn)
         self._norm_buttons["total"].setChecked(True)
-        controls.addStretch(1)
-        if self._gear_host is not None:
-            controls.addWidget(build_gear_button(self, self._gear_host))
+        y_axis_row = QHBoxLayout()
+        y_axis_row.addWidget(y_axis_box)
+        y_axis_row.addStretch(1)
         # Second row (Chris, 2026-09-07: one row squeezed the buttons until
         # their text was cut off): hint, status, Last updated, Refresh, Zoom.
         controls2 = QHBoxLayout()
@@ -263,6 +275,7 @@ class DataInventoryDialog(QDialog):
         box_layout = QVBoxLayout(summary_box)
         box_layout.setSpacing(8)
         box_layout.addLayout(controls)
+        box_layout.addLayout(y_axis_row)
         box_layout.addLayout(controls2)
 
         self._legend = QLabel("")
