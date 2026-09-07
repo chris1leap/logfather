@@ -61,7 +61,7 @@
 </style>
 
 <main>
-  <div class="eyebrow">Plan · Leap / PikPak · drafted 7 Sep 2026 · engine decided: PostgreSQL</div>
+  <div class="eyebrow">Plan · Leap / PikPak · drafted 7 Sep 2026 · suggested engine: PostgreSQL</div>
   <h1>PikPak Fleet Database Plan</h1>
   <p class="lede">Replacing the spreadsheets with one company database in Azure that holds the fleet, its customers, SKUs, trays, maintenance, issues and root causes, what was packed each day, and the telemetry (temperatures, currents) in the same database; trackable to the row, and backs itself up.</p>
   <nav class="toc" aria-label="Sections">
@@ -81,7 +81,7 @@
   <ol>
     <li><strong>One database, the source of truth.</strong> Azure Database for PostgreSQL holds every record: the relational tables, JSON where a record is naturally a document (a SKU's recipe, a run's counters), and the time series through the TimescaleDB extension. Spreadsheets become read-only views of it, never the other way round.</li>
     <li><strong>One entry app.</strong> A small internal web app for adding and editing records, with sign-in through the company Microsoft account, roles, and a full change history on every row. Phase one is a generated admin interface, not bespoke screens.</li>
-    <li><strong>Consumers.</strong> Excel and Power BI read from views with a read-only login. Grafana reads the telemetry tables directly. The Logfather reads customers, lines, systems and SKUs from the database instead of its settings file, writes what each system packed each day into it, and can raise an issue from the Errors / Stops window with the system and day filled in.</li>
+    <li><strong>Consumers.</strong> Excel and Power BI read from views with a read-only login. Grafana reads the telemetry tables directly. The Logfather reads customers, lines, systems and SKUs from the database instead of its settings file, writes what each system packed each day into it, and can raise an issue from the Errors / Stops window with the system and day filled in. LeapHQ, the customer portal being built separately, uses the same database for its customer-facing views and keeps reading Elastic and the CCTV share directly.</li>
   </ol>
   <div class="diagram">
 <pre class="mermaid">
@@ -95,7 +95,9 @@ flowchart LR
   DB --> XL[Excel / Power BI<br/>read-only views]:::src
   DB --> GF[Grafana<br/>dashboards]:::src
   DB <--> LF[The Logfather<br/>master data in, production + software history out]:::src
+  DB <--> HQ[LeapHQ / customer portal<br/>customer-scoped views, issues raised by customers]:::src
   ES[(Elastic + CCTV share)]:::src -.->|references by time window| LF
+  ES -.-> HQ
 </pre>
   </div>
   <p><strong>What "trackable" means here.</strong> Every table carries who created and last changed a row and when, and the entry app writes a history row for every change on the core tables, so "what did this system's line assignment look like on 3 March" is a single query. Nothing is ever hard-deleted; rows are retired with an end date.</p>
@@ -103,7 +105,7 @@ flowchart LR
 
   <h2 id="engine">The engine</h2>
   <div class="decision">
-    <p><strong>Decided: Azure Database for PostgreSQL Flexible Server, with the TimescaleDB extension, one database for everything.</strong></p>
+    <p><strong>Suggested: Azure Database for PostgreSQL Flexible Server, with the TimescaleDB extension, one database for everything.</strong></p>
     <p>Relational tables for the fleet, JSONB columns where a record is naturally a document, and TimescaleDB hypertables for the telemetry, all under one backup, one sign-in and one connection string. Django speaks PostgreSQL natively, Grafana has a first-class PostgreSQL data source, and Excel and Power BI connect through the PostgreSQL connector.</p>
     <p>What we give up against Azure SQL: built-in temporal tables (row history comes from the app layer instead), the Excel "SQL Server" connector everyone has seen before (the PostgreSQL one needs a one-time driver install), and built-in long-term backup retention (a weekly dump job covers it). What we gain: no second store for telemetry, no cross-store joins, no KQL, and a smaller bill.</p>
   </div>
@@ -308,12 +310,12 @@ SELECT add_compression_policy('telemetry', INTERVAL '30 days');
 SELECT add_retention_policy('telemetry', INTERVAL '5 years');</pre>
 
   <h2 id="tickets">Epics and tickets</h2>
-  <p>Ten epics, fifty-five tickets, in dependency order. Epic 0.5 is the hands-on trial: nobody here has used a managed PostgreSQL yet, so it comes before any infrastructure is written. Epic 8 (telemetry) runs after Epic 4 and can overlap Epic 7. Estimates are working days for one person and assume the Logfather-style loop: small change, test, ship. Every ticket has acceptance criteria so it can be closed without discussion.</p>
+  <p>Eleven epics, sixty-two tickets, in dependency order. Epic 0.5 is the hands-on trial: nobody here has used a managed PostgreSQL yet, so it comes before any infrastructure is written. Epic 8 (telemetry) and Epic 9 (LeapHQ) run after Epic 4 and can overlap Epic 7. Estimates are working days for one person and assume the Logfather-style loop: small change, test, ship. Every ticket has acceptance criteria so it can be closed without discussion.</p>
 
   <div class="epic"><h3>Epic 0 · Discovery and decisions (1 week)</h3>
     <div class="ticket"><div class="id">DB-001</div><div class="t">Inventory every spreadsheet</div><div class="meta">2 days · owner: Chris</div><ul><li>List each workbook and sheet, its owner, row count, update frequency, and which entity it holds.</li><li>Flag columns that are free text but mean a lookup (status, category).</li><li>Output: a one-page inventory in the repo under docs/database/.</li></ul></div>
     <div class="ticket"><div class="id">DB-002</div><div class="t">Name the data owners and the roles</div><div class="meta">1 day</div><ul><li>Who may create systems, close issues, approve releases; who is read-only.</li><li>Output: a roles table (admin, engineer, service, viewer) with permissions per entity.</li></ul></div>
-    <div class="ticket"><div class="id">DB-003</div><div class="t">Decision record: hosting</div><div class="meta">1 day</div><ul><li>Engine is decided (PostgreSQL Flexible Server with TimescaleDB). Record it, plus App Service vs Container Apps, region (UK South), subscription and resource group naming.</li><li>Output: a short ADR in the repo.</li></ul></div>
+    <div class="ticket"><div class="id">DB-003</div><div class="t">Decision record: hosting</div><div class="meta">1 day</div><ul><li>Engine: PostgreSQL Flexible Server with TimescaleDB is the suggestion. Record the decision, plus App Service vs Container Apps, region (UK South), subscription and resource group naming.</li><li>Output: a short ADR in the repo.</li></ul></div>
     <div class="ticket"><div class="id">DB-004</div><div class="t">Agree identifiers</div><div class="meta">1 day</div><ul><li>Confirm serial-number format, tray numbering, SKU code source (Elastic's sku name), and the ISS / MNT / RC reference scheme.</li><li>Output: the Keys and conventions section signed off.</li></ul></div>
   </div>
 
@@ -439,6 +441,17 @@ with psycopg.connect(host="pg-fleet-trial.postgres.database.azure.com", dbname="
     <div class="ticket"><div class="id">DB-062</div><div class="t">Software history sync</div><div class="meta">1 day</div><ul><li>The Software window's spans are written to system_software nightly (source = Elastic), so the database knows what every system runs without anyone typing it.</li></ul></div>
   </div>
 
+  <div class="epic"><h3>Epic 9 · LeapHQ / customer portal integration (after Epic 4)</h3>
+    <p>LeapHQ is the customer portal being built separately. It uses the same database for its customer-facing views and keeps reading Elastic and the CCTV share directly, as the Logfather does. The work here is the seam between the two: what it may see, what it may write, and one naming scheme.</p>
+    <div class="ticket"><div class="id">DB-090</div><div class="t">Agree the contract</div><div class="meta">owner: Chris with the LeapHQ developer</div><ul><li>What the portal reads (a customer's fleet, production, issues, contacts) and what it writes (issues raised by customers, attachments).</li><li>Acceptance: a one-page interface note agreed by both sides.</li></ul></div>
+    <div class="ticket"><div class="id">DB-091</div><div class="t">Customer-scoped access</div><ul><li>A portal role plus PostgreSQL row-level security policies keyed on customer_id, so a customer session sees only its own sites, systems, production and issues.</li><li>Acceptance: a test customer cannot read another customer's rows, proven by a query.</li></ul></div>
+    <div class="ticket"><div class="id">DB-092</div><div class="t">Customer-facing views</div><ul><li><code>v_customer_fleet</code>, <code>v_customer_production_day</code>, <code>v_customer_issues</code>, with internal notes and root-cause internals removed.</li><li>Acceptance: the views return only the agreed columns.</li></ul></div>
+    <div class="ticket"><div class="id">DB-093</div><div class="t">Portal API</div><ul><li>The JSON API from DB-046 gains a customer scope and a service identity for LeapHQ (Entra app registration, no shared secrets).</li><li>Acceptance: LeapHQ fetches its customer's fleet with its own identity.</li></ul></div>
+    <div class="ticket"><div class="id">DB-094</div><div class="t">Issues raised from the portal</div><ul><li>reported_by set to the customer contact, photos to Blob, severity limited to the customer's choices, ISS reference returned.</li><li>Acceptance: an issue raised in LeapHQ appears in the entry app within a minute.</li></ul></div>
+    <div class="ticket"><div class="id">DB-095</div><div class="t">One naming and one reference scheme</div><ul><li>LeapHQ shows display names, serials and ISS / MNT references straight from the database, and links to Elastic and CCTV windows the same way the Logfather does.</li><li>Acceptance: the same issue reads identically in both apps.</li></ul></div>
+    <div class="ticket"><div class="id">DB-096</div><div class="t">Shared dev environment</div><ul><li>The dev database seeded with a demo customer, sites, systems and a month of production for the LeapHQ developer to build against.</li><li>Acceptance: the seed script runs clean on a fresh dev database.</li></ul></div>
+  </div>
+
   <div class="epic"><h3>Epic 8 · Telemetry (2 weeks, after Epic 4)</h3>
     <p>Starts once the fleet tables are live, because every reading is keyed to a system and, through the summary, to the component fitted at the time. Independent of the spreadsheet cutover, so it can slip without holding Epic 7 up.</p>
     <div class="ticket"><div class="id">DB-080</div><div class="t">Where does Grafana read from today?</div><div class="meta">1 day · owner: Chris</div><ul><li>Name the backend (Prometheus, InfluxDB, Elastic, something on the robot), its retention, how far back data still exists, and the metric names and units per component.</li><li>Output: a metrics inventory, the telemetry counterpart of DB-001.</li></ul></div>
@@ -469,5 +482,5 @@ with psycopg.connect(host="pg-fleet-trial.postgres.database.azure.com", dbname="
   <p><strong>Order of value.</strong> After Epic 2 and the fleet part of Epic 3, the database already answers the questions the spreadsheets cannot: where each system is and was, what is fitted in it, and what it runs. Issues and the root cause catalogue (DB-026, DB-044) are the next most valuable and the most used day to day. Production and telemetry follow, fed by jobs rather than typing.</p>
   <p><strong>Risks.</strong> Spreadsheet data that does not reconcile (DB-032 exists for this). Two sources of truth during the parallel run (freeze the spreadsheets). Entra group management landing with nobody (name an owner in DB-002). Telemetry volume outgrowing the burstable tier (watch CPU in DB-071; the step up is a portal change, not a migration). The temptation to build bespoke screens before the generated admin has been used for a month (resist it).</p>
 
-  <footer>Drafted 7 Sep 2026 from the Logfather work and what Elastic shows about the fleet (system ids, SKU names, packages, run ids). Engine decision the same day: Azure Database for PostgreSQL with TimescaleDB, one database for records and telemetry. Estimates are working days for one engineer and will move once DB-001 has counted the rows.</footer>
+  <footer>Drafted 7 Sep 2026 from the Logfather work and what Elastic shows about the fleet (system ids, SKU names, packages, run ids). Suggested engine: Azure Database for PostgreSQL with TimescaleDB, one database for records and telemetry. Estimates are working days for one engineer and will move once DB-001 has counted the rows.</footer>
 </main>
