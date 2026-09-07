@@ -37,6 +37,10 @@ Living record of agreed functionality: what is open, and what has shipped
   the Data window's stale Refresh fade between the raised ground and
   the accent fill over about three seconds (shared `ui/pulse.py`)
   instead of blinking on and off.
+- Date before system (Chris): Choose date works with no system chosen;
+  the day is held, shown on the button, and applied when a system is
+  picked (the popup notes footage days appear once a system is chosen).
+  The pulse then moves to whichever of the two is still unchosen.
 - Viewer retention warning (Chris): choosing a day more than 30 days old
   shows "CCTV footage is deleted after 30 days" with a crossed-out camera
   icon where the footage would play (`core/retention.py`, tested

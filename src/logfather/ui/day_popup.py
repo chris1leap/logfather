@@ -66,6 +66,8 @@ class DayPopup(QWidget):
             self._hint.setText("Still listing the share - highlighted days may be incomplete")
         elif self._available:
             self._hint.setText(f"{len(self._available)} days with footage are highlighted")
+        elif title.startswith("Choose a day"):
+            self._hint.setText("Footage days are highlighted once a system is chosen")
         else:
             self._hint.setText("No footage found for this system yet")
         self._calendar.setMaximumDate(QDate.currentDate())

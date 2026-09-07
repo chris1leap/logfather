@@ -212,8 +212,10 @@ class MainWindow(QWidget):
         self.choose_date_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.choose_date_btn.setToolTip("Pick the day to look at")
         self.choose_date_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.choose_date_btn.setEnabled(False)
         self.choose_date_btn.clicked.connect(self._show_day_popup)
+        # A day may be chosen before a system (Chris, 2026-09-07); it is
+        # held here and applied when the system is chosen.
+        self._pending_day: date | None = None
         self._day_popup = DayPopup(self)
         self._day_popup.day_chosen.connect(self._on_popup_day_chosen)
         # In System Replay the next choice pulses (Chris, 2026-09-07): the
@@ -828,7 +830,7 @@ class MainWindow(QWidget):
 
     def _refresh_chooser_buttons(self, pikpak_root: Path | None, day: date | None) -> None:
         self._chosen_root = pikpak_root if isinstance(pikpak_root, Path) else None
-        self._chosen_day = day if isinstance(day, date) else None
+        self._chosen_day = day if isinstance(day, date) else self._pending_day
         self._update_chooser_pulse()
         if isinstance(pikpak_root, Path):
             # Customer and system only; no line name (Chris, 2026-09-07).
@@ -838,8 +840,8 @@ class MainWindow(QWidget):
             self.choose_date_btn.setText(f"{day:%a %d %b %Y}" if day else "Choose date")
         else:
             self.choose_system_btn.setText(self.system_id_override or "Choose system")
-            self.choose_date_btn.setEnabled(False)
-            self.choose_date_btn.setText("Choose date")
+            pending = self._pending_day
+            self.choose_date_btn.setText(f"{pending:%a %d %b %Y}" if pending else "Choose date")
 
     def _update_chooser_pulse(self) -> None:
         in_viewer = self.content_stack.currentWidget() is self.viewer
@@ -888,12 +890,24 @@ class MainWindow(QWidget):
 
     def _choose_system(self, path: Path) -> None:
         self.viewer_btn.setChecked(True)
-        self.date_picker.use_pikpak_folder(path)
+        pending = self._pending_day
+        if pending is not None:
+            self._pending_day = None
+            self.date_picker.select_pikpak_folder_and_day(path, pending)
+        else:
+            self.date_picker.use_pikpak_folder(path)
 
     def _show_day_popup(self) -> None:
         top_dir = self.date_picker.top_dir
         if not isinstance(top_dir, Path):
-            self._show_system_menu()
+            # No system yet: any past day; footage days are only known
+            # once a system is chosen.
+            self._day_popup.open_for(
+                "Choose a day (then a system)",
+                set(),
+                self._pending_day,
+                self.choose_date_btn.mapToGlobal(QPoint(0, self.choose_date_btn.height())),
+            )
             return
         self._day_popup.open_for(
             self.current_system_label.text() or top_dir.name,
@@ -904,8 +918,13 @@ class MainWindow(QWidget):
         )
 
     def _on_popup_day_chosen(self, day) -> None:
-        if isinstance(day, date) and isinstance(self.date_picker.top_dir, Path):
+        if not isinstance(day, date):
+            return
+        if isinstance(self.date_picker.top_dir, Path):
             self.date_picker.select_day(day)
+        else:
+            self._pending_day = day
+            self._refresh_chooser_buttons(None, None)
 
     # ------------------------------------------------------------------
     # Pick-buffer panel
