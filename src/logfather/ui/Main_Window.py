@@ -30,6 +30,7 @@ from logfather.ui import theme
 from logfather.ui.Date_Picker_frontend import DatePicker
 from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
 from logfather.ui.day_popup import DayPopup
+from logfather.ui.system_filter import funnel_icon
 from logfather.ui.icons import zoom_glyph_icon
 from logfather.ui.Time_Picker import (
     TimePicker,
@@ -192,6 +193,9 @@ class MainWindow(QWidget):
         # so the Customer / Line / System label is retired.
         self.choose_system_btn = QToolButton()
         self.choose_system_btn.setText("Choose system")
+        self.choose_system_btn.setIcon(funnel_icon())
+        self.choose_system_btn.setIconSize(QSize(18, 18))
+        self.choose_system_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.choose_system_btn.setToolTip("Pick the system to view")
         self.choose_system_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.choose_system_btn.clicked.connect(self._show_system_menu)
@@ -732,7 +736,9 @@ class MainWindow(QWidget):
 
     def _refresh_chooser_buttons(self, pikpak_root: Path | None, day: date | None) -> None:
         if isinstance(pikpak_root, Path):
-            self.choose_system_btn.setText(self.current_system_label.text() or pikpak_root.name)
+            # Customer and system only; no line name (Chris, 2026-09-07).
+            customer = display_customer_name(self.settings, pikpak_root.name)
+            self.choose_system_btn.setText(f"{customer} / {pikpak_root.name}" if customer else pikpak_root.name)
             self.choose_date_btn.setEnabled(True)
             self.choose_date_btn.setText(f"{day:%a %d %b %Y}" if day else "Choose date")
         else:
@@ -768,8 +774,7 @@ class MainWindow(QWidget):
                 font.setBold(True)
                 header.setFont(font)
                 last_customer = customer
-            line = display_line_name(self.settings, path.name)
-            label = f"    {line} - {path.name}" if line else f"    {path.name}"
+            label = f"    {path.name}"
             act = menu.addAction(label)
             act.setCheckable(True)
             act.setChecked(path.name == active)

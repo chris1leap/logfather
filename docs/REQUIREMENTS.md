@@ -28,6 +28,9 @@ Living record of agreed functionality: what is open, and what has shipped
   shows "CCTV footage is deleted after 30 days" with a crossed-out camera
   icon where the footage would play (`core/retention.py`, tested
   boundary); the notice clears when a clip loads.
+- Viewer Choose system button (Chris): funnel icon at the start; reads
+  "Customer / PikPakNNN" with no line name, and the menu lists systems by
+  name only.
 
 ### 2026-09-05
 
