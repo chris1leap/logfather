@@ -733,7 +733,9 @@ class OverviewWidget(QWidget):
         # (edge y, x0, x1) per row in scene coordinates: dragging the strip's
         # bottom line stretches every strip (Chris, 2026-09-07).
         self._temp_edge_bands: list[tuple[float, float, float]] = []
-        self._temp_resize: tuple[float, int] | None = None
+        self._temp_resize: tuple | None = None
+        self._temp_guide_item = None
+        self._temp_guide_label = None
         self._temp_edge_hover = False
         self.temps_btn = QToolButton()
         self.temps_btn.setIcon(thermometer_icon())
@@ -969,19 +971,44 @@ class OverviewWidget(QWidget):
         strips (Chris, 2026-09-07: to see the traces more easily)."""
         event_type = event.type()
         if self._temp_resize is not None:
+            # While dragging only a guide line moves; the rows are rebuilt
+            # once on release (Chris, 2026-09-07: rebuilding on every
+            # mouse move blanked the screen).
             if event_type == QEvent.MouseMove:
-                press_y, start_h = self._temp_resize
-                delta = (float(self.view.mapToScene(event.pos()).y()) - press_y) / max(0.1, theme.zoom_factor())
+                press_y, start_h, edge_y, x0, x1 = self._temp_resize
+                zoom = max(0.1, theme.zoom_factor())
+                delta = (float(self.view.mapToScene(event.pos()).y()) - press_y) / zoom
                 new_h = int(min(OVERVIEW_TEMP_STRIP_MAX, max(OVERVIEW_TEMP_STRIP_MIN, start_h + delta)))
-                if new_h != self._temp_strip_h:
-                    self._temp_strip_h = new_h
-                    self._schedule_redraw()
+                self._temp_strip_h = new_h
+                guide_y = edge_y + (new_h - start_h) * zoom
+                if self._temp_guide_item is None:
+                    pen = QPen(QColor("#ff8a65"))
+                    pen.setStyle(Qt.DashLine)
+                    pen.setWidthF(1.5)
+                    pen.setCosmetic(True)
+                    self._temp_guide_item = self.scene.addLine(x0, guide_y, x1, guide_y, pen)
+                    self._temp_guide_item.setZValue(20)
+                    self._temp_guide_label = self.scene.addText("")
+                    self._temp_guide_label.setDefaultTextColor(QColor("#ff8a65"))
+                    self._temp_guide_label.setZValue(20)
+                self._temp_guide_item.setLine(x0, guide_y, x1, guide_y)
+                self._temp_guide_label.setPlainText(f"{new_h} px")
+                self._temp_guide_label.setPos(x1 - 48, guide_y - 18)
                 return True
             if event_type == QEvent.MouseButtonRelease:
                 self._temp_resize = None
+                for attr in ("_temp_guide_item", "_temp_guide_label"):
+                    item = getattr(self, attr)
+                    if item is not None:
+                        try:
+                            self.scene.removeItem(item)
+                        except RuntimeError:
+                            pass
+                    setattr(self, attr, None)
                 self.view.viewport().unsetCursor()
                 self._temp_edge_hover = False
                 update_ui_state({_OVERVIEW_TEMP_STRIP_KEY: int(self._temp_strip_h)})
+                self._redraw()
                 return True
             return True
         if not self._temp_edge_bands or self._drag_candidate is not None:
@@ -996,8 +1023,11 @@ class OverviewWidget(QWidget):
                     self.view.viewport().unsetCursor()
             return False
         if event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-            if self._temp_edge_at(self.view.mapToScene(event.pos())):
-                self._temp_resize = (float(self.view.mapToScene(event.pos()).y()), int(self._temp_strip_h))
+            scene_pos = self.view.mapToScene(event.pos())
+            if self._temp_edge_at(scene_pos):
+                y = float(scene_pos.y())
+                edge_y, x0, x1 = min(self._temp_edge_bands, key=lambda band: abs(band[0] - y))
+                self._temp_resize = (y, int(self._temp_strip_h), edge_y, x0, x1)
                 self.hide_thumbnail_preview()
                 return True
         return False
@@ -2290,6 +2320,8 @@ class OverviewWidget(QWidget):
         self._hover_line_item = None
         self._hover_label_item = None
         self._now_label_item = None
+        self._temp_guide_item = None
+        self._temp_guide_label = None
         # Reset before setSceneRect below: that fires the scrollbar's
         # valueChanged -> _reposition_sticky_header, which would otherwise
         # touch items the clear() just freed (crash seen at startup).
