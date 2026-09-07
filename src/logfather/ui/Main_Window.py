@@ -35,7 +35,7 @@ from logfather.core.app_version import is_newer, latest_available_version, load_
 from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
 from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
-from logfather.ui.system_filter import funnel_icon
+from logfather.ui.system_filter import SystemPickerPopup, funnel_icon
 from logfather.ui.icons import calendar_icon, zoom_glyph_icon
 from logfather.ui.pulse import Pulser
 from logfather.ui.Time_Picker import (
@@ -854,47 +854,33 @@ class MainWindow(QWidget):
         self._chooser_pulser.set_target(target)
 
     def _show_system_menu(self) -> None:
-        menu = QMenu(self)
-        # Roomier, larger entries (Chris, 2026-09-07).
-        menu.setStyleSheet(
-            "QMenu { font-size: 17px; min-width: 340px; padding: 6px 0; }"
-            "QMenu::item { padding: 8px 32px 8px 24px; }"
-            f"QMenu::item:selected {{ background-color: {theme.BG_HOVER}; }}"
-            f"QMenu::item:disabled {{ color: {theme.TEXT_BRIGHT}; font-weight: bold; }}"
-        )
+        """The same grouped box as the Overview's Systems filter, choosing
+        one system (Chris, 2026-09-07); built from the cached share
+        listing so it opens at once."""
         parent_dir = self.date_picker.parent_dir
-        subdirs: list[Path] = []
+        groups: list[tuple[str, list[str]]] = []
         if isinstance(parent_dir, Path):
-            # The Overview already listed the share (and caches it); a
-            # fresh listing here cost seconds per click on the WAN share
-            # (Chris, 2026-09-07). No is_dir() round trips either.
-            names = self.overview_widget._known_system_names()
-            subdirs = sorted(
-                (parent_dir / name for name in names),
-                key=lambda p: system_group_sort_key(self.settings, p.name),
+            names = sorted(
+                self.overview_widget._known_system_names(),
+                key=lambda n: system_group_sort_key(self.settings, n),
             )
-        if not subdirs:
-            none = menu.addAction("No systems found - set the CCTV parent folder in Settings")
-            none.setEnabled(False)
-        active = self.date_picker.active_pikpak_name
-        last_customer = None
-        for path in subdirs:
-            customer = display_customer_name(self.settings, path.name)
-            if customer != last_customer:
-                if last_customer is not None:
-                    menu.addSeparator()
-                header = menu.addAction(customer)
-                header.setEnabled(False)
-                font = header.font()
-                font.setBold(True)
-                header.setFont(font)
-                last_customer = customer
-            label = f"    {path.name}"
-            act = menu.addAction(label)
-            act.setCheckable(True)
-            act.setChecked(path.name == active)
-            act.triggered.connect(lambda _checked=False, p=path: self._choose_system(p))
-        menu.exec(self.choose_system_btn.mapToGlobal(QPoint(0, self.choose_system_btn.height())))
+            for name in names:
+                customer = str(display_customer_name(self.settings, name) or "")
+                if groups and groups[-1][0] == customer:
+                    groups[-1][1].append(name)
+                else:
+                    groups.append((customer, [name]))
+        if not groups:
+            groups = [("", ["No systems found - set the CCTV parent folder in Settings"])]
+        popup = SystemPickerPopup(
+            groups,
+            self.date_picker.active_pikpak_name,
+            lambda name: self._choose_system(parent_dir / name) if isinstance(parent_dir, Path) else None,
+            parent=self,
+        )
+        self._system_picker = popup
+        popup.move(self.choose_system_btn.mapToGlobal(QPoint(0, self.choose_system_btn.height())))
+        popup.show()
 
     def _choose_system(self, path: Path) -> None:
         self.viewer_btn.setChecked(True)

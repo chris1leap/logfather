@@ -1,6 +1,7 @@
-"""Shared system filter: a funnel-icon button's popup of tick boxes per
-system, grouped by customer (Chris, 2026-09-05). Used by the Data window
-and the Overview; each keeps its own hidden set."""
+"""Shared system popups, grouped by customer with a rule between groups
+(Chris, 2026-09-05 / 07): SystemFilterPopup ticks many systems on and
+off (Overview, Errors / Stops, Data); SystemPickerPopup chooses one
+(System Replay). Same shell, same look."""
 from __future__ import annotations
 
 from typing import Callable
@@ -46,6 +47,85 @@ def funnel_icon(size: int = 18) -> QIcon:
     return QIcon(pm)
 
 
+POPUP_STYLE = (
+    f"QWidget {{ background-color: {theme.BG_RAISED}; }}"
+    f"QLabel {{ color: {theme.TEXT}; }}"
+)
+
+
+def _grouped_body(groups: list[tuple[str, list[str]]], make_row: Callable[[str], QWidget]) -> QScrollArea:
+    """The scrolling list shared by both popups: a bold customer heading,
+    one row widget per system, a rule between customers."""
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    body = QWidget()
+    rows = QVBoxLayout(body)
+    rows.setContentsMargins(0, 0, 0, 0)
+    rows.setSpacing(2)
+    for index, (customer, systems) in enumerate(groups):
+        if index:
+            rule = QFrame()
+            rule.setFrameShape(QFrame.HLine)
+            rule.setStyleSheet(f"color: {theme.BORDER_LIGHT};")
+            rows.addWidget(rule)
+        if customer:
+            label = QLabel(customer)
+            label.setStyleSheet(f"font-weight: bold; color: {theme.TEXT_MUTED};")
+            rows.addWidget(label)
+        for system in systems:
+            rows.addWidget(make_row(system))
+    rows.addStretch(1)
+    scroll.setWidget(body)
+    scroll.setMaximumHeight(560)
+    return scroll
+
+
+class SystemPickerPopup(QWidget):
+    """One system, chosen with a click (System Replay's Choose system,
+    Chris 2026-09-07: the same box as the Overview's filter). The current
+    system is highlighted; on_pick fires with the name and the popup
+    closes."""
+
+    def __init__(
+        self,
+        groups: list[tuple[str, list[str]]],
+        current: str | None,
+        on_pick: Callable[[str], None],
+        parent=None,
+        title: str = "Choose system",
+    ):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self._on_pick = on_pick
+        self.setStyleSheet(POPUP_STYLE)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 8, 10, 8)
+        head = QLabel(title)
+        head.setStyleSheet(f"font-weight: bold; color: {theme.TEXT_BRIGHT};")
+        outer.addWidget(head)
+
+        def make_row(system: str) -> QWidget:
+            btn = QPushButton(system)
+            btn.setCheckable(True)
+            btn.setChecked(system == current)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                "QPushButton { text-align: left; padding: 6px 14px; border: 1px solid transparent; background: transparent; }"
+                f"QPushButton:hover {{ background-color: {theme.BG_HOVER}; }}"
+                f"QPushButton:checked {{ background-color: {theme.ACCENT_DIM}; border-color: {theme.ACCENT_BORDER}; color: {theme.TEXT_BRIGHT}; }}"
+            )
+            btn.clicked.connect(lambda _checked=False, name=system: self._pick(name))
+            return btn
+
+        outer.addWidget(_grouped_body(groups, make_row))
+        self.setMinimumWidth(300)
+        self.adjustSize()
+
+    def _pick(self, name: str) -> None:
+        self.hide()
+        self._on_pick(name)
+
+
 class SystemFilterPopup(QWidget):
     """Tick boxes per system, grouped by customer with a rule between
     groups; stays open until a click lands outside. on_change fires per
@@ -65,10 +145,7 @@ class SystemFilterPopup(QWidget):
         self._on_all = on_all
         self._on_closed = on_closed
         self._boxes: list[QCheckBox] = []
-        self.setStyleSheet(
-            f"QWidget {{ background-color: {theme.BG_RAISED}; }}"
-            f"QLabel {{ color: {theme.TEXT}; }}"
-        )
+        self.setStyleSheet(POPUP_STYLE)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 8, 10, 8)
         head = QHBoxLayout()
@@ -83,35 +160,15 @@ class SystemFilterPopup(QWidget):
         head.addWidget(all_btn)
         head.addWidget(none_btn)
         outer.addLayout(head)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        body = QWidget()
-        rows = QVBoxLayout(body)
-        rows.setContentsMargins(0, 0, 0, 0)
-        rows.setSpacing(2)
-        for index, (customer, systems) in enumerate(groups):
-            if index:
-                rule = QFrame()
-                rule.setFrameShape(QFrame.HLine)
-                rule.setStyleSheet(f"color: {theme.BORDER_LIGHT};")
-                rows.addWidget(rule)
-            if customer:
-                label = QLabel(customer)
-                label.setStyleSheet(f"font-weight: bold; color: {theme.TEXT_MUTED};")
-                rows.addWidget(label)
-            for system in systems:
-                box = QCheckBox(system)
-                box.setChecked(system not in hidden)
-                box.toggled.connect(
-                    lambda checked, name=system: self._on_change(name, checked)
-                )
-                rows.addWidget(box)
-                self._boxes.append(box)
-        rows.addStretch(1)
-        scroll.setWidget(body)
-        scroll.setMaximumHeight(560)
-        outer.addWidget(scroll)
+
+        def make_row(system: str) -> QWidget:
+            box = QCheckBox(system)
+            box.setChecked(system not in hidden)
+            box.toggled.connect(lambda checked, name=system: self._on_change(name, checked))
+            self._boxes.append(box)
+            return box
+
+        outer.addWidget(_grouped_body(groups, make_row))
         self.adjustSize()
 
     def _set_all(self, visible: bool) -> None:

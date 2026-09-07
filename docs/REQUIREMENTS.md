@@ -43,9 +43,10 @@ Living record of agreed functionality: what is open, and what has shipped
   The pulse then moves to whichever of the two is still unchosen.
 - Choose system opens instantly (Chris): the menu uses the Overview's
   cached share listing instead of listing the WAN share on every click.
-- The Choose system menu (the box listing the systems) is wider with
-  larger type and bold customer headings; the top buttons are unchanged
-  (Chris, 2026-09-07).
+- Choose system opens the same grouped box as the Overview's Systems
+  filter (shared `ui/system_filter.py`: SystemPickerPopup, one choice,
+  current system highlighted; SystemFilterPopup, many ticks); the top
+  buttons are unchanged (Chris, 2026-09-07).
 - Viewer retention warning (Chris): choosing a day more than 30 days old
   shows "CCTV footage is deleted after 30 days" with a crossed-out camera
   icon where the footage would play (`core/retention.py`, tested
