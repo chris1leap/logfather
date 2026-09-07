@@ -68,6 +68,7 @@
     <a href="#shape">How the system works</a>
     <a href="#engine">The engine</a>
     <a href="#keys">Keys and conventions</a>
+    <a href="#growth">How it grows</a>
     <a href="#schema">The tables</a>
     <a href="#ddl">DDL sketch</a>
     <a href="#tickets">Epics and tickets</a>
@@ -106,6 +107,15 @@
     <li><strong>Lookups are tables, not free text.</strong> Statuses, severities, event types, component types and issue categories are small tables, so a report can group by them and a new value is a row, not a code change.</li>
     <li><strong>Audit columns on every table:</strong> <code>created_at</code>, <code>created_by</code>, <code>updated_at</code>, <code>updated_by</code>; plus a history table per core entity written by the app on every change (django-simple-history), giving the same "as of" queries a temporal table would.</li>
     <li><strong>Names:</strong> singular snake_case table names, UTC timestamps (<code>timestamptz</code>), a <code>notes</code> column where people will inevitably want one.</li>
+  </ul>
+
+  <h2 id="growth">Skeleton first, detail as needed</h2>
+  <p>Neither a full schema agreed up front nor a table added whenever someone asks. The split is by how expensive a change is later.</p>
+  <ul>
+    <li><strong>Agree early,</strong> because it is costly to change once data and other apps depend on it: the core entities and how they relate, the key strategy and reference scheme, the conventions above, and the engine and hosting.</li>
+    <li><strong>Grow piecemeal,</strong> because it is cheap: columns, lookup values, attachments, extra link tables and views. A column is added when someone has a row to put in it, not before. The "columns worth naming" lists below are a starting point, not a contract.</li>
+    <li><strong>Keep change cheap so piecemeal is safe:</strong> every schema change is a versioned migration, the entry screens are generated from the schema so a new column appears without bespoke work, and other apps read views rather than raw tables so a table can be reshaped without breaking them.</li>
+    <li><strong>Watch for the skeleton change in disguise:</strong> splitting one table into two, or moving a column between tables, is not a small edit. It gets a migration plan and a data check.</li>
   </ul>
 
   <h2 id="schema">The tables</h2>
