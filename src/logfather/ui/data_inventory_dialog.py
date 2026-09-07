@@ -142,6 +142,7 @@ class DataInventoryDialog(QDialog):
         intro = QLabel(
             "Here is an overview of the data stored by PikPak systems. "
             "Elastic logs are stored continuously. "
+            "Grafana telemetry is kept for 13 months. "
             "CCTV footage is stored for the last 30 days only (currently)."
         )
         intro.setWordWrap(True)
