@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from logfather.ui import theme
 from logfather.ui.Date_Picker_frontend import DatePicker
+from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.icons import zoom_glyph_icon
 from logfather.ui.Time_Picker import (
@@ -700,6 +701,9 @@ class MainWindow(QWidget):
 
     def on_date_selected(self, pikpak_root: Path | None, day: date | None):
         self.viewer.prepare_for_new_clip(show_loading=False)
+        # Past the share's retention there is nothing to play: say so
+        # where the footage would be (Chris, 2026-09-07).
+        self.viewer.set_footage_notice(FOOTAGE_DELETED_NOTICE if footage_expired(day) else None)
         self.time_picker.show_times(pikpak_root, day)
         self.time_picker.clear_clip_target_rate_heat()
         self._update_current_system_label(pikpak_root, day)

@@ -1865,8 +1865,17 @@ class VideoLogViewer(QWidget):
             self._ocr_sync_prompt_choice = choice
         return choice
 
+    def set_footage_notice(self, text: str | None) -> None:
+        """A warning in the video area instead of footage (Chris,
+        2026-09-07: the chosen day is past the CCTV retention)."""
+        self.video_label.set_notice(text)
+        if self._popout_label is not None:
+            self._popout_label.set_notice(text)
+
     def prepare_for_new_clip(self, show_loading: bool = True):
         self.pause()
+        if show_loading:
+            self.set_footage_notice(None)
         self._cancel_log_future()
         if self.cap is not None:
             self.cap.release()

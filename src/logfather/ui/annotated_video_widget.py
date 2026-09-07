@@ -50,6 +50,9 @@ class AnnotatedVideoWidget(QWidget):
         self._color = QColor("#ffcc00")
         self._placeholder_text = placeholder_text
         self._placeholder_image: QImage | None = None
+        # A warning shown in place of footage (Chris, 2026-09-07: "CCTV
+        # footage is deleted after 30 days"), with a camera icon.
+        self._notice: str | None = None
         self._pending_start: QPointF | None = None
         self._pending_end: QPointF | None = None
         self._editable = True
@@ -81,6 +84,47 @@ class AnnotatedVideoWidget(QWidget):
     def set_placeholder_image(self, image: QImage | None):
         self._placeholder_image = image
         self.update()
+
+    def set_notice(self, text: str | None):
+        self._notice = str(text) if text else None
+        self.update()
+
+    def _paint_notice(self, painter: QPainter) -> None:
+        rect = self.rect()
+        amber = QColor("#e2a53a")
+        size = max(56, min(rect.width(), rect.height()) // 5)
+        cx = rect.center().x()
+        cy = rect.center().y() - size // 3
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(amber)
+        # Camera body, lens hood and wall bracket: a dome-less CCTV camera.
+        body = QRectF(cx - size * 0.55, cy - size * 0.28, size * 0.85, size * 0.4)
+        painter.drawRoundedRect(body, size * 0.06, size * 0.06)
+        hood = QPolygonF([
+            QPointF(cx + size * 0.28, cy - size * 0.22),
+            QPointF(cx + size * 0.62, cy - size * 0.36),
+            QPointF(cx + size * 0.62, cy + size * 0.02),
+            QPointF(cx + size * 0.28, cy + size * 0.1),
+        ])
+        painter.drawPolygon(hood)
+        painter.drawRect(QRectF(cx - size * 0.62, cy - size * 0.02, size * 0.12, size * 0.5))
+        painter.drawRect(QRectF(cx - size * 0.8, cy + size * 0.42, size * 0.5, size * 0.08))
+        painter.setBrush(QColor("#000000"))
+        painter.drawEllipse(QPointF(cx + size * 0.5, cy - size * 0.13), size * 0.07, size * 0.07)
+        # A slash across it: no footage.
+        pen = QPen(QColor("#f25c4c"))
+        pen.setWidthF(max(3.0, size * 0.07))
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(cx - size * 0.7, cy + size * 0.5), QPointF(cx + size * 0.7, cy - size * 0.5))
+        font = QFont(self.font())
+        font.setPointSize(max(12, self.font().pointSize() + 4))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#f3d9a4"))
+        text_rect = QRectF(rect.left() + 16, cy + size * 0.6, rect.width() - 32, size)
+        painter.drawText(text_rect, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, self._notice or "")
 
     def set_annotations(self, annotations: list[dict]):
         self._annotations = list(annotations)
@@ -517,6 +561,10 @@ class AnnotatedVideoWidget(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#000000"))
         if self._frame is None:
+            if self._notice:
+                self._paint_notice(painter)
+                painter.end()
+                return
             if self._placeholder_image is not None and not self._placeholder_image.isNull():
                 img = self._placeholder_image
                 target = self.rect()

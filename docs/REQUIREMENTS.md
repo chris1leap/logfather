@@ -22,6 +22,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ## Shipped
 
+### 2026-09-07
+
+- Viewer retention warning (Chris): choosing a day more than 30 days old
+  shows "CCTV footage is deleted after 30 days" with a crossed-out camera
+  icon where the footage would play (`core/retention.py`, tested
+  boundary); the notice clears when a clip loads.
+
 ### 2026-09-05
 
 - Viewer top bar (Chris): a Choose system button (menu of every system on
