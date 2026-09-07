@@ -611,7 +611,7 @@ class OverviewWidget(QWidget):
         self._prefetch_clips = prefetch_clips
         self.parent_dir: Path | None = None
         self._states: dict[str, OverviewSystemState] = {}
-        self._display_mode = "1h"
+        self._display_mode = "all"  # whole day by default (Chris, 2026-09-07)
         self._last_day: date | None = None
         self._last_refreshed_local: datetime | None = None
         self._latest_event_ts: datetime | None = None
@@ -645,7 +645,7 @@ class OverviewWidget(QWidget):
             btn.setCheckable(True)
             self.range_group.addButton(btn)
             btn.clicked.connect(lambda _checked=False, mode=value: self._set_display_mode(mode))
-        self.one_hour_btn.setChecked(True)
+        self.all_day_btn.setChecked(True)
 
         # Day filter: live today, or one button opening a calendar
         # dialog for a day / span of days (Chris, 2026-09-05).

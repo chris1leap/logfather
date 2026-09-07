@@ -24,6 +24,8 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Overview opens on All Day instead of 1h (Chris, 2026-09-07); 1h and 5h
+  remain a click away.
 - Settings window (Settings / Systems / Readme tabs) is a real window
   with a title-bar close, a Close button, a size grip, and opens sized to
   the screen and centred over the main window (Chris, 2026-09-07: it ran
