@@ -292,6 +292,7 @@ class DataInventoryDialog(QDialog):
         # in one framed box (Chris, 2026-09-05).
         summary_box = QGroupBox(f"{INVENTORY_DAYS} day summary")
         self._summary_box = summary_box
+        self._refresh_day_labels()  # the title follows a range adopted before the box existed
         summary_box.setStyleSheet(
             f"QGroupBox {{ font-weight: bold; margin-top: 16px; padding: 10px 8px 8px 8px;"
             f" border: 1px solid {theme.BORDER_LIGHT}; border-radius: 6px; }}"
