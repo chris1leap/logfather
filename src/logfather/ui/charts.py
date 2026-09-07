@@ -211,10 +211,15 @@ class StackedBarChart(QWidget):
                 h = metrics.height() + 4
                 cx = rect.center().x()
                 y = top - 22 - i * (h + 4)
-                y = max(plot_top - 26, y)
-                tag = QRectF(cx - w / 2, y - h, w, h)
+                if y - h >= 2:
+                    tag = QRectF(cx - w / 2, y - h, w, h)
+                    anchor = QPointF(cx, tag.bottom())
+                else:
+                    # No room above a tall bar: hang the tag beside it.
+                    tag = QRectF(rect.right() + 8, plot_top + 4 + i * (h + 4), w, h)
+                    anchor = QPointF(tag.left(), tag.center().y())
                 painter.setPen(QPen(QColor(theme.ACCENT)))
-                painter.drawLine(QPointF(cx, tag.bottom()), QPointF(cx, rect.center().y()))
+                painter.drawLine(anchor, QPointF(cx, rect.center().y()))
                 painter.setBrush(QBrush(QColor(theme.ACCENT)))
                 painter.setPen(Qt.NoPen)
                 painter.drawRoundedRect(tag, 4, 4)
