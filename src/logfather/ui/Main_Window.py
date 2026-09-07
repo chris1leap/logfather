@@ -177,7 +177,7 @@ class MainWindow(QWidget):
         self.overview_btn.setChecked(True)
         self.overview_btn.setStyleSheet(theme.SEGMENT_LEFT)
         self.viewer_btn = QToolButton()
-        self.viewer_btn.setText("Viewer")
+        self.viewer_btn.setText("System Replay")
         self.viewer_btn.setCheckable(True)
         self.viewer_btn.setStyleSheet(theme.SEGMENT_MID)
         self.fleetwide_search_btn = QToolButton()

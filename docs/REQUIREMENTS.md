@@ -24,6 +24,8 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- The mode switcher's middle button reads "System Replay" instead of
+  "Viewer" (Chris, 2026-09-07); the screen itself is unchanged.
 - Viewer retention warning (Chris): choosing a day more than 30 days old
   shows "CCTV footage is deleted after 30 days" with a crossed-out camera
   icon where the footage would play (`core/retention.py`, tested
