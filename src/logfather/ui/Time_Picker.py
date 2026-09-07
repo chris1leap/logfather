@@ -11,7 +11,7 @@ from typing import Callable, Iterable, Optional, Dict, Tuple, List
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
 from logfather.ui.qt_worker import JobSlot
-from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics
+from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics, QPainterPath
 from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
@@ -150,6 +150,9 @@ class TimePicker(QWidget):
         self._playhead_time: Optional[datetime] = None
         self._ppm = 5
         self._day_start: Optional[datetime] = None
+        # Telemetry row (Chris, 2026-09-07): one summary line (hottest motor)
+        # across the day, fed by the main window once Grafana answers.
+        self._telemetry_summary: Optional[tuple] = None
         self._baseline_y = 28
         self._scale_y = 4
         self._track_labels: Dict[str, object] = {}
@@ -370,6 +373,7 @@ class TimePicker(QWidget):
                 self._video_rects[id(item)] = rect
 
         self._draw_selected_clip_rate_heat()
+        self._draw_telemetry_track(track_map.get("telemetry"), day_start, ppm, total_minutes * ppm)
 
         # Track labels on the left
         self._track_labels = {}
@@ -388,7 +392,7 @@ class TimePicker(QWidget):
             self._track_labels[kind] = label_item
 
             count_val = count_map.get(kind, 0)
-            count_item = self.scene.addText(f"{count_val}")
+            count_item = self.scene.addText("" if kind == "telemetry" else f"{count_val}")
             count_item.setDefaultTextColor(color_map.get(kind, QColor("#cccccc")))
             count_item.setZValue(3)
             self._track_counts[kind] = count_item
@@ -412,6 +416,54 @@ class TimePicker(QWidget):
         self._playhead_time = None
         self._last_cursor_x = None
         self._update_playhead_indicator()
+
+    def set_telemetry_summary(self, summary: Optional[tuple]) -> None:
+        """(Track, unit) for the Telemetry row, or None to clear it."""
+        self._telemetry_summary = summary
+        if self._items and self._current_date:
+            self._redraw_timeline()
+
+    def _draw_telemetry_track(self, y_center: Optional[float], day_start: datetime, ppm: float, scene_width: float) -> None:
+        if y_center is None or not self._telemetry_summary or ppm <= 0:
+            return
+        track, unit = self._telemetry_summary
+        values = [v for v in track.values if v is not None]
+        if not values:
+            return
+        lo, hi = min(values), max(values)
+        if hi - lo < 1e-9:
+            lo, hi = lo - 1.0, hi + 1.0
+        row_h = 18.0
+        top = y_center - row_h / 2
+        day0_ms = day_start.timestamp() * 1000.0
+        path = QPainterPath()
+        pen_down = False
+        last_t = None
+        for t_ms, v in zip(track.times_ms, track.values):
+            if v is None:
+                pen_down = False
+                continue
+            x = max(0.0, min(scene_width, (t_ms - day0_ms) / 60000.0 * ppm))
+            y = top + row_h - (v - lo) / (hi - lo) * row_h
+            # a gap longer than five minutes breaks the line (robot off)
+            if pen_down and last_t is not None and t_ms - last_t > 5 * 60000:
+                pen_down = False
+            if pen_down:
+                path.lineTo(x, y)
+            else:
+                path.moveTo(x, y)
+                pen_down = True
+            last_t = t_ms
+        pen = QPen(QColor("#ff8a65"))
+        pen.setWidthF(1.3)
+        pen.setCosmetic(True)
+        item = self.scene.addPath(path, pen)
+        item.setZValue(2)
+        item.setAcceptedMouseButtons(Qt.NoButton)
+        item.setToolTip(f"{track.name}: {lo:.0f}–{hi:.0f}{unit} through the day. Values at any time: Telemetry tab.")
+        base = self.scene.addLine(0, top + row_h, scene_width, top + row_h, QPen(QColor("#3a3a3a")))
+        base.setZValue(1)
+        base.setAcceptedMouseButtons(Qt.NoButton)
 
     def _refresh_clicked(self):
         self.show_times(self._current_root, self._current_date)

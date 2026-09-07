@@ -33,6 +33,10 @@ Living record of agreed functionality: what is open, and what has shipped
   track. `core/telemetry.py` (pure), `data/telemetry_loader.py`,
   `ui/telemetry_strip.py`. The Data sources Grafana Test also probes the
   telemetry source and names the permission to grant when it is denied.
+- Telemetry row on the day timeline (Chris, 2026-09-07): a "Telemetry"
+  track under SKU draws the hottest motor's temperature through the day
+  (CPU temperature when a system has no motor readings), breaking at gaps
+  over five minutes; hover it for the day's range, the tab for values.
 - Gear menu on every window (Chris, 2026-09-07): the top-right button on
   the main window, Errors / Stops, Data and Software is the same gear
   (`ui/gear_menu.py`) with Data sources, Settings, Systems, Readme, the

@@ -145,6 +145,42 @@ def _motor_sort(key: str):
     return (0, int(key)) if key.isdigit() else (1, key)
 
 
+def max_across(tracks: Iterable[Track], name: str, spec_key: str = "") -> Optional[Track]:
+    """One track holding, at each sample time, the highest value across the
+    given tracks (the hottest motor at that moment)."""
+    best: dict[int, float] = {}
+    for t in tracks:
+        for time_ms, v in zip(t.times_ms, t.values):
+            if v is None:
+                continue
+            if time_ms not in best or v > best[time_ms]:
+                best[time_ms] = v
+    if not best:
+        return None
+    times = sorted(best)
+    return Track(name, times, [best[t] for t in times], spec_key)
+
+
+def summary_track(data: Optional[TelemetryDay]) -> Optional[tuple[Track, str]]:
+    """The one line worth a timeline row: the hottest motor through the
+    day, or the CPU temperature when the system has no motor readings.
+    Returns (track, unit)."""
+    if data is None:
+        return None
+    by_name = {g.name: g for g in data.groups}
+    motors = by_name.get("Motor temperatures")
+    if motors and motors.tracks:
+        track = max_across(motors.tracks, "Hottest motor", "motor_temp")
+        if track is not None:
+            return track, motors.unit
+    temps = by_name.get("Temperatures")
+    if temps:
+        for t in temps.tracks:
+            if t.spec_key == "cpu_temp":
+                return Track("CPU temperature", t.times_ms, t.values, t.spec_key), temps.unit
+    return None
+
+
 def downsample(times_ms: list[int], values: list[Optional[float]], t0: int, t1: int, columns: int) -> list[tuple[int, float, float]]:
     """Per pixel column: (column, min, max) of the samples that fall in it.
     Painting this instead of ~2,900 points keeps a resize instant."""

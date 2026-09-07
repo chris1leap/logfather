@@ -42,6 +42,7 @@ from logfather.ui.telemetry_strip import TelemetryPanel
 from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.data.telemetry_loader import fetch_telemetry_day
+from logfather.core.telemetry import summary_track
 from logfather.ui.pulse import Pulser
 from logfather.ui.Time_Picker import (
     TimePicker,
@@ -767,6 +768,7 @@ class MainWindow(QWidget):
             ("video", "Video", "#cce5ff"),
             ("additional", "Additional CCTV", "#9fb3c8"),
             ("sku", "SKU", "#8fd19e"),
+            ("telemetry", "Telemetry", "#ff8a65"),
         ]
         for idx, cond in enumerate(self.settings.conditions):
             kind = f"cond_{idx}"
@@ -792,6 +794,7 @@ class MainWindow(QWidget):
     def _load_telemetry(self, pikpak_root: Path | None, day: date | None) -> None:
         panel = self.telemetry_panel
         panel.set_playhead(None)
+        self.time_picker.set_telemetry_summary(None)
         if not isinstance(pikpak_root, Path) or day is None:
             panel.set_data(None, "Choose a system and a day.")
             return
@@ -806,9 +809,13 @@ class MainWindow(QWidget):
         settings = self.settings
         self._telemetry_slot.start(
             lambda job: fetch_telemetry_day(settings, robot, day, job),
-            on_result=lambda data: panel.set_data(data),
+            on_result=self._on_telemetry_loaded,
             on_error=lambda message: panel.set_data(None, f"Telemetry failed: {message}"),
         )
+
+    def _on_telemetry_loaded(self, data) -> None:
+        self.telemetry_panel.set_data(data)
+        self.time_picker.set_telemetry_summary(summary_track(data))
 
     def _update_current_system_label(self, pikpak_root: Path | None, day: date | None = None):
         if not isinstance(pikpak_root, Path):

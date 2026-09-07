@@ -80,3 +80,24 @@ def test_track_value_at_uses_sample_tolerance():
     t = Track("a", [0, 30_000], [1.0, 2.0])
     assert t.value_at(31_000) == 2.0
     assert t.value_at(10 * 60_000) is None
+
+
+def test_summary_track_prefers_hottest_motor_then_cpu():
+    from logfather.core.telemetry import TelemetryDay, TrackGroup, max_across, summary_track
+
+    motors = TrackGroup("Motor temperatures", "°C", [
+        Track("Motor 1", [0, 30_000, 60_000], [20.0, 35.0, None]),
+        Track("Motor 2", [0, 30_000, 60_000], [25.0, 30.0, 28.0]),
+    ])
+    temps = TrackGroup("Temperatures", "°C", [Track("CPU", [0, 30_000], [40.0, 41.0], "cpu_temp")])
+    data = TelemetryDay("35-2300-007", 0, 86_400_000, [temps, motors])
+    track, unit = summary_track(data)
+    assert unit == "°C" and track.name == "Hottest motor"
+    assert track.times_ms == [0, 30_000, 60_000]
+    assert track.values == [25.0, 35.0, 28.0]
+
+    only_temps = TelemetryDay("35-2300-007", 0, 86_400_000, [temps])
+    track, _ = summary_track(only_temps)
+    assert track.name == "CPU temperature" and track.values == [40.0, 41.0]
+    assert summary_track(None) is None
+    assert max_across([], "x") is None
