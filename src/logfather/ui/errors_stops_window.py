@@ -344,7 +344,7 @@ class ErrorsStopsWindow(QDialog):
         else:
             self.pick_days_btn.setText(f"{start:%d/%m} – {end:%d/%m/%Y}")
         count = len(self._hidden)
-        self.filter_btn.setText("Filter" if not count else f"Filter ({count} hidden)")
+        self.filter_btn.setText("Systems" if not count else f"Systems ({count} hidden)")
 
     def _on_live(self):
         today = datetime.now().date()

@@ -1052,7 +1052,7 @@ class OverviewWidget(QWidget):
 
     def _refresh_filter_label(self):
         count = len(self._hidden_systems)
-        self.filter_btn.setText("Filter" if not count else f"Filter ({count} hidden)")
+        self.filter_btn.setText("Systems" if not count else f"Systems ({count} hidden)")
 
     def _on_filter_closed(self):
         # Reload once the popup closes, not per tick: the selection

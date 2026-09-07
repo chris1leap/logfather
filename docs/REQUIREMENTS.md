@@ -31,6 +31,9 @@ Living record of agreed functionality: what is open, and what has shipped
 - Viewer Choose system button (Chris): funnel icon at the start; reads
   "Customer / PikPakNNN" with no line name, and the menu lists systems by
   name only.
+- The system filter button reads "Systems" (with the funnel icon) on the
+  Overview, and for consistency in Errors / Stops and the Data window
+  (Chris, 2026-09-07).
 
 ### 2026-09-05
 
