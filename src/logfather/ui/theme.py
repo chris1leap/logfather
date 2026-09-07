@@ -176,6 +176,11 @@ OVERFLOW_BUTTON = (
     "QToolButton { font-weight: bold; padding: 4px 13px; }"
     "QToolButton::menu-indicator { image: none; }"
 )
+# Gear button top-right on every window (Chris, 2026-09-07).
+GEAR_BUTTON = (
+    "QToolButton { padding: 3px 7px; }"
+    "QToolButton::menu-indicator { image: none; }"
+)
 
 # "v0.207 available · Restart" pill in the top bar (Chris, 2026-09-07).
 UPDATE_PILL = (

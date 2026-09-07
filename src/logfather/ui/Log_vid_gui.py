@@ -988,16 +988,10 @@ class VideoLogViewer(QWidget):
         self._pin_btn.setToolTip("Pin panel open")
         self._pin_btn.setStyleSheet(theme.PIN_BUTTON)
         self._pin_btn.toggled.connect(self._on_pin_toggled)
-        self._gear_btn = QPushButton("⚙")
-        self._gear_btn.setFixedSize(32, 28)
-        self._gear_btn.setToolTip("Settings, Systems and Readme")
-        self._gear_btn.setStyleSheet(theme.PIN_BUTTON)
-        self._gear_btn.clicked.connect(self._open_config_dialog)
         corner = QWidget()
         corner_layout = QHBoxLayout(corner)
         corner_layout.setContentsMargins(0, 0, 0, 0)
         corner_layout.setSpacing(2)
-        corner_layout.addWidget(self._gear_btn)
         corner_layout.addWidget(self._pin_btn)
         self.right_tabs.setCornerWidget(corner, Qt.TopRightCorner)
 
@@ -1005,6 +999,22 @@ class VideoLogViewer(QWidget):
         self._config_dialog.show()
         self._config_dialog.raise_()
         self._config_dialog.activateWindow()
+
+    def open_config_tab(self, name: str) -> None:
+        """Open the Settings dialog on the named tab (gear menu, 2026-09-07)."""
+        for i in range(self._config_tabs.count()):
+            if self._config_tabs.tabText(i) == name:
+                self._config_tabs.setCurrentIndex(i)
+                break
+        self._open_config_dialog()
+
+    def open_data_sources(self) -> None:
+        """CCTV share, Elastic and Grafana in one dialog; saving runs the
+        same flush as the Settings tab so the main window reloads."""
+        from logfather.ui.data_sources_dialog import DataSourcesDialog
+
+        dlg = DataSourcesDialog(self.settings, self._flush_settings_autosave, self)
+        dlg.exec()
 
     def _assemble_and_wire(self):
         """Mount everything into the root layout; final wiring that spans

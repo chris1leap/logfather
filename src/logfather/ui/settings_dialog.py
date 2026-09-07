@@ -41,31 +41,13 @@ class SettingsPanel(QWidget):
         super().__init__(parent)
         self.settings = settings
 
-        self.parent_path_edit = QLineEdit(settings.last_parent or "")
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self.browse_parent)
-        parent_row = QHBoxLayout()
-        parent_row.addWidget(self.parent_path_edit)
-        parent_row.addWidget(browse_btn)
-
-        self.elastic_url_edit = QLineEdit(settings.elastic_url or "")
-        self.elastic_key_edit = QLineEdit(settings.elastic_api_key or "")
-        self.elastic_key_edit.setEchoMode(QLineEdit.Password)
-        self.grafana_url_edit = QLineEdit(settings.grafana_url or "")
-        self.grafana_url_edit.setPlaceholderText("https://leapmonitoring.grafana.net")
-        self.grafana_token_edit = QLineEdit(settings.grafana_token or "")
-        self.grafana_token_edit.setEchoMode(QLineEdit.Password)
-        self.grafana_token_edit.setPlaceholderText("service account token (Viewer role)")
+        # The CCTV share, Elastic and Grafana fields live in the Data sources
+        # dialog (gear menu) since 2026-09-07; this panel keeps the rest.
         self.auto_ocr_sync_checkbox = QCheckBox("Auto-sync logs using OCR")
         self.auto_ocr_sync_checkbox.setChecked(bool(settings.auto_ocr_sync))
         # Single OCR toggle: auto-sync. Auto-open is tied to the same setting.
 
         form = QFormLayout()
-        form.addRow("PikPak parent", parent_row)
-        form.addRow("Elastic URL", self.elastic_url_edit)
-        form.addRow("Elastic API key", self.elastic_key_edit)
-        form.addRow("Grafana URL", self.grafana_url_edit)
-        form.addRow("Grafana token", self.grafana_token_edit)
         form.addRow("", self.auto_ocr_sync_checkbox)
 
         # Conditions grid
@@ -96,33 +78,16 @@ class SettingsPanel(QWidget):
         condition_scroll.setMinimumHeight(300)
         layout.addWidget(condition_scroll, 1)
         self.setLayout(layout)
-        self.parent_path_edit.textChanged.connect(self.changed.emit)
-        self.parent_path_edit.editingFinished.connect(self.save_requested.emit)
-        self.elastic_url_edit.textChanged.connect(self.changed.emit)
-        self.elastic_key_edit.textChanged.connect(self.changed.emit)
-        self.grafana_url_edit.textChanged.connect(self.changed.emit)
-        self.grafana_token_edit.textChanged.connect(self.changed.emit)
         self.auto_ocr_sync_checkbox.toggled.connect(self.changed.emit)
         for edit in self.condition_name_edits:
             edit.textChanged.connect(self.changed.emit)
         for edit in self.condition_query_edits:
             edit.textChanged.connect(self.changed.emit)
 
-    def browse_parent(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select PikPak parent folder")
-        if folder:
-            self.parent_path_edit.setText(folder)
-            self.save_requested.emit()
-
     def reload_from_settings(self):
         # Refresh all editable widgets from self.settings without firing change
         # signals (so we don't trigger an autosave loop).
         widgets = [
-            self.parent_path_edit,
-            self.elastic_url_edit,
-            self.elastic_key_edit,
-            self.grafana_url_edit,
-            self.grafana_token_edit,
             self.auto_ocr_sync_checkbox,
             *self.condition_name_edits,
             *self.condition_query_edits,
@@ -130,11 +95,6 @@ class SettingsPanel(QWidget):
         for w in widgets:
             w.blockSignals(True)
         try:
-            self.parent_path_edit.setText(self.settings.last_parent or "")
-            self.elastic_url_edit.setText(self.settings.elastic_url or "")
-            self.elastic_key_edit.setText(self.settings.elastic_api_key or "")
-            self.grafana_url_edit.setText(self.settings.grafana_url or "")
-            self.grafana_token_edit.setText(self.settings.grafana_token or "")
             self.auto_ocr_sync_checkbox.setChecked(bool(self.settings.auto_ocr_sync))
             for i, (name_edit, query_edit) in enumerate(zip(self.condition_name_edits, self.condition_query_edits)):
                 cond = self.settings.conditions[i] if i < len(self.settings.conditions) else Condition()
@@ -145,12 +105,8 @@ class SettingsPanel(QWidget):
                 w.blockSignals(False)
 
     def apply_to(self, settings: Settings):
-        parent_path = self.parent_path_edit.text().strip()
-        settings.last_parent = parent_path or None
-        settings.elastic_url = self.elastic_url_edit.text().strip() or None
-        settings.elastic_api_key = self.elastic_key_edit.text().strip() or None
-        settings.grafana_url = self.grafana_url_edit.text().strip() or None
-        settings.grafana_token = self.grafana_token_edit.text().strip() or None
+        # last_parent / Elastic / Grafana are owned by the Data sources
+        # dialog and left untouched here.
         settings.auto_ocr_sync = bool(self.auto_ocr_sync_checkbox.isChecked())
         settings.auto_ocr_open_on_missing = settings.auto_ocr_sync
 

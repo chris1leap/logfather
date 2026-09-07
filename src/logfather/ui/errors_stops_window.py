@@ -42,6 +42,7 @@ from logfather.data.settings_store import display_customer_name, system_group_so
 from logfather.data.software_history import system_display_name
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
+from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.chart_scroll import ChartScroller
 from logfather.ui.icons import calendar_icon
 from logfather.ui.charts import StackedBarChart
@@ -76,8 +77,10 @@ class ErrorsStopsWindow(QDialog):
         known_systems_provider: Callable[[], list[str]],
         parent=None,
         open_system: Callable[[str, date], None] | None = None,
+        gear_host=None,
     ):
         super().__init__(parent)
+        self._gear_host = gear_host
         self.setWindowTitle("Errors / Stops")
         self.setWindowFlags(Qt.Window | Qt.WindowTitleHint | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
         self.setSizeGripEnabled(True)
@@ -160,18 +163,21 @@ class ErrorsStopsWindow(QDialog):
         self._zoom_slot_layout = controls  # zoom buttons are added once the charts exist
         self._zoom_slot_index = controls.count()
         controls.addSpacing(8)
-        self._menu_btn = QToolButton()
-        self._menu_btn.setText("⋯")
-        self._menu_btn.setStyleSheet(theme.OVERFLOW_BUTTON)
-        self._menu_btn.setPopupMode(QToolButton.InstantPopup)
-        self._menu_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        menu = QMenu(self._menu_btn)
         self._show_key_action = QAction("Show PikPak key", self)
         self._show_key_action.setCheckable(True)
         self._show_key_action.setChecked(self._show_key)
         self._show_key_action.toggled.connect(self._on_show_key_toggled)
-        menu.addAction(self._show_key_action)
-        self._menu_btn.setMenu(menu)
+        if self._gear_host is not None:
+            self._menu_btn = build_gear_button(self, self._gear_host, [self._show_key_action])
+        else:
+            self._menu_btn = QToolButton()
+            self._menu_btn.setText("⋯")
+            self._menu_btn.setStyleSheet(theme.OVERFLOW_BUTTON)
+            self._menu_btn.setPopupMode(QToolButton.InstantPopup)
+            menu = QMenu(self._menu_btn)
+            menu.addAction(self._show_key_action)
+            self._menu_btn.setMenu(menu)
+        self._menu_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         controls.addWidget(self._menu_btn)
         layout.addLayout(controls)
 

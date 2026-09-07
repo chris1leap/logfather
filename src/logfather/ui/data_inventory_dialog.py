@@ -52,6 +52,7 @@ from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.data.settings_store import display_customer_name, system_group_sort_key
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
+from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.chart_scroll import ChartScroller
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.elastic_catalog_dialog import ElasticCatalogDialog
@@ -90,8 +91,10 @@ class DataInventoryDialog(QDialog):
         settings_provider: Callable,
         parent_dir_provider: Callable[[], Path | None],
         parent=None,
+        gear_host=None,
     ):
         super().__init__(parent)
+        self._gear_host = gear_host
         self.setWindowTitle("Data — fleet inventory")
         # A real resizable window with minimise/maximise, not a fixed
         # dialog (Chris, 2026-09-05); the chart stretches to fill it.
@@ -213,6 +216,8 @@ class DataInventoryDialog(QDialog):
             controls.addWidget(btn)
         self._norm_buttons["total"].setChecked(True)
         controls.addStretch(1)
+        if self._gear_host is not None:
+            controls.addWidget(build_gear_button(self, self._gear_host))
         # Second row (Chris, 2026-09-07: one row squeezed the buttons until
         # their text was cut off): hint, status, Last updated, Refresh, Zoom.
         controls2 = QHBoxLayout()

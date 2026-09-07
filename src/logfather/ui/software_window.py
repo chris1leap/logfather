@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from logfather.data.software_history import PACKAGES, SystemSoftware, commit_owners, fetch_software_history
 from logfather.ui import theme
+from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.qt_worker import JobSlot
 
 _RANGES = ((30, "30 days"), (90, "90 days"), (182, "6 months"), (365, "1 year"))
@@ -181,8 +182,9 @@ class _TimelineWidget(QWidget):
 
 
 class SoftwareWindow(QDialog):
-    def __init__(self, settings_provider: Callable, parent=None):
+    def __init__(self, settings_provider: Callable, parent=None, gear_host=None):
         super().__init__(parent)
+        self._gear_host = gear_host
         self.setWindowTitle("Software — versions and commits per system")
         self.setWindowFlags(Qt.Window | Qt.WindowTitleHint | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
         self.setSizeGripEnabled(True)
@@ -234,6 +236,9 @@ class SoftwareWindow(QDialog):
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.clicked.connect(self.start)
         controls.addWidget(self._refresh_btn)
+        if self._gear_host is not None:
+            controls.addSpacing(8)
+            controls.addWidget(build_gear_button(self, self._gear_host))
         layout.addLayout(controls)
 
         self._timeline = _TimelineWidget()

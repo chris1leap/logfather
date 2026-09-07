@@ -1,6 +1,8 @@
 """Small painted icons shared by windows (no image files to ship)."""
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 
@@ -21,6 +23,32 @@ def zoom_glyph_icon(kind: str, size: int = 24) -> QIcon:
     painter.drawRect(QRectF(s * 0.20, (s - bar) / 2, s * 0.60, bar))
     if kind == "plus":
         painter.drawRect(QRectF((s - bar) / 2, s * 0.20, bar, s * 0.60))
+    painter.end()
+    return QIcon(pm)
+
+
+def gear_icon(size: int = 24) -> QIcon:
+    """A settings gear: a ring with eight teeth and a hole (Chris,
+    2026-09-07: the same gear top-right on every window)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    s = float(size)
+    c = QPointF(s / 2, s / 2)
+    tooth = QPen(QColor(theme.TEXT_BRIGHT))
+    tooth.setWidthF(s * 0.16)
+    tooth.setCapStyle(Qt.FlatCap)
+    painter.setPen(tooth)
+    for i in range(8):
+        a = math.radians(i * 45)
+        painter.drawLine(QPointF(c.x() + math.cos(a) * s * 0.28, c.y() + math.sin(a) * s * 0.28),
+                         QPointF(c.x() + math.cos(a) * s * 0.46, c.y() + math.sin(a) * s * 0.46))
+    ring = QPen(QColor(theme.TEXT_BRIGHT))
+    ring.setWidthF(s * 0.17)
+    painter.setPen(ring)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawEllipse(c, s * 0.245, s * 0.245)
     painter.end()
     return QIcon(pm)
 

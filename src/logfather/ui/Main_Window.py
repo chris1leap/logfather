@@ -36,7 +36,8 @@ from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
 from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import SystemPickerPopup, funnel_icon
-from logfather.ui.icons import calendar_icon, zoom_glyph_icon
+from logfather.ui.icons import calendar_icon
+from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.pulse import Pulser
 from logfather.ui.Time_Picker import (
     TimePicker,
@@ -371,18 +372,11 @@ class MainWindow(QWidget):
         self.errors_btn.clicked.connect(self._open_errors_window)
         self._errors_window: ErrorsStopsWindow | None = None
 
-        # Rarely-used items live behind "⋯" instead of permanent buttons.
-        self.overflow_btn = QToolButton()
-        self.overflow_btn.setText("⋯")
-        self.overflow_btn.setStyleSheet(theme.OVERFLOW_BUTTON)
-        self.overflow_btn.setPopupMode(QToolButton.InstantPopup)
-        self.overflow_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        overflow_menu = QMenu(self.overflow_btn)
-        # Zoom: scales the application font (text + buttons) live and is
-        # remembered per user (Chris, 2026-09-05). One menu row:
-        # (-) Zoom (+). Shortcuts (Ctrl+= / Ctrl+- / Ctrl+0) stay as hidden
+        # One gear top-right on every window (Chris, 2026-09-07): Data
+        # sources, Settings, Systems, Readme, the zoom row and About. The
+        # zoom shortcuts (Ctrl+= / Ctrl+- / Ctrl+0) stay as hidden
         # application-wide actions so they work without opening the menu.
-        overflow_menu.addAction(self._build_zoom_row_action(overflow_menu))
+        self.gear_btn = build_gear_button(self, self)
         for delta, shortcut in (
             (theme.ZOOM_STEP, "Ctrl+="),
             (-theme.ZOOM_STEP, "Ctrl+-"),
@@ -393,10 +387,6 @@ class MainWindow(QWidget):
             action.setShortcutContext(Qt.ApplicationShortcut)
             action.triggered.connect(lambda _checked=False, d=delta: self._change_zoom(d))
             self.addAction(action)
-        overflow_menu.addSeparator()
-        overflow_menu.addAction("About", self._open_about_dialog)
-        self._refresh_zoom_label()
-        self.overflow_btn.setMenu(overflow_menu)
 
         top_controls.addStretch(1)
         top_controls.addWidget(self.calibrate_btn, 0, Qt.AlignRight)
@@ -414,7 +404,7 @@ class MainWindow(QWidget):
         self.update_btn.clicked.connect(self._restart_for_update)
         self.update_btn.hide()
         top_controls.addWidget(self.update_btn, 0, Qt.AlignRight)
-        top_controls.addWidget(self.overflow_btn, 0, Qt.AlignRight)
+        top_controls.addWidget(self.gear_btn, 0, Qt.AlignRight)
         self._update_slot = JobSlot(self)
         self._update_info: dict | None = None
         self._update_timer = QTimer(self)
@@ -609,50 +599,26 @@ class MainWindow(QWidget):
     def _change_zoom(self, delta: float) -> None:
         target = 1.0 if delta == 0.0 else theme.zoom_factor() + delta
         theme.set_zoom(QApplication.instance(), target)
-        self._refresh_zoom_label()
         self.overview_widget.refresh_layout()
 
-    def _build_zoom_row_action(self, menu: QMenu) -> QWidgetAction:
-        """Single menu row: (-) Zoom (+). The buttons keep the menu open so
-        several steps can be taken in a row."""
-        row = QWidget(menu)
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(12, 4, 12, 4)
-        layout.setSpacing(10)
+    # ---- gear menu host (every window forwards here) --------------------
+    def open_data_sources(self) -> None:
+        self.viewer.open_data_sources()
 
-        def circle_button(text: str, delta: float, tip: str) -> QToolButton:
-            btn = QToolButton(row)
-            # Drawn glyphs, not text: the font's "+" and minus sit at
-            # different heights, so text was never dead-centre in the
-            # circle (Chris, 2026-09-05). Qt centres an icon exactly.
-            btn.setIcon(zoom_glyph_icon("plus" if text == "+" else "minus"))
-            btn.setIconSize(QSize(theme.ZOOM_CIRCLE_SIZE - 10, theme.ZOOM_CIRCLE_SIZE - 10))
-            btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
-            btn.setToolTip(tip)
-            btn.setAutoRaise(True)
-            btn.setStyleSheet(theme.ZOOM_CIRCLE_BUTTON)
-            btn.setFixedSize(theme.ZOOM_CIRCLE_SIZE, theme.ZOOM_CIRCLE_SIZE)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda _checked=False, d=delta: self._change_zoom(d))
-            return btn
+    def open_settings(self) -> None:
+        self.viewer.open_config_tab("Settings")
 
-        self._zoom_out_btn = circle_button("−", -theme.ZOOM_STEP, "Zoom out (Ctrl+-)")
-        self._zoom_label = QLabel("Zoom", row)
-        self._zoom_label.setAlignment(Qt.AlignCenter)
-        self._zoom_in_btn = circle_button("+", theme.ZOOM_STEP, "Zoom in (Ctrl+=)")
-        layout.addWidget(self._zoom_out_btn)
-        layout.addWidget(self._zoom_label, 1)
-        layout.addWidget(self._zoom_in_btn)
+    def open_systems(self) -> None:
+        self.viewer.open_config_tab("Systems")
 
-        action = QWidgetAction(menu)
-        action.setDefaultWidget(row)
-        return action
+    def open_readme(self) -> None:
+        self.viewer.open_config_tab("Readme")
 
-    def _refresh_zoom_label(self) -> None:
-        pct = f"{theme.zoom_factor() * 100:.0f}%"
-        self._zoom_label.setToolTip(f"Current zoom {pct}. Ctrl+0 resets to 100%.")
-        self._zoom_out_btn.setEnabled(theme.zoom_factor() > theme.ZOOM_MIN)
-        self._zoom_in_btn.setEnabled(theme.zoom_factor() < theme.ZOOM_MAX)
+    def change_zoom(self, delta: float) -> None:
+        self._change_zoom(delta)
+
+    def open_about(self) -> None:
+        self._open_about_dialog()
 
     def _open_data_dialog(self):
         if self._data_dialog is None:
@@ -660,6 +626,7 @@ class MainWindow(QWidget):
                 settings_provider=lambda: self.settings,
                 parent_dir_provider=lambda: self.date_picker.parent_dir,
                 parent=self,
+                gear_host=self,
             )
         self._data_dialog.show()
         self._data_dialog.raise_()
@@ -681,6 +648,7 @@ class MainWindow(QWidget):
                 known_systems_provider=self.overview_widget._known_system_names,
                 parent=self,
                 open_system=self._open_system_from_errors,
+                gear_host=self,
             )
         self._errors_window.show()
         self._errors_window.raise_()
@@ -689,7 +657,7 @@ class MainWindow(QWidget):
 
     def _open_software_window(self):
         if self._software_window is None:
-            self._software_window = SoftwareWindow(settings_provider=lambda: self.settings, parent=self)
+            self._software_window = SoftwareWindow(settings_provider=lambda: self.settings, parent=self, gear_host=self)
         self._software_window.show()
         self._software_window.raise_()
         self._software_window.activateWindow()

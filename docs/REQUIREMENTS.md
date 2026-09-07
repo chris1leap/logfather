@@ -31,6 +31,14 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-07
 
+- Gear menu on every window (Chris, 2026-09-07): the top-right button on
+  the main window, Errors / Stops, Data and Software is the same gear
+  (`ui/gear_menu.py`) with Data sources, Settings, Systems, Readme, the
+  zoom row and About; Errors / Stops keeps "Show PikPak key" above them.
+  The old "⋯" overflow and the gear in the System Replay tab corner are
+  gone. **Data sources** (`ui/data_sources_dialog.py`) holds the CCTV
+  share, Elastic URL + API key and Grafana URL + token, each with a Test
+  button that runs off the UI thread; those fields left the Settings tab.
 - Grafana groundwork (Chris, 2026-09-07): Settings gains Grafana URL and
   Grafana token (a service-account token, stored like the Elastic key and
   never exported); `core/grafana.py` parses dashboard JSON (panels in
