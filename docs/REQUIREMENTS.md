@@ -33,7 +33,16 @@ Living record of agreed functionality: what is open, and what has shipped
   name only.
 - The system filter button reads "Systems" (with the funnel icon) on the
   Overview, and for consistency in Errors / Stops and the Data window
-  (Chris, 2026-09-07).
+  (Chris, 2026-09-07); it is never elided, so "(N hidden)" stays whole.
+- Data window scrolling (Chris): the same left / right arrows, zoom + / -
+  and scrollbar as Errors / Stops (shared `ui/chart_scroll.py`); the
+  chart opens on 14 days and scrolling past the oldest day loads seven
+  more (hatched until they arrive), up to 90; the newest day is always
+  today. The Elastic cache serves already-counted days.
+- Data window tiles (Chris): the ? floats in the Elastic tile's corner so
+  both tiles share the same spacing and the totals line up; the long
+  summary lines under the tiles are gone, replaced by one short "Last 14
+  days: ..." line at the foot of each tile.
 
 ### 2026-09-05
 

@@ -42,16 +42,14 @@ from logfather.data.settings_store import display_customer_name, system_group_so
 from logfather.data.software_history import system_display_name
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
+from logfather.ui.chart_scroll import ChartScroller
 from logfather.ui.charts import StackedBarChart
 from logfather.ui.day_range_dialog import MAX_RANGE_DAYS, DayRangeDialog, live_button_text
-from logfather.ui.icons import arrow_icon, zoom_glyph_icon
 from logfather.ui.qt_worker import JobSlot
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _HIDDEN_KEY = "errors_hidden_systems"
 _SHOW_KEY_KEY = "errors_show_key"
-_ZOOM_STEP = 1.25
-_NUDGE_FRACTION = 0.2
 
 # Stop kinds keep their meaning in colour: red-ish for emergency, amber
 # for protective, blue for operator, yellow for caution (all pastel).
@@ -94,18 +92,12 @@ class ErrorsStopsWindow(QDialog):
         self._data: ErrorsStopsData | None = None
         self._pending: set[date] = set()
         self._extending: tuple[date, date] | None = None
-        self._syncing_scroll = False
         self._started = False
         today = datetime.now().date()
         self._day_range: tuple[date, date] = (today - timedelta(days=6), today)
         stored = load_ui_state().get(_HIDDEN_KEY)
         self._hidden: set[str] = {str(n) for n in stored if str(n).strip()} if isinstance(stored, list) else set()
         self._filter_dirty = False
-        # Width per day in pixels: a freshly chosen range is fitted to the
-        # screen, then the width is locked so loading more days scrolls
-        # instead of shrinking the bars; only the Zoom + / - change it
-        # (Chris, 2026-09-06). None = fit on the next render.
-        self._slot_px: float | None = None
         # The per-system key is off by default; the top-right menu turns
         # it on (Chris, 2026-09-06). Remembered per user.
         self._show_key = bool(load_ui_state().get(_SHOW_KEY_KEY, False))
@@ -130,6 +122,7 @@ class ErrorsStopsWindow(QDialog):
         self.filter_btn.setIconSize(QSize(18, 18))
         self.filter_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.filter_btn.setToolTip("Choose which systems to include")
+        self.filter_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.filter_btn.clicked.connect(self._open_filter)
         controls.addWidget(self.filter_btn)
         controls.addSpacing(12)
@@ -160,10 +153,8 @@ class ErrorsStopsWindow(QDialog):
         zoom_label = QLabel("Zoom")
         zoom_label.setStyleSheet(theme.MUTED_LABEL)
         controls.addWidget(zoom_label)
-        self._zoom_out_btn = self._zoom_button("minus", "Fewer pixels per day: more days on screen", -1)
-        self._zoom_in_btn = self._zoom_button("plus", "More pixels per day: fewer days on screen", +1)
-        controls.addWidget(self._zoom_out_btn)
-        controls.addWidget(self._zoom_in_btn)
+        self._zoom_slot_layout = controls  # zoom buttons are added once the charts exist
+        self._zoom_slot_index = controls.count()
         controls.addSpacing(8)
         self._menu_btn = QToolButton()
         self._menu_btn.setText("⋯")
@@ -196,8 +187,6 @@ class ErrorsStopsWindow(QDialog):
         self._stops_chart.set_click_handler(self._on_bar_clicked)
         self._stops_legend = QLabel("")
         self._stops_legend.setVisible(self._show_key)
-        layout.addWidget(self._boxed("Line stoppages per day", self._stops_legend, self._stops_chart, arrows=True), 3)
-
         self._errors_chart = StackedBarChart()
         self._errors_chart.setMinimumHeight(220)
         self._errors_chart.set_grouped(True)
@@ -205,16 +194,19 @@ class ErrorsStopsWindow(QDialog):
         self._errors_chart.set_click_handler(self._on_bar_clicked)
         self._errors_legend = QLabel("")
         self._errors_legend.setVisible(self._show_key)
+        # One scrollbar, one width per day and one set of arrows / zoom
+        # for both charts (shared ChartScroller); pushing past an end
+        # loads seven more days.
+        self._scroller = ChartScroller([self._stops_chart, self._errors_chart], self._render, self)
+        self._scroller.edge_reached.connect(self._on_edge)
+        self._zoom_out_btn = self._scroller.zoom_button("minus", "Fewer pixels per day: more days on screen", -1)
+        self._zoom_in_btn = self._scroller.zoom_button("plus", "More pixels per day: fewer days on screen", +1)
+        self._zoom_slot_layout.insertWidget(self._zoom_slot_index, self._zoom_out_btn)
+        self._zoom_slot_layout.insertWidget(self._zoom_slot_index + 1, self._zoom_in_btn)
+        layout.addWidget(self._boxed("Line stoppages per day", self._stops_legend, self._stops_chart, arrows=True), 3)
+
         layout.addWidget(self._boxed("Errors per day", self._errors_legend, self._errors_chart, arrows=True), 3)
-        # One scrollbar drives both charts; the wheel over either chart
-        # scrolls too, and pushing past an end loads seven more days.
-        self._scrollbar = QScrollBar(Qt.Horizontal)
-        self._scrollbar.setToolTip("Scroll through the days; keep going past the end to load more")
-        self._scrollbar.valueChanged.connect(self._on_scrollbar)
-        layout.addWidget(self._scrollbar)
-        for chart in (self._stops_chart, self._errors_chart):
-            chart.scroll_changed.connect(self._on_chart_scrolled)
-            chart.edge_reached.connect(self._on_edge)
+        layout.addWidget(self._scroller.scrollbar)
 
         self._table = QTableWidget()
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -227,42 +219,11 @@ class ErrorsStopsWindow(QDialog):
 
     # ---- widgets ----------------------------------------------------------
 
-    def _zoom_button(self, glyph: str, tip: str, step: int) -> QToolButton:
-        btn = QToolButton()
-        btn.setIcon(zoom_glyph_icon(glyph))
-        btn.setIconSize(QSize(theme.ZOOM_CIRCLE_SIZE - 10, theme.ZOOM_CIRCLE_SIZE - 10))
-        btn.setStyleSheet(theme.ZOOM_CIRCLE_BUTTON)
-        btn.setFixedSize(theme.ZOOM_CIRCLE_SIZE, theme.ZOOM_CIRCLE_SIZE)
-        btn.setToolTip(tip)
-        btn.setAutoRepeat(True)
-        btn.clicked.connect(lambda _checked=False: self._change_day_zoom(step))
-        return btn
-
     def _on_show_key_toggled(self, checked: bool) -> None:
         self._show_key = bool(checked)
         update_ui_state({_SHOW_KEY_KEY: self._show_key})
         for legend in (self._stops_legend, self._errors_legend):
             legend.setVisible(self._show_key)
-
-    def _slot_floor(self, n_systems: int) -> float:
-        return n_systems * 2.0 + 6.0
-
-    def _change_day_zoom(self, step: int) -> None:
-        if self._slot_px is None or self._data is None:
-            return
-        factor = _ZOOM_STEP if step > 0 else 1.0 / _ZOOM_STEP
-        floor = self._slot_floor(len(self._label_to_robot))
-        ceiling = max(floor, self._stops_chart._plot_width())
-        new = min(ceiling, max(floor, self._slot_px * factor))
-        if abs(new - self._slot_px) < 0.5:
-            return
-        # Keep the day at the centre of the view where it is.
-        chart = self._stops_chart
-        centre_days = (chart.offset() + chart._plot_width() / 2) / max(1.0, chart.slot_width())
-        self._slot_px = new
-        self._render()
-        for c in (self._stops_chart, self._errors_chart):
-            c.set_offset(centre_days * new - c._plot_width() / 2)
 
     @staticmethod
     def _make_tile(title: str):
@@ -308,28 +269,11 @@ class ErrorsStopsWindow(QDialog):
         # 2026-09-06).
         row = QHBoxLayout()
         row.setSpacing(4)
-        row.addWidget(self._arrow_button("left", "Back in time (loads earlier days at the start)", -_NUDGE_FRACTION))
+        row.addWidget(self._scroller.arrow_button("left", "Back in time (loads earlier days at the start)"))
         row.addWidget(body, 1)
-        row.addWidget(self._arrow_button("right", "Forward in time (loads later days at the end)", _NUDGE_FRACTION))
+        row.addWidget(self._scroller.arrow_button("right", "Forward in time (loads later days at the end)"))
         inner.addLayout(row, 1)
         return box
-
-    def _arrow_button(self, direction: str, tip: str, fraction: float) -> QToolButton:
-        btn = QToolButton()
-        btn.setIcon(arrow_icon(direction, 40))
-        btn.setIconSize(QSize(32, 32))
-        btn.setToolTip(tip)
-        btn.setFixedWidth(42)
-        btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        btn.setAutoRepeat(True)
-        btn.setAutoRepeatInterval(180)
-        btn.setStyleSheet(
-            f"QToolButton {{ border: 1px solid {theme.BORDER}; border-radius: 4px; background: {theme.BG_RAISED}; }}"
-            f"QToolButton:hover {{ background: {theme.BG_HOVER}; border-color: {theme.ACCENT}; }}"
-            f"QToolButton:pressed {{ background: {theme.BORDER}; }}"
-        )
-        btn.clicked.connect(lambda _checked=False: self._stops_chart.nudge(fraction))
-        return btn
 
     # ---- selection ---------------------------------------------------------
 
@@ -439,32 +383,6 @@ class ErrorsStopsWindow(QDialog):
 
     # ---- scrolling and extending the range ---------------------------------
 
-    def _on_chart_scrolled(self, offset: int, maximum: int, page: int):
-        if self._syncing_scroll:
-            return
-        self._syncing_scroll = True
-        try:
-            self._scrollbar.setRange(0, maximum)
-            self._scrollbar.setPageStep(max(1, page))
-            self._scrollbar.setSingleStep(max(1, page // 10))
-            self._scrollbar.setValue(offset)
-            self._scrollbar.setVisible(maximum > 0)
-            for chart in (self._stops_chart, self._errors_chart):
-                if chart is not self.sender():
-                    chart.set_offset(offset)
-        finally:
-            self._syncing_scroll = False
-
-    def _on_scrollbar(self, value: int):
-        if self._syncing_scroll:
-            return
-        self._syncing_scroll = True
-        try:
-            for chart in (self._stops_chart, self._errors_chart):
-                chart.set_offset(value)
-        finally:
-            self._syncing_scroll = False
-
     def _on_edge(self, direction: str):
         if self._data is None or self._extending is not None or self._slot.is_running():
             return
@@ -487,13 +405,9 @@ class ErrorsStopsWindow(QDialog):
         self._refresh_labels()
         self._render()
         if direction == "older":
-            # Keep the days that were on screen where they were.
-            shift = len(self._pending) * self._stops_chart.slot_width()
-            for chart in (self._stops_chart, self._errors_chart):
-                chart.set_offset(chart.offset() + shift)
+            self._scroller.shift_prepended(len(self._pending))
         else:
-            for chart in (self._stops_chart, self._errors_chart):
-                chart.scroll_to_end()
+            self._scroller.scroll_to_end()
         settings = self._settings_provider()
         robots = self._selected_robots()
         self._progress.show()
@@ -547,10 +461,9 @@ class ErrorsStopsWindow(QDialog):
     def _on_result(self, data: ErrorsStopsData):
         self._data = data
         self._pending = set()
-        self._slot_px = None  # a new range is fitted to the screen
+        self._scroller.fit_next()  # a new range is fitted to the screen
         self._render()
-        for chart in (self._stops_chart, self._errors_chart):
-            chart.scroll_to_end()
+        self._scroller.scroll_to_end()
 
     def _render(self):
         data = self._data
@@ -579,10 +492,7 @@ class ErrorsStopsWindow(QDialog):
         )
         # Enough width for every system's bar to be seen; longer ranges
         # scroll instead of squeezing (Chris, 2026-09-05).
-        if self._slot_px is None:
-            plot_w = max(600.0, self._stops_chart._plot_width())
-            self._slot_px = max(self._slot_floor(len(robots)), plot_w / max(1, len(days)))
-        min_slot = self._slot_px
+        self._scroller.apply(days, len(robots), self._pending)
         for table, chart, legend_label, empty in (
             ("stops", self._stops_chart, self._stops_legend, "No stoppages in this range"),
             ("errors", self._errors_chart, self._errors_legend, "No errors in this range"),
@@ -592,8 +502,6 @@ class ErrorsStopsWindow(QDialog):
                 (self._system_label(r), colours[r], {d: float(n) for d, n in per_system.get(r, {}).items()})
                 for r in robots
             ]
-            chart.set_slot_width(min_slot)
-            chart.set_pending(self._pending)
             chart.set_data(days, series, fmt, empty_text=empty)
             legend_label.setText(legend)
         self._fill_table(data)

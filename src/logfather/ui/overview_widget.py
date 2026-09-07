@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QBrush, QPen, QFont, QFontMetrics, QImage, QPa
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
+    QSizePolicy,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -693,6 +694,7 @@ class OverviewWidget(QWidget):
         self.filter_btn.setIconSize(QSize(18, 18))
         self.filter_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.filter_btn.setToolTip("Choose which systems to load and show")
+        self.filter_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.filter_btn.clicked.connect(self._open_filter_popup)
         self._refresh_filter_label()
 
