@@ -213,18 +213,6 @@
   <h3>Lookups</h3>
   <p>Each is <code>(id, code, label, sort_order, active)</code>: <code>system_status</code>, <code>component_status</code>, <code>tray_status</code>, <code>event_type</code>, <code>issue_category</code> (shared by root causes), <code>issue_severity</code>, <code>organisation_kind</code>.</p>
 
-  <h3>Views for Excel, Power BI and Grafana</h3>
-  <ul>
-    <li><code>v_fleet_current</code>: every system with its customer, site, line and status today.</li>
-    <li><code>v_site_contacts</code>: each site's contacts with role, phone and email, primary first.</li>
-    <li><code>v_system_components_current</code>: what is fitted where, with serial numbers.</li>
-    <li><code>v_maintenance_log</code>: events with system, customer, type, downtime, technician.</li>
-    <li><code>v_issue_register</code>: issues with their root cause and linked maintenance.</li>
-    <li><code>v_software_current</code>: the release each system runs per package, with approved flag.</li>
-    <li><code>v_production_day</code>: per system per day per SKU, with customer, line and tray names, ready for a pivot table.</li>
-    <li><code>v_telemetry_day</code>: per component per day per metric, with the component serial and its system's customer and line.</li>
-    <li><code>v_telemetry_labelled</code>: raw readings joined to display_name, customer and the fitted component; the view Grafana dashboards select from.</li>
-  </ul>
 
   <h2 id="ddl">DDL sketch</h2>
   <p>The shape of the core, to make the conventions concrete. The full migration set is a ticket.</p>
