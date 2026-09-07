@@ -181,7 +181,7 @@ class MainWindow(QWidget):
         self.viewer_btn.setCheckable(True)
         self.viewer_btn.setStyleSheet(theme.SEGMENT_MID)
         self.fleetwide_search_btn = QToolButton()
-        self.fleetwide_search_btn.setText("Fleetwide")
+        self.fleetwide_search_btn.setText("Search")
         self.fleetwide_search_btn.setCheckable(True)
         self.fleetwide_search_btn.setStyleSheet(theme.SEGMENT_RIGHT)
         self._mode_group = QButtonGroup(self)
