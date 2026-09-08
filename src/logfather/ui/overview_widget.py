@@ -748,7 +748,7 @@ class OverviewWidget(QWidget):
         temps_menu = QMenu(self.temps_btn)
         self._temp_actions: dict[str, QAction] = {}
         for key, label in TEMPERATURE_CHOICES:
-            if key == "motor_temp_0":
+            if key == "motor_temp_1":
                 temps_menu.addSeparator()  # the individual motors
             action = QAction(label, self)
             action.setCheckable(True)

@@ -28,9 +28,12 @@ Living record of agreed functionality: what is open, and what has shipped
   their own row under Systems in a box labelled Data. Hovering a strip drops
   a dot on each trace at the hover line and the hover label shows just those
   temperatures; the min/max/latest tooltip is gone.
-- Temps menu lists each motor (Motor 0 to Motor 6) below the sensors and
-  Hottest motor (Chris, 2026-09-08); each is its own colour and one fleet
-  query filtered on motor_id, unfitted slots (flat 0) excluded.
+- Temps menu lists each fitted motor (1, 2, 3, 5, 6) below the sensors and
+  Hottest motor (Chris, 2026-09-08); slots 0 and 4 read a flat zero on every
+  system over 30 days, so they are not offered. Each is its own colour and
+  one fleet query filtered on motor_id. The hover box over a strip carries
+  the system and time, a rule, then the readings in the key's colours with
+  °C, in smaller type.
 
 ### 2026-09-07
 

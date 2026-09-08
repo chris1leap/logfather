@@ -218,7 +218,9 @@ def value_range(tracks: Iterable[Track]) -> tuple[float, float]:
 
 # ---- fleet-wide temperatures for the Overview (Chris, 2026-09-07) --------
 # (key, label) in menu order; "motor_temp" is the hottest fitted motor.
-MOTOR_IDS = ("0", "1", "2", "3", "4", "5", "6")
+# Slots 0 and 4 exist in the data but read a flat zero on every system
+# (checked over 30 days, 2026-09-08): not fitted, so not offered.
+MOTOR_IDS = ("1", "2", "3", "5", "6")
 TEMPERATURE_CHOICES: tuple[tuple[str, str], ...] = (
     ("cpu_temp", "CPU"),
     ("rcu_temp", "RCU"),
@@ -228,8 +230,8 @@ TEMPERATURE_CHOICES: tuple[tuple[str, str], ...] = (
 ) + tuple((f"motor_temp_{m}", f"Motor {m}") for m in MOTOR_IDS)
 TEMPERATURE_COLOURS = {
     "cpu_temp": "#5e9bff", "rcu_temp": "#ff8a65", "gpu_temp": "#2ecc71", "brake_temp": "#f1c40f", "motor_temp": "#d46bff",
-    "motor_temp_0": "#c0c0c0", "motor_temp_1": "#ff85c0", "motor_temp_2": "#36cfc9", "motor_temp_3": "#ffd666",
-    "motor_temp_4": "#95de64", "motor_temp_5": "#b37feb", "motor_temp_6": "#ff9c6e",
+    "motor_temp_1": "#ff85c0", "motor_temp_2": "#36cfc9", "motor_temp_3": "#ffd666",
+    "motor_temp_5": "#b37feb", "motor_temp_6": "#ff9c6e",
 }
 
 
