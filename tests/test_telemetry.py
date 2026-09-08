@@ -133,3 +133,16 @@ def test_per_motor_temperature_keys():
     assert all(k in TEMPERATURE_COLOURS for k in keys)
     spec = {m.key: m for m in METRICS}["motor_temp"]
     assert fleet_query(spec, "leap_robot_id", "3") == 'max by(leap_robot_id) (actuators_motor_temperature{leap_robot_id!="", motor_id="3"} != 0)'
+
+
+def test_current_keys_and_queries():
+    from logfather.core.telemetry import CURRENT_CHOICES, CURRENT_COLOURS, METRICS, SIGNAL_LABELS, fleet_query, parse_signal_key
+
+    keys = [k for k, _ in CURRENT_CHOICES]
+    assert keys[0] == "motor_current" and "motor_current_5" in keys and "motor_current_4" not in keys
+    assert all(k in CURRENT_COLOURS for k in keys)
+    assert parse_signal_key("motor_current_5") == ("motor_current", "5")
+    assert SIGNAL_LABELS["motor_current_2"] == "Motor 2" and SIGNAL_LABELS["cpu_temp"] == "CPU"
+    spec = {m.key: m for m in METRICS}["motor_current"]
+    assert fleet_query(spec, "system_id") == 'max by(system_id) (abs(actuators_motor_current{system_id!=""}))'
+    assert fleet_query(spec, "leap_robot_id", "2") == 'max by(leap_robot_id) (actuators_motor_current{leap_robot_id!="", motor_id="2"})'

@@ -59,21 +59,22 @@ from logfather.data.ui_state_store import (
     update_ui_state,
 )
 from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
-from logfather.ui.icons import calendar_icon, thermometer_icon
-from logfather.core.telemetry import TEMPERATURE_CHOICES, TEMPERATURE_COLOURS, window_stats
+from logfather.ui.icons import calendar_icon, current_icon, thermometer_icon
+from logfather.core.telemetry import CURRENT_CHOICES, CURRENT_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
 from logfather.data import grafana_client
-from logfather.data.telemetry_loader import fetch_fleet_temperatures
+from logfather.ui.overview_signals import SignalChannel
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _OVERVIEW_HIDDEN_KEY = "overview_hidden_systems"
 _OVERVIEW_TEMPS_KEY = "overview_temperatures"
 _OVERVIEW_TEMP_STRIP_KEY = "overview_temp_strip_height"
+_OVERVIEW_CURRENTS_KEY = "overview_currents"
+_OVERVIEW_CURRENT_STRIP_KEY = "overview_current_strip_height"
 OVERVIEW_TEMP_STRIP_HEIGHT = 44
 # With temperatures on, the state lane gives up height to the strip
 # (Chris, 2026-09-07).
 OVERVIEW_ROW_HEIGHT_WITH_TEMPS = 36
-OVERVIEW_TEMP_STRIP_MIN, OVERVIEW_TEMP_STRIP_MAX = 16, 240
-OVERVIEW_TEMPS_REFRESH = timedelta(minutes=5)
+OVERVIEW_SIGNALS_REFRESH = timedelta(minutes=5)
 _OVERVIEW_CUSTOMER_ORDER_KEY = "overview_customer_order"
 _OVERVIEW_SYSTEM_ORDER_KEY = "overview_system_order"
 from logfather.ui import theme
@@ -716,55 +717,27 @@ class OverviewWidget(QWidget):
         self.filter_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.filter_btn.clicked.connect(self._open_filter_popup)
         self._refresh_filter_label()
-        # Temperatures (Chris, 2026-09-07): tick which readings to draw as
-        # a strip under each system's lane; none ticked = no strip.
-        stored_temps = load_ui_state().get(_OVERVIEW_TEMPS_KEY)
-        valid_keys = [k for k, _label in TEMPERATURE_CHOICES]
-        self._temp_keys: list[str] = [k for k in (stored_temps if isinstance(stored_temps, list) else []) if k in valid_keys]
-        self._temps: dict[str, dict[str, object]] = {}
-        self._temps_window: tuple[datetime, datetime] | None = None
-        self._temps_keys_loaded: tuple[str, ...] = ()
-        self._temps_fetched_local: datetime | None = None
-        self._temps_slot = JobSlot(self)
-        stored_h = load_ui_state().get(_OVERVIEW_TEMP_STRIP_KEY)
-        try:
-            self._temp_strip_h = int(min(OVERVIEW_TEMP_STRIP_MAX, max(OVERVIEW_TEMP_STRIP_MIN, int(stored_h))))
-        except (TypeError, ValueError):
-            self._temp_strip_h = OVERVIEW_TEMP_STRIP_HEIGHT
-        # (edge y, x0, x1) per row in scene coordinates: dragging the strip's
-        # bottom line stretches every strip (Chris, 2026-09-07).
-        self._temp_edge_bands: list[tuple[float, float, float]] = []
-        self._temp_resize: tuple | None = None
-        self._temp_guide_item = None
-        self._temp_guide_label = None
-        self._temp_edge_hover = False
-        self.temps_btn = QToolButton()
-        self.temps_btn.setIcon(thermometer_icon())
-        self.temps_btn.setIconSize(QSize(18, 18))
-        self.temps_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.temps_btn.setPopupMode(QToolButton.InstantPopup)
-        self.temps_btn.setToolTip("Which temperatures to draw under each system (from Grafana)")
-        self.temps_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        temps_menu = QMenu(self.temps_btn)
-        self._temp_actions: dict[str, QAction] = {}
-        for key, label in TEMPERATURE_CHOICES:
-            if key == "motor_temp_1":
-                temps_menu.addSeparator()  # the individual motors
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.setChecked(key in self._temp_keys)
-            action.toggled.connect(lambda _checked=False: self._on_temps_changed())
-            temps_menu.addAction(action)
-            self._temp_actions[key] = action
-        temps_menu.addSeparator()
-        temps_menu.addAction("Show all", lambda: self._set_all_temps(True))
-        temps_menu.addAction("Hide all", lambda: self._set_all_temps(False))
-        self.temps_btn.setMenu(temps_menu)
-        # The key: a swatch per ticked reading, shown only when any is on.
-        self._temps_key = QLabel("")
-        self._temps_key.setTextFormat(Qt.RichText)
-        self._temps_key.setStyleSheet(theme.MUTED_LABEL)
-        self._refresh_temps_label()
+        # Temperatures and currents (Chris, 2026-09-07/08): each is a
+        # channel with its own Data-box button, key and strip.
+        self._temps = SignalChannel(
+            self, name="temps", title="Temps", icon=thermometer_icon(),
+            tooltip="Which temperatures to draw under each system (from Grafana)",
+            choices=TEMPERATURE_CHOICES, colours=TEMPERATURE_COLOURS, unit="\u00b0C", axis_unit="\u00b0", decimals=1,
+            separator_before="motor_temp_1", ui_keys=_OVERVIEW_TEMPS_KEY, ui_strip=_OVERVIEW_TEMP_STRIP_KEY,
+            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
+            short={"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Hot"},
+            loading_text="Loading temperatures...", empty_text="No temperature readings in this window",
+        )
+        self._currents = SignalChannel(
+            self, name="currents", title="Currents", icon=current_icon(),
+            tooltip="Which motor currents to draw under each system (from Grafana)",
+            choices=CURRENT_CHOICES, colours=CURRENT_COLOURS, unit="A", axis_unit="A", decimals=2,
+            separator_before="motor_current_1", ui_keys=_OVERVIEW_CURRENTS_KEY, ui_strip=_OVERVIEW_CURRENT_STRIP_KEY,
+            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
+            short={"Highest motor": "Max"},
+            loading_text="Loading currents...", empty_text="No current readings in this window",
+        )
+        self._channels = (self._temps, self._currents)
 
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
@@ -801,10 +774,6 @@ class OverviewWidget(QWidget):
         self._preview_label.hide()
         self._hover_scene_x: float | None = None
         self._hover_scene_y: float | None = None
-        # (rect, lo, hi, inner_top, inner_h, [(key, label, track)]) per strip:
-        # the hover line drops a dot on each trace (Chris, 2026-09-08).
-        self._temp_hover_rows: list[tuple] = []
-        self._temp_hover_dots: list = []
         self._hover_window_start: datetime | None = None
         self._hover_window_end: datetime | None = None
         self._hover_timeline_x: float = 0.0
@@ -862,11 +831,16 @@ class OverviewWidget(QWidget):
             f" border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
             f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
         )
-        data_layout = QHBoxLayout(data_box)
+        data_layout = QVBoxLayout(data_box)
         data_layout.setContentsMargins(6, 4, 6, 4)
-        data_layout.setSpacing(10)
-        data_layout.addWidget(self.temps_btn)
-        data_layout.addWidget(self._temps_key)
+        data_layout.setSpacing(4)
+        for channel in self._channels:
+            channel_row = QHBoxLayout()
+            channel_row.setSpacing(10)
+            channel_row.addWidget(channel.button)
+            channel_row.addWidget(channel.key_label)
+            channel_row.addStretch(1)
+            data_layout.addLayout(channel_row)
         data_row = QHBoxLayout()
         data_row.setContentsMargins(0, 0, 0, 0)
         data_row.addWidget(data_box)
@@ -989,79 +963,10 @@ class OverviewWidget(QWidget):
                 return band if x < self._hover_timeline_x else None
         return None
 
-    def _temp_edge_at(self, scene_pos) -> bool:
-        x, y = float(scene_pos.x()), float(scene_pos.y())
-        return any(abs(y - edge) <= 5 and x0 <= x <= x1 for edge, x0, x1 in self._temp_edge_bands)
-
-    def _handle_temp_resize(self, event) -> bool:
-        """Dragging the bottom line of a temperature strip stretches the
-        strips (Chris, 2026-09-07: to see the traces more easily)."""
-        event_type = event.type()
-        if self._temp_resize is not None:
-            # While dragging only a guide line moves; the rows are rebuilt
-            # once on release (Chris, 2026-09-07: rebuilding on every
-            # mouse move blanked the screen).
-            if event_type == QEvent.MouseMove:
-                press_y, start_h, edge_y, x0, x1 = self._temp_resize
-                zoom = max(0.1, theme.zoom_factor())
-                delta = (float(self.view.mapToScene(event.pos()).y()) - press_y) / zoom
-                new_h = int(min(OVERVIEW_TEMP_STRIP_MAX, max(OVERVIEW_TEMP_STRIP_MIN, start_h + delta)))
-                self._temp_strip_h = new_h
-                guide_y = edge_y + (new_h - start_h) * zoom
-                if self._temp_guide_item is None:
-                    pen = QPen(QColor("#ff8a65"))
-                    pen.setStyle(Qt.DashLine)
-                    pen.setWidthF(1.5)
-                    pen.setCosmetic(True)
-                    self._temp_guide_item = self.scene.addLine(x0, guide_y, x1, guide_y, pen)
-                    self._temp_guide_item.setZValue(20)
-                    self._temp_guide_label = self.scene.addText("")
-                    self._temp_guide_label.setDefaultTextColor(QColor("#ff8a65"))
-                    self._temp_guide_label.setZValue(20)
-                self._temp_guide_item.setLine(x0, guide_y, x1, guide_y)
-                self._temp_guide_label.setPlainText(f"{new_h} px")
-                self._temp_guide_label.setPos(x1 - 48, guide_y - 18)
-                return True
-            if event_type == QEvent.MouseButtonRelease:
-                self._temp_resize = None
-                for attr in ("_temp_guide_item", "_temp_guide_label"):
-                    item = getattr(self, attr)
-                    if item is not None:
-                        try:
-                            self.scene.removeItem(item)
-                        except RuntimeError:
-                            pass
-                    setattr(self, attr, None)
-                self.view.viewport().unsetCursor()
-                self._temp_edge_hover = False
-                update_ui_state({_OVERVIEW_TEMP_STRIP_KEY: int(self._temp_strip_h)})
-                self._redraw()
-                return True
-            return True
-        if not self._temp_edge_bands or self._drag_candidate is not None:
-            return False
-        if event_type == QEvent.MouseMove:
-            over = self._temp_edge_at(self.view.mapToScene(event.pos()))
-            if over != self._temp_edge_hover:
-                self._temp_edge_hover = over
-                if over:
-                    self.view.viewport().setCursor(Qt.SizeVerCursor)
-                else:
-                    self.view.viewport().unsetCursor()
-            return False
-        if event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-            scene_pos = self.view.mapToScene(event.pos())
-            if self._temp_edge_at(scene_pos):
-                y = float(scene_pos.y())
-                edge_y, x0, x1 = min(self._temp_edge_bands, key=lambda band: abs(band[0] - y))
-                self._temp_resize = (y, int(self._temp_strip_h), edge_y, x0, x1)
-                self.hide_thumbnail_preview()
-                return True
-        return False
-
     def _handle_drag_event(self, event) -> bool:
-        if self._handle_temp_resize(event):
-            return True
+        for channel in self._channels:
+            if channel.handle_resize(event):
+                return True
         event_type = event.type()
         if event_type == QEvent.MouseButtonPress:
             if event.button() != Qt.LeftButton:
@@ -1224,33 +1129,9 @@ class OverviewWidget(QWidget):
         count = len(self._hidden_systems)
         self.filter_btn.setText("Systems" if not count else f"Systems ({count} hidden)")
 
-    # ---- temperatures ------------------------------------------------------
+    # ---- temperatures and currents ----------------------------------------
 
-    def _refresh_temps_label(self):
-        n = len(self._temp_keys)
-        self.temps_btn.setText("Temps" if not n else f"Temps ({n})")
-        bits = [
-            f'<span style="background-color:{TEMPERATURE_COLOURS[key]};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{label}'
-            for key, label in TEMPERATURE_CHOICES if key in self._temp_keys
-        ]
-        self._temps_key.setText("&nbsp;&nbsp;".join(bits))
-        self._temps_key.setVisible(bool(bits))
-
-    def _set_all_temps(self, on: bool):
-        for action in self._temp_actions.values():
-            action.blockSignals(True)
-            action.setChecked(on)
-            action.blockSignals(False)
-        self._on_temps_changed()
-
-    def _on_temps_changed(self):
-        self._temp_keys = [k for k, action in self._temp_actions.items() if action.isChecked()]
-        update_ui_state({_OVERVIEW_TEMPS_KEY: list(self._temp_keys)})
-        self._refresh_temps_label()
-        self._maybe_fetch_temperatures()
-        self._schedule_redraw()
-
-    def _temps_span(self) -> tuple[datetime, datetime]:
+    def _signal_span(self) -> tuple[datetime, datetime]:
         """The whole chosen span (or today so far): zooming never refetches."""
         now_local = _local_now()
         if self._filter_day_range is not None:
@@ -1262,101 +1143,17 @@ class OverviewWidget(QWidget):
             end = now_local
         return start.astimezone(timezone.utc), max(end, start + timedelta(minutes=1)).astimezone(timezone.utc)
 
-    def _maybe_fetch_temperatures(self, force: bool = False):
-        wanted = tuple(k for k in self._temp_keys if k not in self._temps_keys_loaded)
-        if not self._temp_keys:
+    def _maybe_fetch_signals(self, force: bool = False):
+        if not any(channel.active for channel in self._channels):
             return
         if not grafana_client.is_configured(self.settings):
-            self.status_label.setText("Temperatures need Grafana: gear menu, Data sources")
+            self.status_label.setText("Temperatures and currents need Grafana: gear menu, Data sources")
             return
-        if self._temps_slot.is_running():
-            return
-        span = self._temps_span()
-        same_start = self._temps_window is not None and self._temps_window[0] == span[0]
+        span = self._signal_span()
         live = self._filter_day_range is None
-        fresh = self._temps_fetched_local is not None and (_local_now() - self._temps_fetched_local) < OVERVIEW_TEMPS_REFRESH
-        same_end = self._temps_window is not None and self._temps_window[1] == span[1]
-        if not force and not wanted and same_start and (fresh if live else same_end):
-            return
-        keys = list(self._temp_keys)
-        settings = self.settings
-        self._temps_slot.start(
-            lambda job: fetch_fleet_temperatures(settings, keys, span[0], span[1], job),
-            on_result=lambda result, keys=tuple(keys), span=span: self._on_temps_loaded(result, keys, span),
-            on_error=lambda message: self.status_label.setText(f"Temperatures: {message}"),
-        )
-
-    def _on_temps_loaded(self, result, keys, span):
-        self._temps = result or {}
-        self._temps_keys_loaded = keys
-        self._temps_window = span
-        self._temps_fetched_local = _local_now()
-        self._schedule_redraw()
-
-    def _draw_temperature_strip(self, state, rect: QRectF, window_start: datetime, window_end: datetime, scene_width: float, right_pad: float):
-        bg = self.scene.addRect(rect, QPen(QColor("#31414d")), QBrush(QColor("#0b1014")))
-        bg.setZValue(1)
-        tracks = self._temps.get(state.robot_id or "", {})
-        w0 = int(window_start.timestamp() * 1000)
-        w1 = int(window_end.timestamp() * 1000)
-        chosen = []
-        for key, label in TEMPERATURE_CHOICES:
-            track = tracks.get(key) if key in self._temp_keys else None
-            if track is None:
-                continue
-            stats = window_stats(track, w0, w1)
-            if stats is not None:
-                chosen.append((key, label, track, stats))
-        if not chosen:
-            waiting = self._temps_slot.is_running() or not self._temps
-            bg.setToolTip("Loading temperatures..." if waiting else "No temperature readings in this window")
-            return
-        lo = min(s[3][0] for s in chosen)
-        hi = max(s[3][1] for s in chosen)
-        if hi - lo < 1.0:
-            lo, hi = lo - 0.5, hi + 0.5
-        inner_top = rect.top() + 2
-        inner_h = rect.height() - 4
-        span_ms = max(1, w1 - w0)
-        for key, _label, track, _stats in chosen:
-            path = QPainterPath()
-            pen_down = False
-            last_t = None
-            for t, v in zip(track.times_ms, track.values):
-                if v is None or t < w0 or t > w1:
-                    pen_down = False
-                    continue
-                if pen_down and last_t is not None and t - last_t > 5 * 60_000:
-                    pen_down = False
-                x = rect.left() + (t - w0) / span_ms * rect.width()
-                yv = inner_top + inner_h - (v - lo) / (hi - lo) * inner_h
-                if pen_down:
-                    path.lineTo(x, yv)
-                else:
-                    path.moveTo(x, yv)
-                    pen_down = True
-                last_t = t
-            pen = QPen(QColor(TEMPERATURE_COLOURS.get(key, "#ffffff")))
-            pen.setWidthF(1.3)
-            pen.setCosmetic(True)
-            item = self.scene.addPath(path, pen)
-            item.setZValue(3.5)
-            item.setAcceptedMouseButtons(Qt.NoButton)
-        small = QFont()
-        small.setPointSize(7)
-        for text, y_pos in ((f"{hi:.0f}°", rect.top() - 3), (f"{lo:.0f}°", rect.bottom() - 13)):
-            label_item = self.scene.addText(text, small)
-            label_item.setDefaultTextColor(QColor(theme.TEXT_FAINT))
-            label_item.setPos(rect.left() - 30, y_pos)
-            label_item.setZValue(4)
-        short = {"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Hot"}
-        latest = " · ".join(f"{short.get(label, label.replace('Motor ', 'M'))} {stats[2]:.0f}°" for _k, label, _t, stats in chosen)
-        latest = self._fit_text(latest, right_pad - 20, QFontMetrics(small)) or latest
-        latest_item = self.scene.addText(latest, small)
-        latest_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
-        latest_item.setPos(scene_width - right_pad + 8, rect.top() - 4)
-        latest_item.setZValue(4)
-        self._temp_hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen], state.name))
+        now_local = _local_now()
+        for channel in self._channels:
+            channel.maybe_fetch(span, live, OVERVIEW_SIGNALS_REFRESH, now_local, force)
 
     def _on_filter_closed(self):
         # Reload once the popup closes, not per tick: the selection
@@ -1480,7 +1277,7 @@ class OverviewWidget(QWidget):
             return
         if not self._active and not self._background_enabled:
             return
-        self._maybe_fetch_temperatures()
+        self._maybe_fetch_signals()
         day_range = self._filter_day_range
         if day_range is not None:
             # Historic range: immutable data, loaded once per selection;
@@ -1610,7 +1407,8 @@ class OverviewWidget(QWidget):
             and self._hover_window_end is not None
             and self._hover_timeline_width > 0
         )
-        self._clear_temp_hover_dots()
+        for channel in self._channels:
+            channel.clear_hover()
         if not valid:
             for item in (self._hover_line_item, self._hover_label_item):
                 if item is not None:
@@ -1638,70 +1436,10 @@ class OverviewWidget(QWidget):
             min(max(timeline_x, hover_x - 26), timeline_x + timeline_width - 70), 16
         )
         self._hover_label_item.setVisible(True)
-        # Over a temperature strip: a dot on each trace and a box with the
-        # readings in the key's colours (Chris, 2026-09-08).
-        strip = self._temp_strip_under(self._hover_scene_y)
-        if strip is not None:
-            rect, lo, hi, inner_top, inner_h, tracks, system_name = strip
-            t_ms = int(hover_dt.timestamp() * 1000)
-            lines = []
-            for key, label, track in tracks:
-                value = track.value_at(t_ms)
-                if value is None:
-                    continue
-                y_dot = inner_top + inner_h - (value - lo) / (hi - lo) * inner_h
-                colour = TEMPERATURE_COLOURS.get(key, "#ffffff")
-                dot = self.scene.addEllipse(hover_x - 3.5, y_dot - 3.5, 7, 7, QPen(QColor("#0b1014"), 1), QBrush(QColor(colour)))
-                dot.setZValue(5)
-                dot.setAcceptedMouseButtons(Qt.NoButton)
-                self._temp_hover_dots.append(dot)
-                lines.append(f'<span style="color:{colour};">{label} {value:.1f}°C</span>')
-            if lines:
-                # System and time on top, a rule, then the readings, in
-                # smaller type (Chris, 2026-09-08).
-                when = hover_dt.astimezone().strftime("%H:%M:%S")
-                head = f'<span style="color:{theme.TEXT_BRIGHT}; font-weight:bold;">{system_name}</span> <span style="color:{theme.TEXT_MUTED};">{when}</span>'
-                text = self.scene.addText("")
-                small = QFont(text.font())
-                small.setPointSizeF(max(6.0, small.pointSizeF() * 0.7))
-                text.setFont(small)
-                text.setHtml(
-                    "<div style='white-space:nowrap;'>" + head
-                    + f"<hr style='color:{theme.BORDER_LIGHT};'>" + "<br>".join(lines) + "</div>"
-                )
-                text.setZValue(6.2)
-                text.setAcceptedMouseButtons(Qt.NoButton)
-                # Give the document its ideal width so the rule spans it
-                # (an <hr> in an unsized document collapses to a dot).
-                text.setTextWidth(text.document().idealWidth())
-                bounds = text.boundingRect()
-                box_w, box_h = bounds.width() + 8, bounds.height() + 6
-                box_x = hover_x + 12
-                if box_x + box_w > timeline_x + timeline_width:
-                    box_x = hover_x - 12 - box_w
-                box_y = min(max(rect.top() - box_h - 4, self._hover_grid_top), rect.top() - 2) if rect.top() - box_h - 4 >= self._hover_grid_top else rect.bottom() + 4
-                box = self.scene.addRect(QRectF(box_x, box_y, box_w, box_h), QPen(QColor(theme.BORDER_LIGHT)), QBrush(QColor(theme.BG_RAISED)))
-                box.setZValue(6.1)
-                box.setAcceptedMouseButtons(Qt.NoButton)
-                text.setPos(box_x + 4, box_y + 3)
-                self._temp_hover_dots.extend([box, text])
-
-    def _temp_strip_under(self, y: float | None):
-        if y is None:
-            return None
-        for row in self._temp_hover_rows:
-            if row[0].top() <= y <= row[0].bottom():
-                return row
-        return None
-
-    def _clear_temp_hover_dots(self):
-        for dot in self._temp_hover_dots:
-            try:
-                if dot.scene() is not None:
-                    self.scene.removeItem(dot)
-            except RuntimeError:
-                pass
-        self._temp_hover_dots = []
+        # Over a strip: a dot on each trace and a box of the readings.
+        for channel in self._channels:
+            if channel.draw_hover(hover_x, hover_dt, self._hover_scene_y, timeline_x, timeline_width, self._hover_grid_top):
+                break
 
     def _set_display_mode(self, mode: str):
         if mode == self._display_mode:
@@ -2032,7 +1770,7 @@ class OverviewWidget(QWidget):
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
         self._merge_payload(payload, is_final=True)
-        self._maybe_fetch_temperatures()
+        self._maybe_fetch_signals()
 
     def _on_load_progress(self, message):
         if isinstance(message, dict):
@@ -2413,8 +2151,8 @@ class OverviewWidget(QWidget):
         self._hover_line_item = None
         self._hover_label_item = None
         self._now_label_item = None
-        self._temp_guide_item = None
-        self._temp_guide_label = None
+        for channel in self._channels:
+            channel.reset_for_redraw()
         # Reset before setSceneRect below: that fires the scrollbar's
         # valueChanged -> _reposition_sticky_header, which would otherwise
         # touch items the clear() just freed (crash seen at startup).
@@ -2463,11 +2201,10 @@ class OverviewWidget(QWidget):
         zoom = theme.zoom_factor()
         top_pad = int(46 * zoom)
         bottom_pad = 18
-        row_height = int((OVERVIEW_ROW_HEIGHT_WITH_TEMPS if self._temp_keys else OVERVIEW_ROW_HEIGHT) * zoom)
-        strip_h = int(self._temp_strip_h * zoom) if self._temp_keys else 0
-        self._temp_edge_bands = []
-        self._temp_hover_rows = []
-        self._temp_hover_dots = []
+        any_signal = any(channel.active for channel in self._channels)
+        row_height = int((OVERVIEW_ROW_HEIGHT_WITH_TEMPS if any_signal else OVERVIEW_ROW_HEIGHT) * zoom)
+        strip_heights = [(channel, channel.strip_height(zoom)) for channel in self._channels if channel.active]
+        strip_h = sum(h for _channel, h in strip_heights)
         row_step = row_height + strip_h
         header_height = int(36 * zoom)
         display_rows: list[tuple[str, object]] = []
@@ -2791,10 +2528,10 @@ class OverviewWidget(QWidget):
             click_item.setToolTip(self._row_tooltip(state, summary))
             click_item.setZValue(4.8)
             self.scene.addItem(click_item)
-            if strip_h:
-                strip_rect = QRectF(timeline_x, y + row_height - 4, timeline_width, strip_h - 2)
-                self._draw_temperature_strip(state, strip_rect, window_start, window_end, scene_width, right_pad)
-                self._temp_edge_bands.append((strip_rect.bottom(), strip_rect.left(), strip_rect.right()))
+            strip_y = y + row_height - 4
+            for channel, h in strip_heights:
+                channel.draw_strip(state, QRectF(timeline_x, strip_y, timeline_width, h - 2), window_start, window_end, scene_width, right_pad)
+                strip_y += h
             self._row_bands.append(
                 (y, y + row_step, "system", state.name,
                  display_customer_name(self.settings, state.name), None)

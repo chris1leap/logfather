@@ -29,21 +29,21 @@ def fetch_telemetry_day(settings: Settings, robot_id: str, day: date, job=None) 
     return TelemetryDay(robot_id=robot_id, day_start_ms=start_ms, day_end_ms=end_ms, groups=build_groups(results))
 
 
-def fetch_fleet_temperatures(settings: Settings, keys: list[str], start_utc, end_utc, job=None) -> dict[str, dict[str, "Track"]]:
-    """robot id -> metric key -> Track for the chosen temperature keys over
-    [start, end], every system in one query per metric and label scheme
-    (Chris, 2026-09-07: temperatures on the Overview)."""
-    from logfather.core.telemetry import ROBOT_ID_LABELS, TEMPERATURE_CHOICES, Track, fleet_query, parse_temperature_key, tracks_by_robot
+def fetch_fleet_signals(settings: Settings, keys: list[str], start_utc, end_utc, job=None) -> dict[str, dict[str, "Track"]]:
+    """robot id -> signal key -> Track for the chosen keys (temperatures or
+    currents) over [start, end], every system in one query per signal and
+    label scheme (Chris, 2026-09-07/08: the Overview strips)."""
+    from logfather.core.telemetry import ROBOT_ID_LABELS, SIGNAL_LABELS, Track, fleet_query, parse_signal_key, tracks_by_robot
 
     specs = {m.key: m for m in METRICS}
-    labels = dict(TEMPERATURE_CHOICES)
+    labels = SIGNAL_LABELS
     start_ms = int(start_utc.timestamp() * 1000)
     end_ms = int(end_utc.timestamp() * 1000)
     span_minutes = max(1, (end_ms - start_ms) // 60_000)
     interval_ms = SAMPLE_INTERVAL_MS if span_minutes <= 36 * 60 else 60_000 if span_minutes <= 7 * 24 * 60 else 300_000
     out: dict[str, dict[str, Track]] = {}
     for key in keys:
-        spec_key, motor_id = parse_temperature_key(key)
+        spec_key, motor_id = parse_signal_key(key)
         spec = specs.get(spec_key)
         if spec is None:
             continue
@@ -65,3 +65,6 @@ def fetch_fleet_temperatures(settings: Settings, keys: list[str], start_utc, end
                     lookup.update({t: v for t, v in zip(track.times_ms, track.values) if v is not None})
                     slot[key] = Track(track.name, merged_t, [lookup.get(t) for t in merged_t], key)
     return out
+
+
+fetch_fleet_temperatures = fetch_fleet_signals

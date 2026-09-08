@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- Overview currents (Chris, 2026-09-08): a Currents row in the Data box
+  (lightning icon) works exactly like Temps: tick Highest motor (largest
+  magnitude across fitted motors) or Motor 1/2/3/5/6, a colour key
+  appears, a second strip under the temperature strip draws the traces
+  in amps, hover drops a dot per trace and shows a box with the values,
+  and the strip stretches by dragging its bottom line. Both channels
+  share one class (`ui/overview_signals.py`) and one fleet fetch.
 - Overview temperatures (Chris, 2026-09-08): Temps and its colour key sit on
   their own row under Systems in a box labelled Data. Hovering a strip drops
   a dot on each trace at the hover line and the hover label shows just those

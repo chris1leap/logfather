@@ -77,6 +77,24 @@ def thermometer_icon(size: int = 24) -> QIcon:
     return QIcon(pm)
 
 
+def current_icon(size: int = 24) -> QIcon:
+    """A lightning bolt for the Currents button (Chris, 2026-09-08)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    s = float(size)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#ffd666"))
+    from PySide6.QtGui import QPolygonF
+    painter.drawPolygon(QPolygonF([
+        QPointF(s * 0.58, s * 0.08), QPointF(s * 0.30, s * 0.54), QPointF(s * 0.48, s * 0.54),
+        QPointF(s * 0.40, s * 0.92), QPointF(s * 0.70, s * 0.42), QPointF(s * 0.52, s * 0.42),
+    ]))
+    painter.end()
+    return QIcon(pm)
+
+
 def arrow_icon(direction: str, size: int = 24) -> QIcon:
     """A clear left / right chevron for the step-through-time buttons
     (Chris, 2026-09-06: the style's stock arrow was too faint)."""

@@ -235,11 +235,28 @@ TEMPERATURE_COLOURS = {
 }
 
 
-def parse_temperature_key(key: str) -> tuple[str, Optional[str]]:
-    """"motor_temp_3" -> ("motor_temp", "3"); anything else -> (key, None)."""
-    if key.startswith("motor_temp_"):
-        return "motor_temp", key[len("motor_temp_"):]
+# Currents on the Overview (Chris, 2026-09-08): the highest motor (the
+# largest magnitude at each moment) or one motor.
+CURRENT_CHOICES: tuple[tuple[str, str], ...] = (
+    ("motor_current", "Highest motor"),
+) + tuple((f"motor_current_{m}", f"Motor {m}") for m in MOTOR_IDS)
+CURRENT_COLOURS = {
+    "motor_current": "#d46bff", "motor_current_1": "#ff85c0", "motor_current_2": "#36cfc9",
+    "motor_current_3": "#ffd666", "motor_current_5": "#b37feb", "motor_current_6": "#ff9c6e",
+}
+SIGNAL_LABELS: dict[str, str] = dict(TEMPERATURE_CHOICES) | dict(CURRENT_CHOICES)
+
+
+def parse_signal_key(key: str) -> tuple[str, Optional[str]]:
+    """"motor_temp_3" -> ("motor_temp", "3"), "motor_current_5" ->
+    ("motor_current", "5"); anything else -> (key, None)."""
+    for prefix in ("motor_temp_", "motor_current_"):
+        if key.startswith(prefix):
+            return prefix[:-1], key[len(prefix):]
     return key, None
+
+
+parse_temperature_key = parse_signal_key
 ROBOT_ID_LABELS = ("leap_robot_id", "system_id")
 _ROBOT_PREFIX = "35-2300-"
 
@@ -256,6 +273,12 @@ def fleet_query(spec: MetricSpec, label: str, motor_id: Optional[str] = None) ->
     """One series per system for a metric, under one label scheme. Motors
     collapse to the hottest fitted one (an unfitted slot reads 0) unless a
     motor_id picks one motor."""
+    if spec.key == "motor_current":
+        # A current is legitimately 0 when idle, so no zero filter; the
+        # "highest" is the largest magnitude across the fitted motors.
+        if motor_id is not None:
+            return f'max by({label}) ({spec.metric}{{{label}!="", motor_id="{motor_id}"}})'
+        return f'max by({label}) (abs({spec.metric}{{{label}!=""}}))'
     if spec.per_motor and motor_id is not None:
         return f'max by({label}) ({spec.metric}{{{label}!="", motor_id="{motor_id}"}} != 0)'
     if spec.per_motor:
