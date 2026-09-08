@@ -63,6 +63,7 @@ class SignalChannel(QObject):
         axis_min: float | None = None,
         axis_title: str = "",
         axis_max: float | None = None,
+        default_keys: list[str] | None = None,
     ):
         super().__init__(owner)
         self.owner = owner
@@ -88,6 +89,8 @@ class SignalChannel(QObject):
         state = load_ui_state()
         valid = [k for k, _label in choices]
         stored = state.get(ui_keys)
+        if stored is None and default_keys:
+            stored = list(default_keys)  # on by default until the user says otherwise
         self.keys: list[str] = [k for k in (stored if isinstance(stored, list) else []) if k in valid]
         try:
             self.strip_h = int(min(STRIP_MAX, max(STRIP_MIN, int(state.get(ui_strip)))))
@@ -476,7 +479,7 @@ class SignalBoxes(QObject):
     System Replay timeline (Chris, 2026-09-08). `prefix` keys the saved
     selection so each screen remembers its own."""
 
-    def __init__(self, owner, prefix: str):
+    def __init__(self, owner, prefix: str, picks_default: bool = False):
         super().__init__(owner)
         self.owner = owner
         self.picks = SignalChannel(
@@ -487,6 +490,7 @@ class SignalBoxes(QObject):
             default_strip_h=DEFAULT_STRIP_HEIGHT, short={"Picks per minute": "Picks"},
             loading_text="Loading pick rate...", empty_text="No picks in this window",
             axis_min=0.0, axis_title="Picks/min",
+            default_keys=["picks_per_min"] if picks_default else None,
         )
         self.temps = SignalChannel(
             owner, name="temps", title="Temps", icon=thermometer_icon(),

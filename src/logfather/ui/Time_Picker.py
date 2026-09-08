@@ -146,7 +146,7 @@ class TimePicker(QWidget):
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #9aa0a6;")
         self._drag_candidate = None
-        self._signals = SignalBoxes(self, "replay")
+        self._signals = SignalBoxes(self, "replay", picks_default=True)
         self._strips_bottom: Optional[float] = None
         layout = QVBoxLayout()
         layout.setContentsMargins(6, 4, 6, 6)
@@ -338,11 +338,22 @@ class TimePicker(QWidget):
         if "video" in kinds:
             track_map["video"] = baseline_y
         next_row = non_video_start
+        # The Picks strip sits just under the CCTV rows (Chris, 2026-09-08),
+        # the other reading strips below every track.
+        picks_h = self._signals.picks.strip_height(1.0) if self._current_root is not None else 0
+        picks_anchor = "additional" if "additional" in kinds else "video"
+        picks_y: Optional[float] = None
+        if picks_h and picks_anchor == "video":
+            picks_y = next_row - 8
+            next_row += picks_h + 6
         for kind in kinds:
             if kind == "video":
                 continue
             track_map[kind] = next_row
             next_row += spacing
+            if picks_h and kind == picks_anchor:
+                picks_y = next_row - 8
+                next_row += picks_h + 6
 
         for item in self._items:
             start_offset_min = max(0, (item.start - day_start).total_seconds() / 60.0)
@@ -397,17 +408,19 @@ class TimePicker(QWidget):
         self._signals.reset_for_redraw()
         self._strips_bottom = None
         strips_height = 0
-        strip_specs = self._signals.strip_heights(1.0)
-        if strip_specs and self._current_root is not None:
+        strip_specs = [(c, h) for c, h in self._signals.strip_heights(1.0) if c is not self._signals.picks]
+        if self._current_root is not None and (strip_specs or picks_y is not None):
             state = SimpleNamespace(robot_id=robot_id_from_folder(self._current_root.name) or "", name=self._current_root.name)
             day_end = day_start + timedelta(days=1)
+            if picks_y is not None:
+                self._signals.picks.draw_strip(state, QRectF(0, picks_y, total_minutes * ppm, picks_h - 2), day_start, day_end, total_minutes * ppm, 0, title_x=-58, show_latest=False)
             strip_y = next_row + 6
             for channel, h in strip_specs:
                 rect = QRectF(0, strip_y, total_minutes * ppm, h - 2)
                 channel.draw_strip(state, rect, day_start, day_end, total_minutes * ppm, 0, title_x=-58, show_latest=False)
                 strip_y += h
             strips_height = strip_y - next_row
-            self._strips_bottom = strip_y
+            self._strips_bottom = strip_y if strip_specs else None
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded if strips_height else Qt.ScrollBarAlwaysOff)
 
         # Track labels on the left
