@@ -63,6 +63,34 @@ def _timeline_perf_log(message: str) -> None:
         print(f"[timeline-perf] {message}", flush=True)
 
 
+class _EventTickItem(QGraphicsRectItem):
+    """An event mark on a condition track (Chris, 2026-09-08): a wider
+    invisible hit area around the 2 px tick so it can be hovered and
+    clicked; the tooltip carries the exact time and the full message, a
+    click asks the picker to open the footage and logs at that moment."""
+
+    def __init__(self, x: float, y_center: float, item: TimelineItem, picker: "TimePicker"):
+        super().__init__(QRectF(x - 5, y_center - 10, 10, 20))
+        self._item = item
+        self._picker = picker
+        self.setPen(QPen(Qt.NoPen))
+        self.setBrush(QBrush(QColor(0, 0, 0, 0)))
+        pen = QPen(QColor(item.color))
+        pen.setWidth(2)
+        line = QGraphicsLineItem(x, y_center - 8, x, y_center + 8, self)
+        line.setPen(pen)
+        self.setData(0, item)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAcceptHoverEvents(True)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._picker.event_clicked.emit(self._item)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class VideoRectItem(QGraphicsRectItem):
     def __init__(self, rect, timeline_item: TimelineItem, picker: "TimePicker"):
         super().__init__(rect)
@@ -98,6 +126,7 @@ class VideoRectItem(QGraphicsRectItem):
 class TimePicker(QWidget):
     time_selected = Signal(object)  # TimelineItem
     items_changed = Signal()
+    event_clicked = Signal(object)  # a condition-track event: open the footage at its time
 
     def __init__(self, load_func: Optional[Callable[[Path, date], Iterable[Path]]] = None,
                  extra_loaders: Optional[list[Callable[[Path, date, Optional[datetime]], Iterable[TimelineItem]]]] = None,
@@ -365,16 +394,10 @@ class TimePicker(QWidget):
 
             if item.kind not in ("video", "additional", "sku") or width <= 4:
                 # Draw tick mark for events or near-zero duration.
-                pen = QPen(QColor(item.color))
-                pen.setWidth(2)
-                tick = self.scene.addLine(x, y_center - 8, x, y_center + 8, pen)
-                tick.setData(0, item)
-                tooltip = f"{format_local_time(item.start)}\n{item.label}"
-                extra = self._tooltip_extra_lines(item)
-                if extra:
-                    tooltip = f"{tooltip}\n" + "\n".join(extra)
-                tick.setToolTip(tooltip)
+                tick = _EventTickItem(x, y_center, item, self)
+                tick.setToolTip(self._event_tooltip(item))
                 tick.setZValue(2)
+                self.scene.addItem(tick)
             else:
                 rect = VideoRectItem(QRectF(x, y_center - 12, width, 24), item, self)
                 rect.setPen(QPen(QColor("#0b1a33") if item.kind == "video" else QColor("#444444")))
@@ -515,6 +538,32 @@ class TimePicker(QWidget):
 
     def _refresh_clicked(self):
         self.show_times(self._current_root, self._current_date)
+
+    @staticmethod
+    def _event_tooltip(item: TimelineItem) -> str:
+        """Exact time to the millisecond, the full message, then the node
+        and state it came from (Chris, 2026-09-08)."""
+        import textwrap
+
+        when = format_local_time(item.start, "%H:%M:%S.%f")[:-3]
+        lines = [when]
+        lines.extend(textwrap.wrap(str(item.label or ""), 110) or [""])
+        payload = item.payload if isinstance(item.payload, dict) else {}
+        bits = []
+        source = payload.get("source")
+        if source:
+            bits.append("node " + str(source).rstrip("/").split("/")[-1])
+        state = payload.get("state_name")
+        if state:
+            bits.append(f"state {state}")
+        severity = payload.get("severity")
+        if severity not in (None, ""):
+            bits.append(f"severity {severity}")
+        if bits:
+            lines.append(" | ".join(bits))
+        lines.extend(TimePicker._tooltip_extra_lines(item))
+        lines.append("Click to open the footage and logs here")
+        return "\n".join(lines)
 
     @staticmethod
     def _tooltip_extra_lines(item: TimelineItem) -> list[str]:

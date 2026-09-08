@@ -580,6 +580,7 @@ class MainWindow(QWidget):
         self.date_picker.system_id_selected.connect(self._set_system_id_override)
         # Settings button removed from DatePicker UI
         self.time_picker.time_selected.connect(self.on_time_chosen)
+        self.time_picker.event_clicked.connect(self._on_timeline_event_clicked)
         self.time_picker.items_changed.connect(self._sync_viewer_sku_overlay)
         self.time_picker.items_changed.connect(self._on_items_changed_for_navigation)
         self.viewer.clip_opened.connect(self._on_clip_opened_for_navigation)
@@ -1797,6 +1798,22 @@ class MainWindow(QWidget):
         else:
             self._cancel_overview_navigation()
         self.date_picker.select_pikpak_folder_and_day(pikpak_root, selected_day)
+
+    def _on_timeline_event_clicked(self, item: TimelineItem) -> None:
+        """A click on an event tick opens the clip covering that moment and
+        seeks to it; the logs follow the playhead (Chris, 2026-09-08)."""
+        root = self.time_picker.current_root
+        day = self.time_picker._current_date
+        if not isinstance(root, Path) or day is None or not isinstance(item.start, datetime):
+            return
+        self._pending_overview_navigation = {
+            "root": root,
+            "day": day,
+            "target_dt": ensure_utc(item.start),
+            "stage": "load_timeline",
+        }
+        self._overview_nav_failsafe.start()
+        self._on_items_changed_for_navigation()
 
     def _cancel_overview_navigation(self) -> None:
         self._pending_overview_navigation = None

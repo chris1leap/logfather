@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- System Replay event ticks (Chris, 2026-09-08): each condition-track
+  mark has a 10 px hit area with a hand cursor; hover shows the exact
+  time to the millisecond, the full message, node / state / severity and
+  any SKU details; a click opens the clip covering that moment, seeks to
+  it and the logs follow.
 - System Replay readings (Chris, 2026-09-08): the same Data and Additional
   data boxes sit above the day timeline, and every ticked family is drawn
   as a strip under the tracks for the chosen system and day, with the
