@@ -1356,7 +1356,7 @@ class OverviewWidget(QWidget):
         latest_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
         latest_item.setPos(scene_width - right_pad + 8, rect.top() - 4)
         latest_item.setZValue(4)
-        self._temp_hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen]))
+        self._temp_hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen], state.name))
 
     def _on_filter_closed(self):
         # Reload once the popup closes, not per tick: the selection
@@ -1642,7 +1642,7 @@ class OverviewWidget(QWidget):
         # readings in the key's colours (Chris, 2026-09-08).
         strip = self._temp_strip_under(self._hover_scene_y)
         if strip is not None:
-            rect, lo, hi, inner_top, inner_h, tracks = strip
+            rect, lo, hi, inner_top, inner_h, tracks, system_name = strip
             t_ms = int(hover_dt.timestamp() * 1000)
             lines = []
             for key, label, track in tracks:
@@ -1657,8 +1657,18 @@ class OverviewWidget(QWidget):
                 self._temp_hover_dots.append(dot)
                 lines.append(f'<span style="color:{colour};">{label} {value:.1f}°C</span>')
             if lines:
+                # System and time on top, a rule, then the readings, in
+                # smaller type (Chris, 2026-09-08).
+                when = hover_dt.astimezone().strftime("%H:%M:%S")
+                head = f'<span style="color:{theme.TEXT_BRIGHT}; font-weight:bold;">{system_name}</span> <span style="color:{theme.TEXT_MUTED};">{when}</span>'
                 text = self.scene.addText("")
-                text.setHtml("<div style='white-space:nowrap;'>" + "<br>".join(lines) + "</div>")
+                small = QFont(text.font())
+                small.setPointSizeF(max(6.0, small.pointSizeF() * 0.7))
+                text.setFont(small)
+                text.setHtml(
+                    "<div style='white-space:nowrap;'>" + head
+                    + f"<hr style='color:{theme.BORDER_LIGHT};'>" + "<br>".join(lines) + "</div>"
+                )
                 text.setZValue(6.2)
                 text.setAcceptedMouseButtons(Qt.NoButton)
                 bounds = text.boundingRect()
