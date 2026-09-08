@@ -135,6 +135,33 @@ reset: 0x2300:03 as a float of 3876 on drives 1 to 3 and 4560 on drives 5
 and 6, and 0x4301:05 as 85 on drives 1 to 3 and 100 on drives 5 and 6.
 Probably per-axis limits; the drive manual is needed to name them.
 
+## PVT point format (object 0x2200:02)
+
+Each trajectory point is a 12-byte segmented SDO write to 0x2200:02, three
+little-endian 32-bit values:
+
+| Bytes | Type | Meaning | Example |
+|---|---|---|---|
+| 0 to 3 | float32 | position | 32.51 |
+| 4 to 7 | float32 | velocity | 103.04 |
+| 8 to 11 | uint32 | time, ms | 20 |
+
+Every one of the 42,901 points in the second capture has time = 20, so the
+master streams a target every 20 ms of trajectory. The actuator controller
+prints the same triple when a drive rejects a point ("PVT 43.430946 0.000000
+20.000000 :: Generic error" in the 28 August logs).
+
+Cost on the wire: 6 frames per point (write initiate, ack, 7-byte segment,
+ack, 5-byte segment, ack), about 0.72 ms measured on the 1 Mbit/s bus, so
+12 useful bytes occupy roughly 800 bits: a payload efficiency near 15%. The
+capture holds about 8,600 points per drive over 14 minutes (10 a second on
+average, 50 a second while an axis moves), and PVT streaming is about a third
+of all frames on the bus; the 0x2014:01 status read is most of the rest.
+
+If bus load ever matters: a point fits in two PDOs with no acknowledgements,
+or in one 8-byte frame as 16-bit scaled position and velocity with the time
+implied, which is how most CANopen motion profiles do it.
+
 ## Bus utilisation
 
 The bit rate is 1 Mbit/s: the busiest 10 ms of the second capture holds 59
