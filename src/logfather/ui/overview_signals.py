@@ -103,6 +103,11 @@ class SignalChannel(QObject):
         self.button.setToolTip(tooltip)
         self.button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         menu = QMenu(self.button)
+        # Show all / Hide all first, then a rule, then the readings (Chris,
+        # 2026-09-08).
+        menu.addAction("Show all", lambda: self.set_all(True))
+        menu.addAction("Hide all", lambda: self.set_all(False))
+        menu.addSeparator()
         self.actions: dict[str, QAction] = {}
         for key, label in choices:
             if key == separator_before:
@@ -113,9 +118,6 @@ class SignalChannel(QObject):
             action.toggled.connect(lambda _checked=False: self.on_changed())
             menu.addAction(action)
             self.actions[key] = action
-        menu.addSeparator()
-        menu.addAction("Show all", lambda: self.set_all(True))
-        menu.addAction("Hide all", lambda: self.set_all(False))
         self.button.setMenu(menu)
         self.key_label = QLabel("")
         self.key_label.setTextFormat(Qt.RichText)

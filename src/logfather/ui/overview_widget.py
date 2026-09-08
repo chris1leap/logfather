@@ -775,6 +775,9 @@ class OverviewWidget(QWidget):
         self.additional_btn.setToolTip("Computer health and housekeeping readings, one strip each")
         self.additional_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         additional_menu = QMenu(self.additional_btn)
+        additional_menu.addAction("Show all", lambda: self._set_all_additional(True))
+        additional_menu.addAction("Hide all", lambda: self._set_all_additional(False))
+        additional_menu.addSeparator()
         self._additional_proxies: list[tuple[SignalChannel, str, QAction]] = []
         for channel in self._additional:
             many = len(channel.choices) > 1
@@ -785,9 +788,8 @@ class OverviewWidget(QWidget):
                 proxy.toggled.connect(lambda checked, ch=channel, k=key: self._on_additional_toggled(ch, k, checked))
                 additional_menu.addAction(proxy)
                 self._additional_proxies.append((channel, key, proxy))
-            additional_menu.addSeparator()
-        additional_menu.addAction("Show all", lambda: self._set_all_additional(True))
-        additional_menu.addAction("Hide all", lambda: self._set_all_additional(False))
+            if channel is not self._additional[-1]:
+                additional_menu.addSeparator()
         self.additional_btn.setMenu(additional_menu)
         self._additional_key = QLabel("")
         self._additional_key.setTextFormat(Qt.RichText)
