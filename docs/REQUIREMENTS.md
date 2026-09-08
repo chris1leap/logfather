@@ -25,8 +25,10 @@ Living record of agreed functionality: what is open, and what has shipped
 ### 2026-09-08
 
 - Data box: Picks (Chris, 2026-09-08), first row above Temps: picks per
-  minute from targeting_products_picked_per_min, Argus 2 only (Argus 1
-  strips say so), scaled from 0.
+  minute, scaled from 0. Argus 2 from Grafana's
+  targeting_products_picked_per_min; Argus 1 (no such metric) from the
+  pick messages in Elastic (`data/pick_rate.py`: one date_histogram,
+  1/5/30-minute buckets by span, trailing five-minute mean).
 - Additional data: CAN bus family (Chris, 2026-09-08): CAN bus errors, CAN
   errors near power event, CAN frames seen. Not cumulative counters: the
   health node reports a count per window and restarts, so they are drawn

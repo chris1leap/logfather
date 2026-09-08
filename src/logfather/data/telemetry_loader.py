@@ -66,6 +66,19 @@ def fetch_fleet_signals(settings: Settings, keys: list[str], start_utc, end_utc,
                     lookup = dict(zip(existing.times_ms, existing.values))
                     lookup.update({t: v for t, v in zip(track.times_ms, track.values) if v is not None})
                     slot[key] = Track(track.name, merged_t, [lookup.get(t) for t in merged_t], key)
+    if "picks_per_min" in keys and not (job is not None and job.interrupted()):
+        # Argus 1 systems have no pick-rate metric in Grafana: derive it
+        # from the pick messages in Elastic for any robot still without one
+        # (Chris, 2026-09-08). Elastic trouble must not sink the rest.
+        try:
+            from logfather.data.pick_rate import fetch_elastic_pick_rate
+
+            for robot, track in fetch_elastic_pick_rate(settings, start_utc, end_utc).items():
+                slot = out.setdefault(robot, {})
+                if "picks_per_min" not in slot:
+                    slot["picks_per_min"] = track
+        except Exception:
+            pass
     return out
 
 

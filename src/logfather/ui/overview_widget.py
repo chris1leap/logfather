@@ -723,11 +723,11 @@ class OverviewWidget(QWidget):
         # channel with its own Data-box button, key and strip.
         self._picks = SignalChannel(
             self, name="picks", title="Picks", icon=pick_icon(),
-            tooltip="Pick rate under each system (Argus 2 systems report it; from Grafana)",
+            tooltip="Pick rate under each system (Grafana for Argus 2, the pick messages in Elastic for Argus 1)",
             choices=PICKS_CHOICES, colours=PICKS_COLOURS, unit="/min", axis_unit="/min", decimals=1,
             separator_before="", ui_keys="overview_picks", ui_strip="overview_picks_strip_height",
             default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT, short={"Picks per minute": "Picks"},
-            loading_text="Loading pick rate...", empty_text="No pick rate in this window (Argus 1 systems do not report it)",
+            loading_text="Loading pick rate...", empty_text="No picks in this window",
             axis_min=0.0, axis_title="Picks/min",
         )
         self._temps = SignalChannel(

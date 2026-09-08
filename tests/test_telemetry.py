@@ -171,3 +171,20 @@ def test_additional_channels_and_queries():
     assert fleet_query(spec["halting_errors"], "system_id") == 'sum by(system_id) (actuators_motor_halting_errors{system_id!=""})'
     assert fleet_query(spec["motor_temp"], "system_id", "3") == 'max by(system_id) (actuators_motor_temperature{system_id!="", motor_id="3"} != 0)'
     assert all(m.in_replay for m in METRICS if m.key in ("cpu_temp", "motor_temp", "motor_current", "air_pressure"))
+
+
+def test_parse_pick_buckets_fills_gaps_and_smooths():
+    from logfather.data.pick_rate import bucket_minutes, parse_pick_buckets
+
+    assert bucket_minutes(60) == 1 and bucket_minutes(5 * 24 * 60) == 5 and bucket_minutes(60 * 24 * 60) == 30
+    m = 60_000
+    buckets = [
+        {"key": 0, "per_robot": {"buckets": [{"key": "35-2300-013", "doc_count": 10}]}, "per_system_id": {"buckets": []}},
+        {"key": 2 * m, "per_robot": {"buckets": [{"key": "35-2300-013", "doc_count": 20}]}, "per_system_id": {"buckets": [{"key": "013", "doc_count": 5}]}},
+    ]
+    tracks = parse_pick_buckets(buckets, 1, smooth=2)
+    t = tracks["35-2300-013"]
+    assert t.times_ms == [0, m, 2 * m]              # the empty minute is filled in
+    assert t.values == [10.0, 5.0, 12.5]            # trailing 2-minute mean; both id fields merged
+    five = parse_pick_buckets([{"key": 0, "per_robot": {"buckets": [{"key": "35-2300-005", "doc_count": 50}]}, "per_system_id": {"buckets": []}}], 5, smooth=5)
+    assert five["35-2300-005"].values == [10.0]     # 50 picks in a 5-minute bucket
