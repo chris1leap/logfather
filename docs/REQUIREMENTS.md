@@ -22,6 +22,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ## Shipped
 
+### 2026-09-08
+
+- Overview temperatures (Chris, 2026-09-08): Temps and its colour key sit on
+  their own row under Systems in a box labelled Data. Hovering a strip drops
+  a dot on each trace at the hover line and the hover label shows just those
+  temperatures; the min/max/latest tooltip is gone.
+
 ### 2026-09-07
 
 - Overview temperatures (Chris, 2026-09-07): a Temperatures menu next to

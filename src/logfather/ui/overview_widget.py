@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QGraphicsScene,
     QGraphicsView,
+    QGroupBox,
     QMenu,
     QGraphicsRectItem,
     QStackedWidget,
@@ -766,8 +767,6 @@ class OverviewWidget(QWidget):
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.addWidget(self.filter_btn)
-        controls.addWidget(self.temps_btn)
-        controls.addWidget(self._temps_key)
         controls.addSpacing(12)
         # Live and Choose days keep their place; the zoom trio follows
         # them and hides for multi-day spans (Chris, 2026-09-07).
@@ -796,6 +795,11 @@ class OverviewWidget(QWidget):
         self._preview_label.setStyleSheet(theme.HOVER_PREVIEW)
         self._preview_label.hide()
         self._hover_scene_x: float | None = None
+        self._hover_scene_y: float | None = None
+        # (rect, lo, hi, inner_top, inner_h, [(key, label, track)]) per strip:
+        # the hover line drops a dot on each trace (Chris, 2026-09-08).
+        self._temp_hover_rows: list[tuple] = []
+        self._temp_hover_dots: list = []
         self._hover_window_start: datetime | None = None
         self._hover_window_end: datetime | None = None
         self._hover_timeline_x: float = 0.0
@@ -845,6 +849,24 @@ class OverviewWidget(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
         layout.addLayout(controls)
+        # Temps and its key on their own row under Systems, in a box
+        # labelled Data (Chris, 2026-09-08).
+        data_box = QGroupBox("Data")
+        data_box.setStyleSheet(
+            f"QGroupBox {{ font-weight: normal; margin-top: 12px; padding: 8px 8px 6px 8px;"
+            f" border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
+            f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
+        )
+        data_layout = QHBoxLayout(data_box)
+        data_layout.setContentsMargins(6, 4, 6, 4)
+        data_layout.setSpacing(10)
+        data_layout.addWidget(self.temps_btn)
+        data_layout.addWidget(self._temps_key)
+        data_row = QHBoxLayout()
+        data_row.setContentsMargins(0, 0, 0, 0)
+        data_row.addWidget(data_box)
+        data_row.addStretch(1)
+        layout.addLayout(data_row)
         layout.addWidget(self._content_stack, 1)
 
         self._refresh_timer = QTimer(self)
@@ -1329,7 +1351,7 @@ class OverviewWidget(QWidget):
         latest_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
         latest_item.setPos(scene_width - right_pad + 8, rect.top() - 4)
         latest_item.setZValue(4)
-        bg.setToolTip("\n".join(f"{label}: min {s[0]:.1f}°C  max {s[1]:.1f}°C  latest {s[2]:.1f}°C" for _k, label, _t, s in chosen))
+        self._temp_hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen]))
 
     def _on_filter_closed(self):
         # Reload once the popup closes, not per tick: the selection
@@ -1552,6 +1574,7 @@ class OverviewWidget(QWidget):
             if event.type() == QEvent.MouseMove:
                 scene_pos = self.view.mapToScene(event.pos())
                 x = float(scene_pos.x())
+                self._hover_scene_y = float(scene_pos.y())
                 if self._hover_timeline_width > 0 and self._hover_timeline_x <= x <= (self._hover_timeline_x + self._hover_timeline_width):
                     self._hover_scene_x = x
                 else:
@@ -1582,6 +1605,7 @@ class OverviewWidget(QWidget):
             and self._hover_window_end is not None
             and self._hover_timeline_width > 0
         )
+        self._clear_temp_hover_dots()
         if not valid:
             for item in (self._hover_line_item, self._hover_label_item):
                 if item is not None:
@@ -1604,11 +1628,50 @@ class OverviewWidget(QWidget):
             self._hover_label_item = self.scene.addText("")
             self._hover_label_item.setDefaultTextColor(QColor("#ffe08a"))
             self._hover_label_item.setZValue(3.2)
-        self._hover_label_item.setPlainText(hover_dt.astimezone().strftime("%H:%M:%S"))
+        label_text = hover_dt.astimezone().strftime("%H:%M:%S")
+        label_y = 16.0
+        strip = self._temp_strip_under(self._hover_scene_y)
+        if strip is not None:
+            rect, lo, hi, inner_top, inner_h, tracks = strip
+            t_ms = int(hover_dt.timestamp() * 1000)
+            parts = []
+            for key, label, track in tracks:
+                value = track.value_at(t_ms)
+                if value is None:
+                    continue
+                y_dot = inner_top + inner_h - (value - lo) / (hi - lo) * inner_h
+                colour = QColor(TEMPERATURE_COLOURS.get(key, "#ffffff"))
+                dot = self.scene.addEllipse(hover_x - 3.5, y_dot - 3.5, 7, 7, QPen(QColor("#0b1014"), 1), QBrush(colour))
+                dot.setZValue(5)
+                dot.setAcceptedMouseButtons(Qt.NoButton)
+                self._temp_hover_dots.append(dot)
+                parts.append(f"{label} {value:.1f}°")
+            if parts:
+                label_text = "  ".join(parts)
+                label_y = rect.top() - 18
+        self._hover_label_item.setPlainText(label_text)
+        label_w = self._hover_label_item.boundingRect().width()
         self._hover_label_item.setPos(
-            min(max(timeline_x, hover_x - 26), timeline_x + timeline_width - 70), 16
+            min(max(timeline_x, hover_x - 26), timeline_x + timeline_width - label_w), label_y
         )
         self._hover_label_item.setVisible(True)
+
+    def _temp_strip_under(self, y: float | None):
+        if y is None:
+            return None
+        for row in self._temp_hover_rows:
+            if row[0].top() <= y <= row[0].bottom():
+                return row
+        return None
+
+    def _clear_temp_hover_dots(self):
+        for dot in self._temp_hover_dots:
+            try:
+                if dot.scene() is not None:
+                    self.scene.removeItem(dot)
+            except RuntimeError:
+                pass
+        self._temp_hover_dots = []
 
     def _set_display_mode(self, mode: str):
         if mode == self._display_mode:
@@ -2373,6 +2436,8 @@ class OverviewWidget(QWidget):
         row_height = int((OVERVIEW_ROW_HEIGHT_WITH_TEMPS if self._temp_keys else OVERVIEW_ROW_HEIGHT) * zoom)
         strip_h = int(self._temp_strip_h * zoom) if self._temp_keys else 0
         self._temp_edge_bands = []
+        self._temp_hover_rows = []
+        self._temp_hover_dots = []
         row_step = row_height + strip_h
         header_height = int(36 * zoom)
         display_rows: list[tuple[str, object]] = []
