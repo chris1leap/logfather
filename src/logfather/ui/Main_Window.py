@@ -37,6 +37,7 @@ from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import SystemPickerPopup, funnel_icon
 from logfather.ui.icons import calendar_icon
+from logfather.ui.window_placement import show_over_parent
 from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.day_selection import DaySelection
 from logfather.ui.telemetry_strip import TelemetryPanel
@@ -651,9 +652,7 @@ class MainWindow(QWidget):
                 gear_host=self,
                 day_selection=self.day_selection,
             )
-        self._data_dialog.show()
-        self._data_dialog.raise_()
-        self._data_dialog.activateWindow()
+        show_over_parent(self._data_dialog, 1180, 720)
         self._data_dialog.start_if_needed()
 
     def _shutdown_data_dialog(self):
@@ -674,17 +673,13 @@ class MainWindow(QWidget):
                 gear_host=self,
                 day_selection=self.day_selection,
             )
-        self._errors_window.show()
-        self._errors_window.raise_()
-        self._errors_window.activateWindow()
+        show_over_parent(self._errors_window, 1280, 880)
         self._errors_window.start_if_needed()
 
     def _open_software_window(self):
         if self._software_window is None:
             self._software_window = SoftwareWindow(settings_provider=lambda: self.settings, parent=self, gear_host=self)
-        self._software_window.show()
-        self._software_window.raise_()
-        self._software_window.activateWindow()
+        show_over_parent(self._software_window, 1320, 820)
         self._software_window.start_if_needed()
 
     # ---- newer version available ------------------------------------------

@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- Secondary windows fit the screen (Chris, 2026-09-08): the Data,
+  Errors & Stops and Software windows open sized to the screen the main
+  window is on, centred over it with the title bar kept visible, and are
+  nudged back on screen after showing (the Data window had opened with
+  its title bar above the top and could not be moved or closed).
 - System Replay event ticks (Chris, 2026-09-08): each condition-track
   mark has a 10 px hit area with a hand cursor; hover shows the exact
   time to the millisecond, the full message, node / state / severity and
