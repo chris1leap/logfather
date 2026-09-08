@@ -163,7 +163,7 @@ def test_additional_channels_and_queries():
 
     spec = {m.key: m for m in METRICS}
     names = [c["name"] for c in ADDITIONAL_CHANNELS]
-    assert names == ["cpu", "memory", "clock", "halting", "logqueue"]
+    assert names == ["cpu", "memory", "clock", "halting", "logqueue", "canbus"]
     for c in ADDITIONAL_CHANNELS:
         for key, _label in c["choices"]:
             assert key in spec and key in c["colours"] and key in SIGNAL_LABELS and not spec[key].in_replay

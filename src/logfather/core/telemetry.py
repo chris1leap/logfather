@@ -58,6 +58,13 @@ METRICS: tuple[MetricSpec, ...] = (
     MetricSpec("clock_offset", "Clock offset", "RCU CCU offset (s)", "behaviour_RCU_CCU_time_offset", " s", in_replay=False),
     MetricSpec("halting_errors", "Motor halting errors", "All motors", "actuators_motor_halting_errors", "", per_motor=True, in_replay=False, fleet_agg="sum"),
     MetricSpec("log_queue", "Argus log queue", "Queued lines", "argus_logs_queue_size", "", in_replay=False),
+    # CAN bus (Chris, 2026-09-08). These are NOT cumulative counters: the
+    # health node reports a count per reporting window and starts again
+    # (frames sit near 30k idle and 430k running, errors near a power
+    # event follow the same shape), so they are drawn as reported.
+    MetricSpec("canbus_errors", "CAN bus", "Errors", "behaviour_canbus_errors", "", in_replay=False),
+    MetricSpec("canbus_errors_power", "CAN bus", "Errors near power event", "behaviour_canbus_errors_near_power_event", "", in_replay=False),
+    MetricSpec("canbus_frames", "CAN bus", "Frames seen", "behaviour_canbus_frames_seen", "", in_replay=False),
 )
 GROUP_ORDER = ("Temperatures", "Motor temperatures", "Motor currents", "Air pressure")
 SAMPLE_INTERVAL_MS = 30_000
@@ -292,6 +299,9 @@ ADDITIONAL_CHANNELS: tuple[dict, ...] = (
      "choices": (("halting_errors", "Motor halting errors"),), "colours": {"halting_errors": "#ff4d4f"}},
     {"name": "logqueue", "title": "Log queue", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
      "choices": (("log_queue", "Argus log queue"),), "colours": {"log_queue": "#36cfc9"}},
+    {"name": "canbus", "title": "CAN bus", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
+     "choices": (("canbus_errors", "CAN bus errors"), ("canbus_errors_power", "CAN errors near power event"), ("canbus_frames", "CAN frames seen")),
+     "colours": {"canbus_errors": "#ff4d4f", "canbus_errors_power": "#ff9c6e", "canbus_frames": "#95de64"}},
 )
 SIGNAL_LABELS: dict[str, str] = dict(TEMPERATURE_CHOICES) | dict(CURRENT_CHOICES) | dict(PRESSURE_CHOICES)
 for _channel in ADDITIONAL_CHANNELS:

@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- Additional data: CAN bus family (Chris, 2026-09-08): CAN bus errors, CAN
+  errors near power event, CAN frames seen. Not cumulative counters: the
+  health node reports a count per window and restarts, so they are drawn
+  as reported rather than rate()d (rate() on them explodes).
 - Overview Additional box (Chris, 2026-09-08), right of Data: one menu
   ticks CPU load (CCU / RCU, %), Memory (CCU / RCU, %), RCU to CCU clock
   offset (s), Motor halting errors (summed over motors) and Argus log
