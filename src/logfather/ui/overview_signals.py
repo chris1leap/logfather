@@ -137,7 +137,14 @@ class SignalChannel(QObject):
             for key, label in self.choices if key in self.keys
         ]
         self.key_label.setText("&nbsp;&nbsp;".join(bits))
-        self.key_label.setVisible(bool(bits))
+        # Only a label that sits in a layout is shown: a parentless QLabel
+        # made visible becomes its own top-level window (the stray
+        # "python" windows Chris saw, 2026-09-08). The Additional data
+        # channels keep their own button and key unplaced.
+        if self.key_label.parent() is not None:
+            self.key_label.setVisible(bool(bits))
+        else:
+            self.key_label.hide()
 
     def set_all(self, on: bool) -> None:
         for action in self.actions.values():
