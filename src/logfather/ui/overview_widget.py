@@ -907,6 +907,8 @@ class OverviewWidget(QWidget):
             channel_row.addWidget(channel.key_label)
             channel_row.addStretch(1)
             data_layout.addLayout(channel_row)
+            # The key was hidden while parentless; now it has a home, show it.
+            channel.refresh_label()
         additional_box = QGroupBox("Additional data")
         additional_box.setStyleSheet(data_box.styleSheet())
         additional_layout = QVBoxLayout(additional_box)
