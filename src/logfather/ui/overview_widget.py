@@ -1671,6 +1671,9 @@ class OverviewWidget(QWidget):
                 )
                 text.setZValue(6.2)
                 text.setAcceptedMouseButtons(Qt.NoButton)
+                # Give the document its ideal width so the rule spans it
+                # (an <hr> in an unsized document collapses to a dot).
+                text.setTextWidth(text.document().idealWidth())
                 bounds = text.boundingRect()
                 box_w, box_h = bounds.width() + 8, bounds.height() + 6
                 box_x = hover_x + 12
