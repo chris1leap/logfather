@@ -786,6 +786,9 @@ class OverviewWidget(QWidget):
 
         self.scene = QGraphicsScene(self)
         self.view = QGraphicsView(self.scene, self)
+        # Rows start at the top even when few systems are shown; the view
+        # otherwise centres a short scene (Chris, 2026-09-08).
+        self.view.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.view.setFrameShape(QGraphicsView.NoFrame)
