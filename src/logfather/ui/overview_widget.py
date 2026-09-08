@@ -767,6 +767,15 @@ class OverviewWidget(QWidget):
                 axis_min=spec["axis_min"], axis_title=spec["title"],
             ))
         self._channels = (self._temps, self._currents, self._pressure, *self._additional)
+        # The three Data-box buttons share one width, the widest of them
+        # with a count showing (Chris, 2026-09-08).
+        widest = 0
+        for channel in (self._temps, self._currents, self._pressure):
+            channel.button.setText(f"{channel.title} (6)")
+            widest = max(widest, channel.button.sizeHint().width())
+            channel.refresh_label()
+        for channel in (self._temps, self._currents, self._pressure):
+            channel.button.setFixedWidth(widest)
         self.additional_btn = QToolButton()
         self.additional_btn.setIcon(plus_box_icon())
         self.additional_btn.setIconSize(QSize(18, 18))
