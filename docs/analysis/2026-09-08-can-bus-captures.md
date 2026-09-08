@@ -7,6 +7,19 @@ COB-ID 700, alive tick on 27F). Source files: `18h.txt` and `19h.txt` in
 Chris's Downloads. Interactive timeline for the first capture:
 <https://claude.ai/code/artifact/49aade63-e9de-4590-bde7-09bab622f4f0>
 
+## Abbreviations
+
+| Term | Stands for | In these captures |
+|---|---|---|
+| COB-ID | Communication Object Identifier | The 11-bit CAN identifier: what a frame is and which node it concerns. |
+| SDO | Service Data Object | Read or write one object-dictionary entry on request, "ask and answer". Requests on 601 to 606, replies on 581 to 586. Over 4 bytes it is chopped into 7-byte segments, so a 16-byte read costs 8 frames. |
+| PDO | Process Data Object | Unrequested broadcast of live data, no address header, all 8 bytes payload. Defined on the drives (drive 5 sent TPDO2/3/4 once at 19:06:05) but not used in the running cycle. |
+| NMT | Network Management | The master's start / stop / reset commands on COB-ID 000. |
+| EMCY | Emergency | A node reporting an error, on 081 to 086. |
+| SYNC | Synchronisation | The master's pulse on COB-ID 100, about every 18 s here. |
+| PVT | Position Velocity Time | The trajectory points streamed into the drives' buffer (object 0x2202). |
+| RPDO / TPDO | Receive / Transmit PDO | PDO seen from the node's side: it receives an RPDO, transmits a TPDO. 0x27F is RPDO1 for node 127, the master's alive tick. |
+
 ## Capture 1: 18:32:52 to 18:35:58 (`18h.txt`)
 
 155,741 frames in 3 minutes 6 seconds. Records a full power dip on the drives
