@@ -161,7 +161,7 @@ class TargetOverlayController(QObject):
         if pikpak_root is None or clip_start is None or clip_end is None:
             return
 
-        print(f"[buffer] starting load for {pikpak_root}  {clip_start} → {clip_end}")
+        print(f"[buffer] starting load for {pikpak_root}  {clip_start} -> {clip_end}")
         settings = self._settings_provider()
         self._buffer_slot.start(
             lambda job: fetch_buffer_events(settings, pikpak_root, clip_start, clip_end),
