@@ -55,7 +55,7 @@ METRICS: tuple[MetricSpec, ...] = (
     MetricSpec("rcu_cpu", "CPU load", "RCU", "diagnostics_rcu_cpu_average", "%", in_replay=False),
     MetricSpec("ccu_memory", "Memory", "CCU", "diagnostics_ccu_memory", "%", in_replay=False),
     MetricSpec("rcu_memory", "Memory", "RCU", "diagnostics_rcu_memory", "%", in_replay=False),
-    MetricSpec("clock_offset", "Clock offset", "RCU to CCU", "behaviour_RCU_CCU_time_offset", " s", in_replay=False),
+    MetricSpec("clock_offset", "Clock offset", "RCU CCU offset (s)", "behaviour_RCU_CCU_time_offset", " s", in_replay=False),
     MetricSpec("halting_errors", "Motor halting errors", "All motors", "actuators_motor_halting_errors", "", per_motor=True, in_replay=False, fleet_agg="sum"),
     MetricSpec("log_queue", "Argus log queue", "Queued lines", "argus_logs_queue_size", "", in_replay=False),
 )
@@ -287,7 +287,7 @@ ADDITIONAL_CHANNELS: tuple[dict, ...] = (
     {"name": "memory", "title": "Memory", "unit": "%", "axis_unit": "%", "decimals": 0, "axis_min": 0.0, "axis_max": 100.0,
      "choices": (("ccu_memory", "CCU"), ("rcu_memory", "RCU")), "colours": {"ccu_memory": "#2ecc71", "rcu_memory": "#f1c40f"}},
     {"name": "clock", "title": "Clock offset", "unit": " s", "axis_unit": "s", "decimals": 3, "axis_min": None,
-     "choices": (("clock_offset", "RCU to CCU"),), "colours": {"clock_offset": "#d46bff"}},
+     "choices": (("clock_offset", "RCU CCU offset (s)"),), "colours": {"clock_offset": "#d46bff"}},
     {"name": "halting", "title": "Halting errors", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
      "choices": (("halting_errors", "Motor halting errors"),), "colours": {"halting_errors": "#ff4d4f"}},
     {"name": "logqueue", "title": "Log queue", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
