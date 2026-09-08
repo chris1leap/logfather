@@ -169,6 +169,16 @@ class SystemFilterPopup(QWidget):
             return box
 
         outer.addWidget(_grouped_body(groups, make_row))
+        # OK applies the ticks now (closing the popup is what applies
+        # them); before, only clicking elsewhere did (Chris, 2026-09-08).
+        foot = QHBoxLayout()
+        foot.addStretch(1)
+        ok_btn = QPushButton("OK")
+        ok_btn.setDefault(True)
+        ok_btn.setStyleSheet(theme.PRIMARY_ACTION_BUTTON)
+        ok_btn.clicked.connect(self.hide)
+        foot.addWidget(ok_btn)
+        outer.addLayout(foot)
         self.adjustSize()
 
     def _set_all(self, visible: bool) -> None:
