@@ -14,15 +14,28 @@ from typing import Callable
 from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem
-from PySide6.QtWidgets import QLabel, QMenu, QSizePolicy, QToolButton
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout
 
-from logfather.core.telemetry import window_stats
+from logfather.core.telemetry import (
+    ADDITIONAL_CHANNELS,
+    CURRENT_CHOICES,
+    CURRENT_COLOURS,
+    PICKS_CHOICES,
+    PICKS_COLOURS,
+    PRESSURE_CHOICES,
+    PRESSURE_COLOURS,
+    TEMPERATURE_CHOICES,
+    TEMPERATURE_COLOURS,
+    window_stats,
+)
 from logfather.data.telemetry_loader import fetch_fleet_signals
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.ui import theme
+from logfather.ui.icons import current_icon, gauge_icon, pick_icon, plus_box_icon, thermometer_icon
 from logfather.ui.qt_worker import JobSlot
 
 STRIP_MIN, STRIP_MAX = 16, 240
+DEFAULT_STRIP_HEIGHT = 44
 GUIDE_COLOUR = "#ff8a65"
 
 
@@ -92,6 +105,9 @@ class SignalChannel(QObject):
         self.edge_hover = False
         self.hover_rows: list[tuple] = []
         self.hover_items: list = []
+        # (item, kind, y) for the strip title and axis labels, so a scrolling
+        # owner (the Replay timeline) can keep them at the viewport's left.
+        self.label_items: list[tuple] = []
         # (robot, key) -> QPainterPath in (seconds since the epoch, value)
         # space, built once per data load; each redraw only places it
         # through a transform (the per-second live redraw was rebuilding
@@ -194,6 +210,7 @@ class SignalChannel(QObject):
         self.edge_bands = []
         self.hover_rows = []
         self.hover_items = []
+        self.label_items = []
         self.guide_item = None
         self.guide_label = None
 
@@ -203,7 +220,7 @@ class SignalChannel(QObject):
     def _fmt(self, value: float) -> str:
         return f"{value:.{self.decimals}f}{self.unit}"
 
-    def draw_strip(self, state, rect: QRectF, window_start: datetime, window_end: datetime, scene_width: float, right_pad: float) -> None:
+    def draw_strip(self, state, rect: QRectF, window_start: datetime, window_end: datetime, scene_width: float, right_pad: float, title_x: float = 22.0, show_latest: bool = True) -> None:
         scene = self.owner.scene
         bg = scene.addRect(rect, QPen(QColor("#31414d")), QBrush(QColor("#0b1014")))
         bg.setZValue(1)
@@ -212,8 +229,10 @@ class SignalChannel(QObject):
         title_font.setPointSize(8)
         title_item = scene.addText(self.axis_title, title_font)
         title_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
-        title_item.setPos(22, rect.top() + max(0.0, (rect.height() - title_item.boundingRect().height()) / 2))
+        title_y = rect.top() + max(0.0, (rect.height() - title_item.boundingRect().height()) / 2)
+        title_item.setPos(title_x, title_y)
         title_item.setZValue(4)
+        self.label_items.append((title_item, "title", title_y))
         tracks = self.data.get(state.robot_id or "", {})
         w0 = int(window_start.timestamp() * 1000)
         w1 = int(window_end.timestamp() * 1000)
@@ -277,6 +296,10 @@ class SignalChannel(QObject):
             label_item.setDefaultTextColor(QColor(theme.TEXT_FAINT))
             label_item.setPos(rect.left() - 34, y_pos)
             label_item.setZValue(4)
+            self.label_items.append((label_item, "axis", y_pos))
+        if not show_latest:
+            self.hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen], state.name))
+            return
         latest = " · ".join(
             f"{self.short.get(label, label.replace('Motor ', 'M'))} {axis_fmt.format(stats[2])}{self.axis_unit}"
             for _k, label, _t, stats in chosen
@@ -445,3 +468,194 @@ class SignalChannel(QObject):
         text.setPos(box_x + 4, box_y + 3)
         self.hover_items.extend([box, text])
         return True
+
+
+class SignalBoxes(QObject):
+    """The Data box (Picks, Temps, Currents, Pressure) and the Additional
+    data box, with their channels, for one owner: the Overview or the
+    System Replay timeline (Chris, 2026-09-08). `prefix` keys the saved
+    selection so each screen remembers its own."""
+
+    def __init__(self, owner, prefix: str):
+        super().__init__(owner)
+        self.owner = owner
+        self.picks = SignalChannel(
+            owner, name="picks", title="Picks", icon=pick_icon(),
+            tooltip="Pick rate (Grafana for Argus 2, the pick messages in Elastic for Argus 1)",
+            choices=PICKS_CHOICES, colours=PICKS_COLOURS, unit="/min", axis_unit="/min", decimals=1,
+            separator_before="", ui_keys=f"{prefix}_picks", ui_strip=f"{prefix}_picks_strip_height",
+            default_strip_h=DEFAULT_STRIP_HEIGHT, short={"Picks per minute": "Picks"},
+            loading_text="Loading pick rate...", empty_text="No picks in this window",
+            axis_min=0.0, axis_title="Picks/min",
+        )
+        self.temps = SignalChannel(
+            owner, name="temps", title="Temps", icon=thermometer_icon(),
+            tooltip="Which temperatures to draw (from Grafana)",
+            choices=TEMPERATURE_CHOICES, colours=TEMPERATURE_COLOURS, unit="\u00b0C", axis_unit="\u00b0", decimals=1,
+            separator_before="motor_temp_1", ui_keys=f"{prefix}_temperatures", ui_strip=f"{prefix}_temp_strip_height",
+            default_strip_h=DEFAULT_STRIP_HEIGHT,
+            short={"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Hot"},
+            loading_text="Loading temperatures...", empty_text="No temperature readings in this window",
+            axis_title="Temperature",
+        )
+        self.currents = SignalChannel(
+            owner, name="currents", title="Currents", icon=current_icon(),
+            tooltip="Which motor currents to draw (from Grafana)",
+            choices=CURRENT_CHOICES, colours=CURRENT_COLOURS, unit="A", axis_unit="A", decimals=2,
+            separator_before="motor_current_1", ui_keys=f"{prefix}_currents", ui_strip=f"{prefix}_current_strip_height",
+            default_strip_h=DEFAULT_STRIP_HEIGHT,
+            short={"Highest motor": "Max"},
+            loading_text="Loading currents...", empty_text="No current readings in this window",
+            axis_title="Current",
+        )
+        self.pressure = SignalChannel(
+            owner, name="pressure", title="Pressure", icon=gauge_icon(),
+            tooltip="Draw the supply air pressure (from Grafana)",
+            choices=PRESSURE_CHOICES, colours=PRESSURE_COLOURS, unit=" bar", axis_unit="b", decimals=2,
+            separator_before="", ui_keys=f"{prefix}_pressure", ui_strip=f"{prefix}_pressure_strip_height",
+            default_strip_h=DEFAULT_STRIP_HEIGHT,
+            short={"Air pressure": "Air"},
+            loading_text="Loading air pressure...", empty_text="No air pressure readings in this window",
+            axis_min=0.0, axis_title="Pressure",
+        )
+        self.additional: list[SignalChannel] = []
+        for spec in ADDITIONAL_CHANNELS:
+            self.additional.append(SignalChannel(
+                owner, name=spec["name"], title=spec["title"], icon=plus_box_icon(),
+                tooltip=spec["title"], choices=spec["choices"], colours=spec["colours"],
+                unit=spec["unit"], axis_unit=spec["axis_unit"], decimals=spec["decimals"],
+                separator_before="", ui_keys=f"{prefix}_add_{spec['name']}", ui_strip=f"{prefix}_add_{spec['name']}_strip_height",
+                default_strip_h=DEFAULT_STRIP_HEIGHT, short={},
+                loading_text=f"Loading {spec['title'].lower()}...", empty_text=f"No {spec['title'].lower()} readings in this window",
+                axis_min=spec["axis_min"], axis_max=spec.get("axis_max"), axis_title=spec["title"],
+            ))
+        self.data_channels = (self.picks, self.temps, self.currents, self.pressure)
+        self.channels = (*self.data_channels, *self.additional)
+        # The Data-box buttons share one width, the widest with a count.
+        widest = 0
+        for channel in self.data_channels:
+            channel.button.setText(f"{channel.title} (6)")
+            widest = max(widest, channel.button.sizeHint().width())
+            channel.refresh_label()
+        for channel in self.data_channels:
+            channel.button.setFixedWidth(widest)
+        # One combined menu for the Additional data box.
+        self.additional_btn = QToolButton()
+        self.additional_btn.setIcon(plus_box_icon())
+        self.additional_btn.setIconSize(QSize(18, 18))
+        self.additional_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.additional_btn.setPopupMode(QToolButton.InstantPopup)
+        self.additional_btn.setToolTip("Computer health and housekeeping readings, one strip each")
+        self.additional_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        menu = QMenu(self.additional_btn)
+        menu.addAction("Show all", lambda: self.set_all_additional(True))
+        menu.addAction("Hide all", lambda: self.set_all_additional(False))
+        menu.addSeparator()
+        self.additional_proxies: list[tuple[SignalChannel, str, QAction]] = []
+        for channel in self.additional:
+            many = len(channel.choices) > 1
+            for key, label in channel.choices:
+                proxy = QAction(f"{channel.title}: {label}" if many else label, owner)
+                proxy.setCheckable(True)
+                proxy.setChecked(key in channel.keys)
+                proxy.toggled.connect(lambda checked, ch=channel, k=key: self._on_additional_toggled(ch, k, checked))
+                menu.addAction(proxy)
+                self.additional_proxies.append((channel, key, proxy))
+            if channel is not self.additional[-1]:
+                menu.addSeparator()
+        self.additional_btn.setMenu(menu)
+        self.additional_key = QLabel("")
+        self.additional_key.setTextFormat(Qt.RichText)
+        self.additional_key.setStyleSheet(theme.MUTED_LABEL)
+        # The two boxes.
+        style = (
+            f"QGroupBox {{ font-weight: normal; margin-top: 12px; padding: 8px 8px 6px 8px;"
+            f" border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
+            f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
+        )
+        self.data_box = QGroupBox("Data")
+        self.data_box.setStyleSheet(style)
+        data_layout = QVBoxLayout(self.data_box)
+        data_layout.setContentsMargins(6, 4, 6, 4)
+        data_layout.setSpacing(4)
+        for channel in self.data_channels:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            row.addWidget(channel.button)
+            row.addWidget(channel.key_label)
+            row.addStretch(1)
+            data_layout.addLayout(row)
+            channel.refresh_label()  # hidden while parentless; now it has a home
+        self.additional_box = QGroupBox("Additional data")
+        self.additional_box.setStyleSheet(style)
+        add_layout = QVBoxLayout(self.additional_box)
+        add_layout.setContentsMargins(6, 4, 6, 4)
+        add_layout.setSpacing(4)
+        add_row = QHBoxLayout()
+        add_row.setSpacing(10)
+        add_row.addWidget(self.additional_btn)
+        add_row.addStretch(1)
+        add_layout.addLayout(add_row)
+        add_layout.addWidget(self.additional_key)
+        add_layout.addStretch(1)
+        self.refresh_additional_label()
+
+    def row_layout(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.data_box)
+        row.addSpacing(12)
+        row.addWidget(self.additional_box)
+        row.addStretch(1)
+        return row
+
+    # ---- the Additional data menu ------------------------------------------
+    def _on_additional_toggled(self, channel: SignalChannel, key: str, checked: bool) -> None:
+        action = channel.actions[key]
+        if action.isChecked() != checked:
+            action.setChecked(checked)  # the channel's own action does the work
+        self.refresh_additional_label()
+
+    def set_all_additional(self, on: bool) -> None:
+        for _channel, _key, proxy in self.additional_proxies:
+            proxy.setChecked(on)
+
+    def refresh_additional_label(self) -> None:
+        n = sum(len(channel.keys) for channel in self.additional)
+        self.additional_btn.setText("" if not n else f"({n})")
+        self.additional_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if n else Qt.ToolButtonIconOnly)
+        bits = []
+        for channel in self.additional:
+            many = len(channel.choices) > 1
+            for key, label in channel.choices:
+                if key in channel.keys:
+                    text = f"{channel.title} {label}" if many else label
+                    bits.append(f'<span style="background-color:{channel.colours[key]};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{text}')
+        self.additional_key.setText("&nbsp;&nbsp;".join(bits))
+        self.additional_key.setVisible(bool(bits))
+
+    # ---- the whole set ------------------------------------------------------
+    @property
+    def any_active(self) -> bool:
+        return any(channel.active for channel in self.channels)
+
+    def maybe_fetch(self, span, live: bool, fresh_for, now_local, force: bool = False) -> None:
+        for channel in self.channels:
+            channel.maybe_fetch(span, live, fresh_for, now_local, force)
+
+    def reset_for_redraw(self) -> None:
+        for channel in self.channels:
+            channel.reset_for_redraw()
+
+    def strip_heights(self, zoom: float) -> list[tuple[SignalChannel, int]]:
+        return [(channel, channel.strip_height(zoom)) for channel in self.channels if channel.active]
+
+    def handle_resize(self, event) -> bool:
+        return any(channel.handle_resize(event) for channel in self.channels)
+
+    def clear_hover(self) -> None:
+        for channel in self.channels:
+            channel.clear_hover()
+
+    def draw_hover(self, hover_x, hover_dt, hover_y, timeline_x, timeline_width, grid_top) -> bool:
+        return any(channel.draw_hover(hover_x, hover_dt, hover_y, timeline_x, timeline_width, grid_top) for channel in self.channels)

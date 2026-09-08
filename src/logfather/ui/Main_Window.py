@@ -176,6 +176,8 @@ class MainWindow(QWidget):
             static_tracks=static_tracks,
             cache_root=cache_root,
         )
+        # The timeline's reading strips need the settings for Grafana / Elastic.
+        self.time_picker.settings = self.settings
         self.content_stack = QStackedWidget()
         self.content_stack.addWidget(self.viewer)
         self.content_stack.addWidget(self.overview_widget)
@@ -1657,6 +1659,7 @@ class MainWindow(QWidget):
         self.fleetwide_search_widget.set_settings(self.settings)
         mark("fleetwide settings")
         self.time_picker._static_tracks = self._build_static_tracks()
+        self.time_picker.settings = self.settings
         mark("static tracks")
         current_parent = self.date_picker.parent_dir
         target_parent = Path(self.settings.last_parent) if self.settings.last_parent else None

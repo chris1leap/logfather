@@ -24,6 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- System Replay readings (Chris, 2026-09-08): the same Data and Additional
+  data boxes sit above the day timeline, and every ticked family is drawn
+  as a strip under the tracks for the chosen system and day, with the
+  cursor dropping dots and a box of values, and drag-to-stretch. The
+  boxes and channels are one shared component (`SignalBoxes`); the
+  Overview and the Replay each remember their own selection.
 - Data box: Picks (Chris, 2026-09-08), first row above Temps: picks per
   minute, scaled from 0. Argus 2 from Grafana's
   targeting_products_picked_per_min; Argus 1 (no such metric) from the

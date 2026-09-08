@@ -11,6 +11,10 @@ from typing import Callable, Iterable, Optional, Dict, Tuple, List
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
 from logfather.ui.qt_worker import JobSlot
+from logfather.ui.overview_signals import SignalBoxes
+from logfather.data import grafana_client
+from logfather.data.elastic_schema import robot_id_from_folder
+from types import SimpleNamespace
 from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics, QPainterPath
 from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
@@ -132,11 +136,26 @@ class TimePicker(QWidget):
         self.scene.selectionChanged.connect(self._emit_selection_from_timeline)
         self.view.horizontalScrollBar().valueChanged.connect(lambda _v: self._reposition_track_labels())
 
+        # The Data and Additional data boxes, as on the Overview (Chris,
+        # 2026-09-08): the ticked readings are drawn as strips under the
+        # timeline tracks for the chosen system and day. The owner
+        # interface SignalChannel needs: scene, view, settings,
+        # status_label, _maybe_fetch_signals, _schedule_redraw, _redraw,
+        # _drag_candidate, hide_thumbnail_preview, _fit_text.
+        self.settings = None  # set by the main window
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: #9aa0a6;")
+        self._drag_candidate = None
+        self._signals = SignalBoxes(self, "replay")
+        self._strips_bottom: Optional[float] = None
         layout = QVBoxLayout()
         layout.setContentsMargins(6, 4, 6, 6)
         layout.setSpacing(6)
         if SHOW_TIMELINE_TOP_BUTTONS:
             layout.addLayout(top)
+        boxes_row = self._signals.row_layout()
+        boxes_row.addWidget(self.status_label)
+        layout.addLayout(boxes_row)
         layout.addWidget(self.view, 1)
         self.setLayout(layout)
 
@@ -195,6 +214,8 @@ class TimePicker(QWidget):
         self._current_date = day
         self._items.clear()
         self.scene.clear()
+        self._signals.reset_for_redraw()
+        self._maybe_fetch_signals(force=True)
         self._cursor_line = None
         self._cursor_label = None
         self._cursor_marker_outer = None
@@ -374,6 +395,23 @@ class TimePicker(QWidget):
 
         self._draw_selected_clip_rate_heat()
         self._draw_telemetry_track(track_map.get("telemetry"), day_start, ppm, total_minutes * ppm)
+        # Reading strips under the tracks (Chris, 2026-09-08), one per
+        # ticked family, for this system over the whole day.
+        self._signals.reset_for_redraw()
+        self._strips_bottom = None
+        strips_height = 0
+        strip_specs = self._signals.strip_heights(1.0)
+        if strip_specs and self._current_root is not None:
+            state = SimpleNamespace(robot_id=robot_id_from_folder(self._current_root.name) or "", name=self._current_root.name)
+            day_end = day_start + timedelta(days=1)
+            strip_y = next_row + 6
+            for channel, h in strip_specs:
+                rect = QRectF(0, strip_y, total_minutes * ppm, h - 2)
+                channel.draw_strip(state, rect, day_start, day_end, total_minutes * ppm, 0, title_x=-58, show_latest=False)
+                strip_y += h
+            strips_height = strip_y - next_row
+            self._strips_bottom = strip_y
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded if strips_height else Qt.ScrollBarAlwaysOff)
 
         # Track labels on the left
         self._track_labels = {}
@@ -401,7 +439,7 @@ class TimePicker(QWidget):
         # Scene height adjusts to number of tracks
         total_tracks = max(1, len(track_map))
         # Add top/side margin so cursor/time labels aren't clipped.
-        self.scene.setSceneRect(-60, -40, total_minutes * ppm + 120, height + (total_tracks - 1) * spacing + 60)
+        self.scene.setSceneRect(-60, -40, total_minutes * ppm + 120, height + (total_tracks - 1) * spacing + 60 + strips_height)
         # Auto-scroll to the first item if it's off-screen.
         if self._items:
             first = self._items[0]
@@ -878,9 +916,38 @@ class TimePicker(QWidget):
 
     def eventFilter(self, obj, event):
         if obj is self.view.viewport():
+            if self._signals.handle_resize(event):
+                return True
             if event.type() == QEvent.MouseMove:
                 self._update_cursor_indicator(event)
         return super().eventFilter(obj, event)
+
+    # ---- reading strips: the owner interface for SignalChannel -------------
+    def _line_bottom(self) -> float:
+        return self._strips_bottom if self._strips_bottom is not None else self._baseline_y + 14
+
+    def hide_thumbnail_preview(self) -> None:
+        pass
+
+    def _schedule_redraw(self) -> None:
+        if self._items and self._current_date:
+            self._redraw_timeline()
+
+    def _redraw(self) -> None:
+        self._schedule_redraw()
+
+    def _maybe_fetch_signals(self, force: bool = False) -> None:
+        if self.settings is None or self._current_date is None or not self._signals.any_active:
+            return
+        if not grafana_client.is_configured(self.settings):
+            self.status_label.setText("Readings need Grafana: gear menu, Data sources")
+            return
+        self.status_label.setText("")
+        start = local_day_start_utc(self._current_date)
+        now_utc = datetime.now(timezone.utc)
+        end = min(now_utc, start + timedelta(days=1))
+        live = self._current_date == datetime.now().date()
+        self._signals.maybe_fetch((start, max(end, start + timedelta(minutes=1))), live, timedelta(minutes=5), datetime.now().astimezone(), force)
 
     def _update_cursor_indicator(self, event):
         if not self._day_start or self._busy:
@@ -898,10 +965,12 @@ class TimePicker(QWidget):
         if self._cursor_line is None:
             pen = QPen(QColor("#ff9900"))
             pen.setWidth(1)
-            self._cursor_line = self.scene.addLine(x, self._scale_y, x, self._baseline_y + 14, pen)
+            self._cursor_line = self.scene.addLine(x, self._scale_y, x, self._line_bottom(), pen)
             self._cursor_line.setZValue(3)
         else:
-            self._cursor_line.setLine(x, self._scale_y, x, self._baseline_y + 14)
+            self._cursor_line.setLine(x, self._scale_y, x, self._line_bottom())
+        self._signals.clear_hover()
+        self._signals.draw_hover(x, cursor_time, float(scene_pos.y()), 0.0, 24 * 60 * self._ppm, self._scale_y)
 
         # Draw/update cursor label above the ticks
         label_text = format_local_time(cursor_time)
@@ -1017,10 +1086,10 @@ class TimePicker(QWidget):
         if self._playhead_line is None:
             pen = QPen(QColor("#2ecc71"))
             pen.setWidth(2)
-            self._playhead_line = self.scene.addLine(x, self._scale_y, x, self._baseline_y + 14, pen)
+            self._playhead_line = self.scene.addLine(x, self._scale_y, x, self._line_bottom(), pen)
             self._playhead_line.setZValue(3)
         else:
-            self._playhead_line.setLine(x, self._scale_y, x, self._baseline_y + 14)
+            self._playhead_line.setLine(x, self._scale_y, x, self._line_bottom())
 
     def _reposition_track_labels(self, cursor_x: Optional[float] = None):
         if not self._track_positions:
@@ -1032,6 +1101,15 @@ class TimePicker(QWidget):
         h_offset = self.view.horizontalScrollBar().value()
         left_x = h_offset + 4.0
         right_x = h_offset + max(120.0, self.view.viewport().width() - 20.0)
+        # Reading-strip titles and axis labels follow the scroll too.
+        for channel in self._signals.channels:
+            for item, kind, y in channel.label_items:
+                try:
+                    if item.scene() is None:
+                        continue
+                    item.setPos(left_x if kind == "title" else left_x + 74, y)
+                except RuntimeError:
+                    continue
         for kind, y in self._track_positions.items():
             label_item = self._track_labels.get(kind)
             if label_item:

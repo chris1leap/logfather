@@ -59,10 +59,9 @@ from logfather.data.ui_state_store import (
     update_ui_state,
 )
 from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
-from logfather.ui.icons import calendar_icon, current_icon, gauge_icon, pick_icon, plus_box_icon, thermometer_icon
-from logfather.core.telemetry import ADDITIONAL_CHANNELS, CURRENT_CHOICES, CURRENT_COLOURS, PICKS_CHOICES, PICKS_COLOURS, PRESSURE_CHOICES, PRESSURE_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
+from logfather.ui.icons import calendar_icon
 from logfather.data import grafana_client
-from logfather.ui.overview_signals import SignalChannel
+from logfather.ui.overview_signals import SignalBoxes, SignalChannel
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
 
 _OVERVIEW_HIDDEN_KEY = "overview_hidden_systems"
@@ -719,100 +718,12 @@ class OverviewWidget(QWidget):
         self.filter_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.filter_btn.clicked.connect(self._open_filter_popup)
         self._refresh_filter_label()
-        # Temperatures and currents (Chris, 2026-09-07/08): each is a
-        # channel with its own Data-box button, key and strip.
-        self._picks = SignalChannel(
-            self, name="picks", title="Picks", icon=pick_icon(),
-            tooltip="Pick rate under each system (Grafana for Argus 2, the pick messages in Elastic for Argus 1)",
-            choices=PICKS_CHOICES, colours=PICKS_COLOURS, unit="/min", axis_unit="/min", decimals=1,
-            separator_before="", ui_keys="overview_picks", ui_strip="overview_picks_strip_height",
-            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT, short={"Picks per minute": "Picks"},
-            loading_text="Loading pick rate...", empty_text="No picks in this window",
-            axis_min=0.0, axis_title="Picks/min",
-        )
-        self._temps = SignalChannel(
-            self, name="temps", title="Temps", icon=thermometer_icon(),
-            tooltip="Which temperatures to draw under each system (from Grafana)",
-            choices=TEMPERATURE_CHOICES, colours=TEMPERATURE_COLOURS, unit="\u00b0C", axis_unit="\u00b0", decimals=1,
-            separator_before="motor_temp_1", ui_keys=_OVERVIEW_TEMPS_KEY, ui_strip=_OVERVIEW_TEMP_STRIP_KEY,
-            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
-            short={"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Hot"},
-            loading_text="Loading temperatures...", empty_text="No temperature readings in this window",
-            axis_title="Temperature",
-        )
-        self._currents = SignalChannel(
-            self, name="currents", title="Currents", icon=current_icon(),
-            tooltip="Which motor currents to draw under each system (from Grafana)",
-            choices=CURRENT_CHOICES, colours=CURRENT_COLOURS, unit="A", axis_unit="A", decimals=2,
-            separator_before="motor_current_1", ui_keys=_OVERVIEW_CURRENTS_KEY, ui_strip=_OVERVIEW_CURRENT_STRIP_KEY,
-            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
-            short={"Highest motor": "Max"},
-            loading_text="Loading currents...", empty_text="No current readings in this window",
-            axis_title="Current",
-        )
-        self._pressure = SignalChannel(
-            self, name="pressure", title="Pressure", icon=gauge_icon(),
-            tooltip="Draw the supply air pressure under each system (from Grafana)",
-            choices=PRESSURE_CHOICES, colours=PRESSURE_COLOURS, unit=" bar", axis_unit="b", decimals=2,
-            separator_before="", ui_keys=_OVERVIEW_PRESSURE_KEY, ui_strip=_OVERVIEW_PRESSURE_STRIP_KEY,
-            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
-            short={"Air pressure": "Air"},
-            loading_text="Loading air pressure...", empty_text="No air pressure readings in this window",
-            axis_min=0.0,
-            axis_title="Pressure",
-        )
-        # The Additional box (Chris, 2026-09-08): computer health and
-        # housekeeping readings, one strip per ticked family, chosen from
-        # one combined menu.
-        self._additional: list[SignalChannel] = []
-        for spec in ADDITIONAL_CHANNELS:
-            self._additional.append(SignalChannel(
-                self, name=spec["name"], title=spec["title"], icon=plus_box_icon(),
-                tooltip=spec["title"], choices=spec["choices"], colours=spec["colours"],
-                unit=spec["unit"], axis_unit=spec["axis_unit"], decimals=spec["decimals"],
-                separator_before="", ui_keys=f"overview_add_{spec['name']}", ui_strip=f"overview_add_{spec['name']}_strip_height",
-                default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT, short={},
-                loading_text=f"Loading {spec['title'].lower()}...", empty_text=f"No {spec['title'].lower()} readings in this window",
-                axis_min=spec["axis_min"], axis_max=spec.get("axis_max"), axis_title=spec["title"],
-            ))
-        self._channels = (self._picks, self._temps, self._currents, self._pressure, *self._additional)
-        # The three Data-box buttons share one width, the widest of them
-        # with a count showing (Chris, 2026-09-08).
-        widest = 0
-        for channel in (self._picks, self._temps, self._currents, self._pressure):
-            channel.button.setText(f"{channel.title} (6)")
-            widest = max(widest, channel.button.sizeHint().width())
-            channel.refresh_label()
-        for channel in (self._picks, self._temps, self._currents, self._pressure):
-            channel.button.setFixedWidth(widest)
-        self.additional_btn = QToolButton()
-        self.additional_btn.setIcon(plus_box_icon())
-        self.additional_btn.setIconSize(QSize(18, 18))
-        self.additional_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.additional_btn.setPopupMode(QToolButton.InstantPopup)
-        self.additional_btn.setToolTip("Computer health and housekeeping readings, one strip each")
-        self.additional_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        additional_menu = QMenu(self.additional_btn)
-        additional_menu.addAction("Show all", lambda: self._set_all_additional(True))
-        additional_menu.addAction("Hide all", lambda: self._set_all_additional(False))
-        additional_menu.addSeparator()
-        self._additional_proxies: list[tuple[SignalChannel, str, QAction]] = []
-        for channel in self._additional:
-            many = len(channel.choices) > 1
-            for key, label in channel.choices:
-                proxy = QAction(f"{channel.title}: {label}" if many else label, self)
-                proxy.setCheckable(True)
-                proxy.setChecked(key in channel.keys)
-                proxy.toggled.connect(lambda checked, ch=channel, k=key: self._on_additional_toggled(ch, k, checked))
-                additional_menu.addAction(proxy)
-                self._additional_proxies.append((channel, key, proxy))
-            if channel is not self._additional[-1]:
-                additional_menu.addSeparator()
-        self.additional_btn.setMenu(additional_menu)
-        self._additional_key = QLabel("")
-        self._additional_key.setTextFormat(Qt.RichText)
-        self._additional_key.setStyleSheet(theme.MUTED_LABEL)
-        self._refresh_additional_label()
+        # The Data and Additional data boxes and their strips (Chris,
+        # 2026-09-07/08); shared with System Replay via SignalBoxes.
+        self._signals = SignalBoxes(self, "overview")
+        self._picks, self._temps, self._currents, self._pressure = self._signals.data_channels
+        self._additional = self._signals.additional
+        self._channels = self._signals.channels
 
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
@@ -898,45 +809,7 @@ class OverviewWidget(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
         layout.addLayout(controls)
-        # Temps and its key on their own row under Systems, in a box
-        # labelled Data (Chris, 2026-09-08).
-        data_box = QGroupBox("Data")
-        data_box.setStyleSheet(
-            f"QGroupBox {{ font-weight: normal; margin-top: 12px; padding: 8px 8px 6px 8px;"
-            f" border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
-            f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
-        )
-        data_layout = QVBoxLayout(data_box)
-        data_layout.setContentsMargins(6, 4, 6, 4)
-        data_layout.setSpacing(4)
-        for channel in (self._picks, self._temps, self._currents, self._pressure):
-            channel_row = QHBoxLayout()
-            channel_row.setSpacing(10)
-            channel_row.addWidget(channel.button)
-            channel_row.addWidget(channel.key_label)
-            channel_row.addStretch(1)
-            data_layout.addLayout(channel_row)
-            # The key was hidden while parentless; now it has a home, show it.
-            channel.refresh_label()
-        additional_box = QGroupBox("Additional data")
-        additional_box.setStyleSheet(data_box.styleSheet())
-        additional_layout = QVBoxLayout(additional_box)
-        additional_layout.setContentsMargins(6, 4, 6, 4)
-        additional_layout.setSpacing(4)
-        additional_row = QHBoxLayout()
-        additional_row.setSpacing(10)
-        additional_row.addWidget(self.additional_btn)
-        additional_row.addStretch(1)
-        additional_layout.addLayout(additional_row)
-        additional_layout.addWidget(self._additional_key)
-        additional_layout.addStretch(1)
-        data_row = QHBoxLayout()
-        data_row.setContentsMargins(0, 0, 0, 0)
-        data_row.addWidget(data_box)
-        data_row.addSpacing(12)
-        data_row.addWidget(additional_box)
-        data_row.addStretch(1)
-        layout.addLayout(data_row)
+        layout.addLayout(self._signals.row_layout())
         layout.addWidget(self._content_stack, 1)
 
         self._refresh_timer = QTimer(self)
@@ -1233,31 +1106,6 @@ class OverviewWidget(QWidget):
             start = _start_of_day_local(now_local)
             end = now_local
         return start.astimezone(timezone.utc), max(end, start + timedelta(minutes=1)).astimezone(timezone.utc)
-
-    def _on_additional_toggled(self, channel: SignalChannel, key: str, checked: bool):
-        action = channel.actions[key]
-        if action.isChecked() != checked:
-            action.setChecked(checked)  # the channel's own action does the work
-        self._refresh_additional_label()
-
-    def _set_all_additional(self, on: bool):
-        for _channel, _key, proxy in self._additional_proxies:
-            proxy.setChecked(on)
-
-    def _refresh_additional_label(self):
-        n = sum(len(channel.keys) for channel in self._additional)
-        # Just the icon and a count (Chris, 2026-09-08); the box carries the name.
-        self.additional_btn.setText("" if not n else f"({n})")
-        self.additional_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if n else Qt.ToolButtonIconOnly)
-        bits = []
-        for channel in self._additional:
-            many = len(channel.choices) > 1
-            for key, label in channel.choices:
-                if key in channel.keys:
-                    text = f"{channel.title} {label}" if many else label
-                    bits.append(f'<span style="background-color:{channel.colours[key]};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{text}')
-        self._additional_key.setText("&nbsp;&nbsp;".join(bits))
-        self._additional_key.setVisible(bool(bits))
 
     def _maybe_fetch_signals(self, force: bool = False):
         if not any(channel.active for channel in self._channels):
