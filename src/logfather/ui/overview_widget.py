@@ -59,8 +59,8 @@ from logfather.data.ui_state_store import (
     update_ui_state,
 )
 from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
-from logfather.ui.icons import calendar_icon, current_icon, gauge_icon, thermometer_icon
-from logfather.core.telemetry import CURRENT_CHOICES, CURRENT_COLOURS, PRESSURE_CHOICES, PRESSURE_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
+from logfather.ui.icons import calendar_icon, current_icon, gauge_icon, plus_box_icon, thermometer_icon
+from logfather.core.telemetry import ADDITIONAL_CHANNELS, CURRENT_CHOICES, CURRENT_COLOURS, PRESSURE_CHOICES, PRESSURE_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
 from logfather.data import grafana_client
 from logfather.ui.overview_signals import SignalChannel
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
@@ -752,7 +752,47 @@ class OverviewWidget(QWidget):
             axis_min=0.0,
             axis_title="Pressure",
         )
-        self._channels = (self._temps, self._currents, self._pressure)
+        # The Additional box (Chris, 2026-09-08): computer health and
+        # housekeeping readings, one strip per ticked family, chosen from
+        # one combined menu.
+        self._additional: list[SignalChannel] = []
+        for spec in ADDITIONAL_CHANNELS:
+            self._additional.append(SignalChannel(
+                self, name=spec["name"], title=spec["title"], icon=plus_box_icon(),
+                tooltip=spec["title"], choices=spec["choices"], colours=spec["colours"],
+                unit=spec["unit"], axis_unit=spec["axis_unit"], decimals=spec["decimals"],
+                separator_before="", ui_keys=f"overview_add_{spec['name']}", ui_strip=f"overview_add_{spec['name']}_strip_height",
+                default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT, short={},
+                loading_text=f"Loading {spec['title'].lower()}...", empty_text=f"No {spec['title'].lower()} readings in this window",
+                axis_min=spec["axis_min"], axis_title=spec["title"],
+            ))
+        self._channels = (self._temps, self._currents, self._pressure, *self._additional)
+        self.additional_btn = QToolButton()
+        self.additional_btn.setIcon(plus_box_icon())
+        self.additional_btn.setIconSize(QSize(18, 18))
+        self.additional_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.additional_btn.setPopupMode(QToolButton.InstantPopup)
+        self.additional_btn.setToolTip("Computer health and housekeeping readings, one strip each")
+        self.additional_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        additional_menu = QMenu(self.additional_btn)
+        self._additional_proxies: list[tuple[SignalChannel, str, QAction]] = []
+        for channel in self._additional:
+            many = len(channel.choices) > 1
+            for key, label in channel.choices:
+                proxy = QAction(f"{channel.title}: {label}" if many else label, self)
+                proxy.setCheckable(True)
+                proxy.setChecked(key in channel.keys)
+                proxy.toggled.connect(lambda checked, ch=channel, k=key: self._on_additional_toggled(ch, k, checked))
+                additional_menu.addAction(proxy)
+                self._additional_proxies.append((channel, key, proxy))
+            additional_menu.addSeparator()
+        additional_menu.addAction("Show all", lambda: self._set_all_additional(True))
+        additional_menu.addAction("Hide all", lambda: self._set_all_additional(False))
+        self.additional_btn.setMenu(additional_menu)
+        self._additional_key = QLabel("")
+        self._additional_key.setTextFormat(Qt.RichText)
+        self._additional_key.setStyleSheet(theme.MUTED_LABEL)
+        self._refresh_additional_label()
 
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
@@ -849,16 +889,30 @@ class OverviewWidget(QWidget):
         data_layout = QVBoxLayout(data_box)
         data_layout.setContentsMargins(6, 4, 6, 4)
         data_layout.setSpacing(4)
-        for channel in self._channels:
+        for channel in (self._temps, self._currents, self._pressure):
             channel_row = QHBoxLayout()
             channel_row.setSpacing(10)
             channel_row.addWidget(channel.button)
             channel_row.addWidget(channel.key_label)
             channel_row.addStretch(1)
             data_layout.addLayout(channel_row)
+        additional_box = QGroupBox("Additional")
+        additional_box.setStyleSheet(data_box.styleSheet())
+        additional_layout = QVBoxLayout(additional_box)
+        additional_layout.setContentsMargins(6, 4, 6, 4)
+        additional_layout.setSpacing(4)
+        additional_row = QHBoxLayout()
+        additional_row.setSpacing(10)
+        additional_row.addWidget(self.additional_btn)
+        additional_row.addStretch(1)
+        additional_layout.addLayout(additional_row)
+        additional_layout.addWidget(self._additional_key)
+        additional_layout.addStretch(1)
         data_row = QHBoxLayout()
         data_row.setContentsMargins(0, 0, 0, 0)
         data_row.addWidget(data_box)
+        data_row.addSpacing(12)
+        data_row.addWidget(additional_box)
         data_row.addStretch(1)
         layout.addLayout(data_row)
         layout.addWidget(self._content_stack, 1)
@@ -1158,11 +1212,34 @@ class OverviewWidget(QWidget):
             end = now_local
         return start.astimezone(timezone.utc), max(end, start + timedelta(minutes=1)).astimezone(timezone.utc)
 
+    def _on_additional_toggled(self, channel: SignalChannel, key: str, checked: bool):
+        action = channel.actions[key]
+        if action.isChecked() != checked:
+            action.setChecked(checked)  # the channel's own action does the work
+        self._refresh_additional_label()
+
+    def _set_all_additional(self, on: bool):
+        for _channel, _key, proxy in self._additional_proxies:
+            proxy.setChecked(on)
+
+    def _refresh_additional_label(self):
+        n = sum(len(channel.keys) for channel in self._additional)
+        self.additional_btn.setText("Additional" if not n else f"Additional ({n})")
+        bits = []
+        for channel in self._additional:
+            many = len(channel.choices) > 1
+            for key, label in channel.choices:
+                if key in channel.keys:
+                    text = f"{channel.title} {label}" if many else label
+                    bits.append(f'<span style="background-color:{channel.colours[key]};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{text}')
+        self._additional_key.setText("&nbsp;&nbsp;".join(bits))
+        self._additional_key.setVisible(bool(bits))
+
     def _maybe_fetch_signals(self, force: bool = False):
         if not any(channel.active for channel in self._channels):
             return
         if not grafana_client.is_configured(self.settings):
-            self.status_label.setText("Temperatures, currents and pressure need Grafana: gear menu, Data sources")
+            self.status_label.setText("The Data and Additional readings need Grafana: gear menu, Data sources")
             return
         span = self._signal_span()
         live = self._filter_day_range is None

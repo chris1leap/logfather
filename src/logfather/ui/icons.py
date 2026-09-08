@@ -120,6 +120,27 @@ def gauge_icon(size: int = 24) -> QIcon:
     return QIcon(pm)
 
 
+def plus_box_icon(size: int = 24) -> QIcon:
+    """A boxed plus for the Additional readings button (Chris, 2026-09-08)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    s = float(size)
+    pen = QPen(QColor(theme.TEXT_BRIGHT))
+    pen.setWidthF(s * 0.09)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(QRectF(s * 0.14, s * 0.14, s * 0.72, s * 0.72), s * 0.12, s * 0.12)
+    pen.setWidthF(s * 0.12)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.drawLine(QPointF(s * 0.5, s * 0.30), QPointF(s * 0.5, s * 0.70))
+    painter.drawLine(QPointF(s * 0.30, s * 0.5), QPointF(s * 0.70, s * 0.5))
+    painter.end()
+    return QIcon(pm)
+
+
 def arrow_icon(direction: str, size: int = 24) -> QIcon:
     """A clear left / right chevron for the step-through-time buttons
     (Chris, 2026-09-06: the style's stock arrow was too faint)."""

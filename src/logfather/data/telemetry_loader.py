@@ -15,6 +15,8 @@ def fetch_telemetry_day(settings: Settings, robot_id: str, day: date, job=None) 
     end_ms = int(local_day_end_utc(day).timestamp() * 1000)
     results = {}
     for spec in METRICS:
+        if not spec.in_replay:
+            continue
         if job is not None and job.interrupted():
             break
         results[spec.key] = grafana_client.query_series(

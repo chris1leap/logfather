@@ -29,6 +29,12 @@ class MetricSpec:
     metric: str
     unit: str
     per_motor: bool = False
+    # Shown in the System Replay Telemetry tab (the Overview-only extras
+    # keep that tab's day load small).
+    in_replay: bool = True
+    # How the fleet query folds a system's series into one: max (a
+    # temperature, the hottest motor) or sum (halting errors over motors).
+    fleet_agg: str = "max"
 
 
 METRICS: tuple[MetricSpec, ...] = (
@@ -41,6 +47,17 @@ METRICS: tuple[MetricSpec, ...] = (
     # Supply air, in bar (readings sit around 6-8; a system with the air
     # off reads about 0 or slightly negative).
     MetricSpec("air_pressure", "Air pressure", "Air pressure", "sensors_air_pressure", " bar"),
+    # Overview "Additional" box (Chris, 2026-09-08): computer health and
+    # housekeeping counters. CPU and memory are percentages; the clock
+    # offset is seconds; halting errors are a per-motor counter summed
+    # over the motors; the log queue is lines waiting for Elastic.
+    MetricSpec("ccu_cpu", "CPU load", "CCU", "diagnostics_ccu_cpu_average", "%", in_replay=False),
+    MetricSpec("rcu_cpu", "CPU load", "RCU", "diagnostics_rcu_cpu_average", "%", in_replay=False),
+    MetricSpec("ccu_memory", "Memory", "CCU", "diagnostics_ccu_memory", "%", in_replay=False),
+    MetricSpec("rcu_memory", "Memory", "RCU", "diagnostics_rcu_memory", "%", in_replay=False),
+    MetricSpec("clock_offset", "Clock offset", "RCU to CCU", "behaviour_RCU_CCU_time_offset", " s", in_replay=False),
+    MetricSpec("halting_errors", "Motor halting errors", "All motors", "actuators_motor_halting_errors", "", per_motor=True, in_replay=False, fleet_agg="sum"),
+    MetricSpec("log_queue", "Argus log queue", "Queued lines", "argus_logs_queue_size", "", in_replay=False),
 )
 GROUP_ORDER = ("Temperatures", "Motor temperatures", "Motor currents", "Air pressure")
 SAMPLE_INTERVAL_MS = 30_000
@@ -250,7 +267,23 @@ CURRENT_COLOURS = {
 # Air pressure on the Overview (Chris, 2026-09-08): one reading per system.
 PRESSURE_CHOICES: tuple[tuple[str, str], ...] = (("air_pressure", "Air pressure"),)
 PRESSURE_COLOURS = {"air_pressure": "#36cfc9"}
+# The Additional box: one channel (strip) per entry, each with its own
+# choices, unit and colours.
+ADDITIONAL_CHANNELS: tuple[dict, ...] = (
+    {"name": "cpu", "title": "CPU load", "unit": "%", "axis_unit": "%", "decimals": 0, "axis_min": 0.0,
+     "choices": (("ccu_cpu", "CCU"), ("rcu_cpu", "RCU")), "colours": {"ccu_cpu": "#5e9bff", "rcu_cpu": "#ff8a65"}},
+    {"name": "memory", "title": "Memory", "unit": "%", "axis_unit": "%", "decimals": 0, "axis_min": 0.0,
+     "choices": (("ccu_memory", "CCU"), ("rcu_memory", "RCU")), "colours": {"ccu_memory": "#2ecc71", "rcu_memory": "#f1c40f"}},
+    {"name": "clock", "title": "Clock offset", "unit": " s", "axis_unit": "s", "decimals": 3, "axis_min": None,
+     "choices": (("clock_offset", "RCU to CCU"),), "colours": {"clock_offset": "#d46bff"}},
+    {"name": "halting", "title": "Halting errors", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
+     "choices": (("halting_errors", "Motor halting errors"),), "colours": {"halting_errors": "#ff4d4f"}},
+    {"name": "logqueue", "title": "Log queue", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
+     "choices": (("log_queue", "Argus log queue"),), "colours": {"log_queue": "#36cfc9"}},
+)
 SIGNAL_LABELS: dict[str, str] = dict(TEMPERATURE_CHOICES) | dict(CURRENT_CHOICES) | dict(PRESSURE_CHOICES)
+for _channel in ADDITIONAL_CHANNELS:
+    SIGNAL_LABELS.update(dict(_channel["choices"]))
 
 
 def parse_signal_key(key: str) -> tuple[str, Optional[str]]:
@@ -285,11 +318,10 @@ def fleet_query(spec: MetricSpec, label: str, motor_id: Optional[str] = None) ->
         if motor_id is not None:
             return f'max by({label}) ({spec.metric}{{{label}!="", motor_id="{motor_id}"}})'
         return f'max by({label}) (abs({spec.metric}{{{label}!=""}}))'
-    if spec.per_motor and motor_id is not None:
-        return f'max by({label}) ({spec.metric}{{{label}!="", motor_id="{motor_id}"}} != 0)'
-    if spec.per_motor:
-        return f'max by({label}) ({spec.metric}{{{label}!=""}} != 0)'
-    return f'max by({label}) ({spec.metric}{{{label}!=""}})'
+    selector = f'{spec.metric}{{{label}!=""' + (f', motor_id="{motor_id}"' if motor_id is not None else "") + "}"
+    if spec.key == "motor_temp":
+        selector += " != 0"  # an unfitted slot reads a flat zero
+    return f'{spec.fleet_agg} by({label}) ({selector})'
 
 
 def tracks_by_robot(series_list: Iterable[Series], label: str, name: str, spec_key: str = "") -> dict[str, Track]:

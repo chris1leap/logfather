@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- Overview Additional box (Chris, 2026-09-08), right of Data: one menu
+  ticks CPU load (CCU / RCU, %), Memory (CCU / RCU, %), RCU to CCU clock
+  offset (s), Motor halting errors (summed over motors) and Argus log
+  queue (lines waiting); each ticked family is its own strip with the
+  same hover box and drag-to-stretch, and a combined colour key sits
+  under the button. These metrics are Overview-only (`in_replay=False`)
+  so the System Replay Telemetry tab's day load stays quick.
 - Overview air pressure (Chris, 2026-09-08): a Pressure row in the Data
   box (gauge icon) with the one reading, sensors_air_pressure in bar,
   drawn as a third strip under currents with the same hover box and
