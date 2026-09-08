@@ -1630,33 +1630,45 @@ class OverviewWidget(QWidget):
             self._hover_label_item = self.scene.addText("")
             self._hover_label_item.setDefaultTextColor(QColor("#ffe08a"))
             self._hover_label_item.setZValue(3.2)
-        label_text = hover_dt.astimezone().strftime("%H:%M:%S")
-        label_y = 16.0
+        self._hover_label_item.setPlainText(hover_dt.astimezone().strftime("%H:%M:%S"))
+        self._hover_label_item.setPos(
+            min(max(timeline_x, hover_x - 26), timeline_x + timeline_width - 70), 16
+        )
+        self._hover_label_item.setVisible(True)
+        # Over a temperature strip: a dot on each trace and a box with the
+        # readings in the key's colours (Chris, 2026-09-08).
         strip = self._temp_strip_under(self._hover_scene_y)
         if strip is not None:
             rect, lo, hi, inner_top, inner_h, tracks = strip
             t_ms = int(hover_dt.timestamp() * 1000)
-            parts = []
+            lines = []
             for key, label, track in tracks:
                 value = track.value_at(t_ms)
                 if value is None:
                     continue
                 y_dot = inner_top + inner_h - (value - lo) / (hi - lo) * inner_h
-                colour = QColor(TEMPERATURE_COLOURS.get(key, "#ffffff"))
-                dot = self.scene.addEllipse(hover_x - 3.5, y_dot - 3.5, 7, 7, QPen(QColor("#0b1014"), 1), QBrush(colour))
+                colour = TEMPERATURE_COLOURS.get(key, "#ffffff")
+                dot = self.scene.addEllipse(hover_x - 3.5, y_dot - 3.5, 7, 7, QPen(QColor("#0b1014"), 1), QBrush(QColor(colour)))
                 dot.setZValue(5)
                 dot.setAcceptedMouseButtons(Qt.NoButton)
                 self._temp_hover_dots.append(dot)
-                parts.append(f"{label} {value:.1f}°")
-            if parts:
-                label_text = "  ".join(parts)
-                label_y = rect.top() - 18
-        self._hover_label_item.setPlainText(label_text)
-        label_w = self._hover_label_item.boundingRect().width()
-        self._hover_label_item.setPos(
-            min(max(timeline_x, hover_x - 26), timeline_x + timeline_width - label_w), label_y
-        )
-        self._hover_label_item.setVisible(True)
+                lines.append(f'<span style="color:{colour};">{label} {value:.1f}°C</span>')
+            if lines:
+                text = self.scene.addText("")
+                text.setHtml("<div style='white-space:nowrap;'>" + "<br>".join(lines) + "</div>")
+                text.setZValue(6.2)
+                text.setAcceptedMouseButtons(Qt.NoButton)
+                bounds = text.boundingRect()
+                box_w, box_h = bounds.width() + 8, bounds.height() + 6
+                box_x = hover_x + 12
+                if box_x + box_w > timeline_x + timeline_width:
+                    box_x = hover_x - 12 - box_w
+                box_y = min(max(rect.top() - box_h - 4, self._hover_grid_top), rect.top() - 2) if rect.top() - box_h - 4 >= self._hover_grid_top else rect.bottom() + 4
+                box = self.scene.addRect(QRectF(box_x, box_y, box_w, box_h), QPen(QColor(theme.BORDER_LIGHT)), QBrush(QColor(theme.BG_RAISED)))
+                box.setZValue(6.1)
+                box.setAcceptedMouseButtons(Qt.NoButton)
+                text.setPos(box_x + 4, box_y + 3)
+                self._temp_hover_dots.extend([box, text])
 
     def _temp_strip_under(self, y: float | None):
         if y is None:
