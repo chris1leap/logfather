@@ -59,8 +59,8 @@ from logfather.data.ui_state_store import (
     update_ui_state,
 )
 from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
-from logfather.ui.icons import calendar_icon, current_icon, thermometer_icon
-from logfather.core.telemetry import CURRENT_CHOICES, CURRENT_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
+from logfather.ui.icons import calendar_icon, current_icon, gauge_icon, thermometer_icon
+from logfather.core.telemetry import CURRENT_CHOICES, CURRENT_COLOURS, PRESSURE_CHOICES, PRESSURE_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
 from logfather.data import grafana_client
 from logfather.ui.overview_signals import SignalChannel
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
@@ -70,6 +70,8 @@ _OVERVIEW_TEMPS_KEY = "overview_temperatures"
 _OVERVIEW_TEMP_STRIP_KEY = "overview_temp_strip_height"
 _OVERVIEW_CURRENTS_KEY = "overview_currents"
 _OVERVIEW_CURRENT_STRIP_KEY = "overview_current_strip_height"
+_OVERVIEW_PRESSURE_KEY = "overview_pressure"
+_OVERVIEW_PRESSURE_STRIP_KEY = "overview_pressure_strip_height"
 OVERVIEW_TEMP_STRIP_HEIGHT = 44
 # With temperatures on, the state lane gives up height to the strip
 # (Chris, 2026-09-07).
@@ -737,7 +739,16 @@ class OverviewWidget(QWidget):
             short={"Highest motor": "Max"},
             loading_text="Loading currents...", empty_text="No current readings in this window",
         )
-        self._channels = (self._temps, self._currents)
+        self._pressure = SignalChannel(
+            self, name="pressure", title="Pressure", icon=gauge_icon(),
+            tooltip="Draw the supply air pressure under each system (from Grafana)",
+            choices=PRESSURE_CHOICES, colours=PRESSURE_COLOURS, unit=" bar", axis_unit="b", decimals=2,
+            separator_before="", ui_keys=_OVERVIEW_PRESSURE_KEY, ui_strip=_OVERVIEW_PRESSURE_STRIP_KEY,
+            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
+            short={"Air pressure": "Air"},
+            loading_text="Loading air pressure...", empty_text="No air pressure readings in this window",
+        )
+        self._channels = (self._temps, self._currents, self._pressure)
 
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
@@ -1147,7 +1158,7 @@ class OverviewWidget(QWidget):
         if not any(channel.active for channel in self._channels):
             return
         if not grafana_client.is_configured(self.settings):
-            self.status_label.setText("Temperatures and currents need Grafana: gear menu, Data sources")
+            self.status_label.setText("Temperatures, currents and pressure need Grafana: gear menu, Data sources")
             return
         span = self._signal_span()
         live = self._filter_day_range is None

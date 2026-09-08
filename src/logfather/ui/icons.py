@@ -95,6 +95,31 @@ def current_icon(size: int = 24) -> QIcon:
     return QIcon(pm)
 
 
+def gauge_icon(size: int = 24) -> QIcon:
+    """A pressure gauge: an arc with a needle (Chris, 2026-09-08)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    s = float(size)
+    pen = QPen(QColor(theme.TEXT_BRIGHT))
+    pen.setWidthF(s * 0.1)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawArc(QRectF(s * 0.14, s * 0.2, s * 0.72, s * 0.72), 200 * 16, 140 * 16)
+    needle = QPen(QColor("#36cfc9"))
+    needle.setWidthF(s * 0.1)
+    needle.setCapStyle(Qt.RoundCap)
+    painter.setPen(needle)
+    painter.drawLine(QPointF(s * 0.5, s * 0.56), QPointF(s * 0.68, s * 0.34))
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    painter.drawEllipse(QPointF(s * 0.5, s * 0.56), s * 0.07, s * 0.07)
+    painter.end()
+    return QIcon(pm)
+
+
 def arrow_icon(direction: str, size: int = 24) -> QIcon:
     """A clear left / right chevron for the step-through-time buttons
     (Chris, 2026-09-06: the style's stock arrow was too faint)."""

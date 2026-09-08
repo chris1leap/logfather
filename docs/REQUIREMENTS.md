@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- Overview air pressure (Chris, 2026-09-08): a Pressure row in the Data
+  box (gauge icon) with the one reading, sensors_air_pressure in bar,
+  drawn as a third strip under currents with the same hover box and
+  drag-to-stretch. The System Replay Telemetry tab gains an Air pressure
+  chart too.
 - Overview currents (Chris, 2026-09-08): a Currents row in the Data box
   (lightning icon) works exactly like Temps: tick Highest motor (largest
   magnitude across fitted motors) or Motor 1/2/3/5/6, a colour key

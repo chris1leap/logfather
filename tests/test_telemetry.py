@@ -146,3 +146,13 @@ def test_current_keys_and_queries():
     spec = {m.key: m for m in METRICS}["motor_current"]
     assert fleet_query(spec, "system_id") == 'max by(system_id) (abs(actuators_motor_current{system_id!=""}))'
     assert fleet_query(spec, "leap_robot_id", "2") == 'max by(leap_robot_id) (actuators_motor_current{leap_robot_id!="", motor_id="2"})'
+
+
+def test_air_pressure_is_a_metric_and_a_signal():
+    from logfather.core.telemetry import METRICS, PRESSURE_CHOICES, SIGNAL_LABELS, fleet_query
+
+    spec = {m.key: m for m in METRICS}["air_pressure"]
+    assert spec.metric == "sensors_air_pressure" and spec.group == "Air pressure" and not spec.per_motor
+    assert PRESSURE_CHOICES == (("air_pressure", "Air pressure"),)
+    assert SIGNAL_LABELS["air_pressure"] == "Air pressure"
+    assert fleet_query(spec, "leap_robot_id") == 'max by(leap_robot_id) (sensors_air_pressure{leap_robot_id!=""})'

@@ -38,8 +38,11 @@ METRICS: tuple[MetricSpec, ...] = (
     MetricSpec("brake_temp", "Temperatures", "Brake resistor", "sensors_brake_resistor_temperature", "°C"),
     MetricSpec("motor_temp", "Motor temperatures", "Motor {motor_id}", "actuators_motor_temperature", "°C", per_motor=True),
     MetricSpec("motor_current", "Motor currents", "Motor {motor_id}", "actuators_motor_current", "A", per_motor=True),
+    # Supply air, in bar (readings sit around 6-8; a system with the air
+    # off reads about 0 or slightly negative).
+    MetricSpec("air_pressure", "Air pressure", "Air pressure", "sensors_air_pressure", " bar"),
 )
-GROUP_ORDER = ("Temperatures", "Motor temperatures", "Motor currents")
+GROUP_ORDER = ("Temperatures", "Motor temperatures", "Motor currents", "Air pressure")
 SAMPLE_INTERVAL_MS = 30_000
 
 
@@ -244,7 +247,10 @@ CURRENT_COLOURS = {
     "motor_current": "#d46bff", "motor_current_1": "#ff85c0", "motor_current_2": "#36cfc9",
     "motor_current_3": "#ffd666", "motor_current_5": "#b37feb", "motor_current_6": "#ff9c6e",
 }
-SIGNAL_LABELS: dict[str, str] = dict(TEMPERATURE_CHOICES) | dict(CURRENT_CHOICES)
+# Air pressure on the Overview (Chris, 2026-09-08): one reading per system.
+PRESSURE_CHOICES: tuple[tuple[str, str], ...] = (("air_pressure", "Air pressure"),)
+PRESSURE_COLOURS = {"air_pressure": "#36cfc9"}
+SIGNAL_LABELS: dict[str, str] = dict(TEMPERATURE_CHOICES) | dict(CURRENT_CHOICES) | dict(PRESSURE_CHOICES)
 
 
 def parse_signal_key(key: str) -> tuple[str, Optional[str]]:

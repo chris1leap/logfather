@@ -231,6 +231,7 @@ class SignalChannel(QObject):
         small = QFont()
         small.setPointSize(7)
         axis_fmt = "{:.0f}" if self.decimals <= 1 else "{:.1f}"
+        # (temperatures whole degrees; amps and bar to one decimal)
         for text, y_pos in ((axis_fmt.format(hi) + self.axis_unit, rect.top() - 3), (axis_fmt.format(lo) + self.axis_unit, rect.bottom() - 13)):
             label_item = scene.addText(text, small)
             label_item.setDefaultTextColor(QColor(theme.TEXT_FAINT))
