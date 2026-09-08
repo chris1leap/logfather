@@ -46,6 +46,7 @@ class SignalChannel(QObject):
         short: dict[str, str],
         loading_text: str,
         empty_text: str,
+        axis_min: float | None = None,
     ):
         super().__init__(owner)
         self.owner = owner
@@ -61,6 +62,9 @@ class SignalChannel(QObject):
         self.short = short
         self.loading_text = loading_text
         self.empty_text = empty_text
+        # A fixed floor for the strip's scale (pressure reads from 0 bar,
+        # Chris, 2026-09-08); None scales to the readings in the window.
+        self.axis_min = axis_min
         state = load_ui_state()
         valid = [k for k, _label in choices]
         stored = state.get(ui_keys)
@@ -199,6 +203,8 @@ class SignalChannel(QObject):
             return
         lo = min(s[3][0] for s in chosen)
         hi = max(s[3][1] for s in chosen)
+        if self.axis_min is not None:
+            lo = min(self.axis_min, lo)
         if hi - lo < 1e-6:
             lo, hi = lo - 0.5, hi + 0.5
         inner_top = rect.top() + 2

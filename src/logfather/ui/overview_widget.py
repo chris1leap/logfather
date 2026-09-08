@@ -747,6 +747,7 @@ class OverviewWidget(QWidget):
             default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
             short={"Air pressure": "Air"},
             loading_text="Loading air pressure...", empty_text="No air pressure readings in this window",
+            axis_min=0.0,
         )
         self._channels = (self._temps, self._currents, self._pressure)
 
