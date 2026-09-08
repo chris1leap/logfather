@@ -228,6 +228,15 @@ class SignalChannel(QObject):
         if not chosen:
             waiting = self.slot.is_running() or not self.data
             bg.setToolTip(self.loading_text if waiting else self.empty_text)
+            # Say so on the strip itself (Chris, 2026-09-08).
+            note_font = QFont()
+            note_font.setPointSize(8)
+            note = scene.addText("Loading..." if waiting else "No data available", note_font)
+            note.setDefaultTextColor(QColor(theme.TEXT_FAINT))
+            note_rect = note.boundingRect()
+            note.setPos(rect.center().x() - note_rect.width() / 2, rect.center().y() - note_rect.height() / 2)
+            note.setZValue(4)
+            note.setAcceptedMouseButtons(Qt.NoButton)
             return
         lo = min(s[3][0] for s in chosen)
         hi = max(s[3][1] for s in chosen)
