@@ -218,14 +218,26 @@ def value_range(tracks: Iterable[Track]) -> tuple[float, float]:
 
 # ---- fleet-wide temperatures for the Overview (Chris, 2026-09-07) --------
 # (key, label) in menu order; "motor_temp" is the hottest fitted motor.
+MOTOR_IDS = ("0", "1", "2", "3", "4", "5", "6")
 TEMPERATURE_CHOICES: tuple[tuple[str, str], ...] = (
     ("cpu_temp", "CPU"),
     ("rcu_temp", "RCU"),
     ("gpu_temp", "GPU"),
     ("brake_temp", "Brake resistor"),
     ("motor_temp", "Hottest motor"),
-)
-TEMPERATURE_COLOURS = {"cpu_temp": "#5e9bff", "rcu_temp": "#ff8a65", "gpu_temp": "#2ecc71", "brake_temp": "#f1c40f", "motor_temp": "#d46bff"}
+) + tuple((f"motor_temp_{m}", f"Motor {m}") for m in MOTOR_IDS)
+TEMPERATURE_COLOURS = {
+    "cpu_temp": "#5e9bff", "rcu_temp": "#ff8a65", "gpu_temp": "#2ecc71", "brake_temp": "#f1c40f", "motor_temp": "#d46bff",
+    "motor_temp_0": "#c0c0c0", "motor_temp_1": "#ff85c0", "motor_temp_2": "#36cfc9", "motor_temp_3": "#ffd666",
+    "motor_temp_4": "#95de64", "motor_temp_5": "#b37feb", "motor_temp_6": "#ff9c6e",
+}
+
+
+def parse_temperature_key(key: str) -> tuple[str, Optional[str]]:
+    """"motor_temp_3" -> ("motor_temp", "3"); anything else -> (key, None)."""
+    if key.startswith("motor_temp_"):
+        return "motor_temp", key[len("motor_temp_"):]
+    return key, None
 ROBOT_ID_LABELS = ("leap_robot_id", "system_id")
 _ROBOT_PREFIX = "35-2300-"
 
@@ -238,9 +250,12 @@ def normalise_robot_id(label: str) -> str:
     return text
 
 
-def fleet_query(spec: MetricSpec, label: str) -> str:
+def fleet_query(spec: MetricSpec, label: str, motor_id: Optional[str] = None) -> str:
     """One series per system for a metric, under one label scheme. Motors
-    collapse to the hottest fitted one (an unfitted slot reads 0)."""
+    collapse to the hottest fitted one (an unfitted slot reads 0) unless a
+    motor_id picks one motor."""
+    if spec.per_motor and motor_id is not None:
+        return f'max by({label}) ({spec.metric}{{{label}!="", motor_id="{motor_id}"}} != 0)'
     if spec.per_motor:
         return f'max by({label}) ({spec.metric}{{{label}!=""}} != 0)'
     return f'max by({label}) ({spec.metric}{{{label}!=""}})'

@@ -33,7 +33,7 @@ def fetch_fleet_temperatures(settings: Settings, keys: list[str], start_utc, end
     """robot id -> metric key -> Track for the chosen temperature keys over
     [start, end], every system in one query per metric and label scheme
     (Chris, 2026-09-07: temperatures on the Overview)."""
-    from logfather.core.telemetry import ROBOT_ID_LABELS, TEMPERATURE_CHOICES, Track, fleet_query, tracks_by_robot
+    from logfather.core.telemetry import ROBOT_ID_LABELS, TEMPERATURE_CHOICES, Track, fleet_query, parse_temperature_key, tracks_by_robot
 
     specs = {m.key: m for m in METRICS}
     labels = dict(TEMPERATURE_CHOICES)
@@ -43,14 +43,15 @@ def fetch_fleet_temperatures(settings: Settings, keys: list[str], start_utc, end
     interval_ms = SAMPLE_INTERVAL_MS if span_minutes <= 36 * 60 else 60_000 if span_minutes <= 7 * 24 * 60 else 300_000
     out: dict[str, dict[str, Track]] = {}
     for key in keys:
-        spec = specs.get(key)
+        spec_key, motor_id = parse_temperature_key(key)
+        spec = specs.get(spec_key)
         if spec is None:
             continue
         for label in ROBOT_ID_LABELS:
             if job is not None and job.interrupted():
                 return out
             series = grafana_client.query_series(
-                settings, grafana_client.TELEMETRY_DATASOURCE, fleet_query(spec, label),
+                settings, grafana_client.TELEMETRY_DATASOURCE, fleet_query(spec, label, motor_id),
                 start_ms, end_ms, interval_ms=interval_ms, max_points=min(6000, span_minutes * 2 + 10), timeout=120,
             )
             for robot, track in tracks_by_robot(series, label, labels.get(key, key), key).items():

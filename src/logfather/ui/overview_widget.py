@@ -748,6 +748,8 @@ class OverviewWidget(QWidget):
         temps_menu = QMenu(self.temps_btn)
         self._temp_actions: dict[str, QAction] = {}
         for key, label in TEMPERATURE_CHOICES:
+            if key == "motor_temp_0":
+                temps_menu.addSeparator()  # the individual motors
             action = QAction(label, self)
             action.setCheckable(True)
             action.setChecked(key in self._temp_keys)
@@ -1344,8 +1346,8 @@ class OverviewWidget(QWidget):
             label_item.setDefaultTextColor(QColor(theme.TEXT_FAINT))
             label_item.setPos(rect.left() - 30, y_pos)
             label_item.setZValue(4)
-        short = {"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Motor"}
-        latest = " · ".join(f"{short.get(label, label)} {stats[2]:.0f}°" for _k, label, _t, stats in chosen)
+        short = {"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Hot"}
+        latest = " · ".join(f"{short.get(label, label.replace('Motor ', 'M'))} {stats[2]:.0f}°" for _k, label, _t, stats in chosen)
         latest = self._fit_text(latest, right_pad - 20, QFontMetrics(small)) or latest
         latest_item = self.scene.addText(latest, small)
         latest_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))

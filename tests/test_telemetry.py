@@ -121,3 +121,15 @@ def test_fleet_query_and_tracks_by_robot():
     assert tracks["35-2300-013"].values == [40.0, 41.0, 42.0] and tracks["35-2300-013"].name == "CPU"
     assert window_stats(tracks["35-2300-013"], 0, 45_000) == (40.0, 41.0, 41.0)
     assert window_stats(tracks["35-2300-013"], 100_000, 200_000) is None
+
+
+def test_per_motor_temperature_keys():
+    from logfather.core.telemetry import METRICS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS, fleet_query, parse_temperature_key
+
+    assert parse_temperature_key("motor_temp_3") == ("motor_temp", "3")
+    assert parse_temperature_key("cpu_temp") == ("cpu_temp", None)
+    keys = [k for k, _ in TEMPERATURE_CHOICES]
+    assert keys[:5] == ["cpu_temp", "rcu_temp", "gpu_temp", "brake_temp", "motor_temp"] and "motor_temp_6" in keys
+    assert all(k in TEMPERATURE_COLOURS for k in keys)
+    spec = {m.key: m for m in METRICS}["motor_temp"]
+    assert fleet_query(spec, "leap_robot_id", "3") == 'max by(leap_robot_id) (actuators_motor_temperature{leap_robot_id!="", motor_id="3"} != 0)'
