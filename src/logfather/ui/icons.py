@@ -141,6 +141,26 @@ def plus_box_icon(size: int = 24) -> QIcon:
     return QIcon(pm)
 
 
+def pick_icon(size: int = 24) -> QIcon:
+    """A product dropping into a tray, for the Picks button (Chris, 2026-09-08)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    s = float(size)
+    pen = QPen(QColor(theme.TEXT_BRIGHT))
+    pen.setWidthF(s * 0.1)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawPolyline([QPointF(s * 0.16, s * 0.60), QPointF(s * 0.24, s * 0.88), QPointF(s * 0.76, s * 0.88), QPointF(s * 0.84, s * 0.60)])
+    painter.drawLine(QPointF(s * 0.5, s * 0.10), QPointF(s * 0.5, s * 0.62))
+    painter.drawPolyline([QPointF(s * 0.36, s * 0.48), QPointF(s * 0.5, s * 0.64), QPointF(s * 0.64, s * 0.48)])
+    painter.end()
+    return QIcon(pm)
+
+
 def arrow_icon(direction: str, size: int = 24) -> QIcon:
     """A clear left / right chevron for the step-through-time buttons
     (Chris, 2026-09-06: the style's stock arrow was too faint)."""

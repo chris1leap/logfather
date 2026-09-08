@@ -59,8 +59,8 @@ from logfather.data.ui_state_store import (
     update_ui_state,
 )
 from logfather.ui.day_range_dialog import DayRangeDialog, live_button_text
-from logfather.ui.icons import calendar_icon, current_icon, gauge_icon, plus_box_icon, thermometer_icon
-from logfather.core.telemetry import ADDITIONAL_CHANNELS, CURRENT_CHOICES, CURRENT_COLOURS, PRESSURE_CHOICES, PRESSURE_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
+from logfather.ui.icons import calendar_icon, current_icon, gauge_icon, pick_icon, plus_box_icon, thermometer_icon
+from logfather.core.telemetry import ADDITIONAL_CHANNELS, CURRENT_CHOICES, CURRENT_COLOURS, PICKS_CHOICES, PICKS_COLOURS, PRESSURE_CHOICES, PRESSURE_COLOURS, TEMPERATURE_CHOICES, TEMPERATURE_COLOURS
 from logfather.data import grafana_client
 from logfather.ui.overview_signals import SignalChannel
 from logfather.ui.system_filter import SystemFilterPopup, funnel_icon
@@ -721,6 +721,15 @@ class OverviewWidget(QWidget):
         self._refresh_filter_label()
         # Temperatures and currents (Chris, 2026-09-07/08): each is a
         # channel with its own Data-box button, key and strip.
+        self._picks = SignalChannel(
+            self, name="picks", title="Picks", icon=pick_icon(),
+            tooltip="Pick rate under each system (Argus 2 systems report it; from Grafana)",
+            choices=PICKS_CHOICES, colours=PICKS_COLOURS, unit="/min", axis_unit="/min", decimals=1,
+            separator_before="", ui_keys="overview_picks", ui_strip="overview_picks_strip_height",
+            default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT, short={"Picks per minute": "Picks"},
+            loading_text="Loading pick rate...", empty_text="No pick rate in this window (Argus 1 systems do not report it)",
+            axis_min=0.0, axis_title="Picks/min",
+        )
         self._temps = SignalChannel(
             self, name="temps", title="Temps", icon=thermometer_icon(),
             tooltip="Which temperatures to draw under each system (from Grafana)",
@@ -766,15 +775,15 @@ class OverviewWidget(QWidget):
                 loading_text=f"Loading {spec['title'].lower()}...", empty_text=f"No {spec['title'].lower()} readings in this window",
                 axis_min=spec["axis_min"], axis_max=spec.get("axis_max"), axis_title=spec["title"],
             ))
-        self._channels = (self._temps, self._currents, self._pressure, *self._additional)
+        self._channels = (self._picks, self._temps, self._currents, self._pressure, *self._additional)
         # The three Data-box buttons share one width, the widest of them
         # with a count showing (Chris, 2026-09-08).
         widest = 0
-        for channel in (self._temps, self._currents, self._pressure):
+        for channel in (self._picks, self._temps, self._currents, self._pressure):
             channel.button.setText(f"{channel.title} (6)")
             widest = max(widest, channel.button.sizeHint().width())
             channel.refresh_label()
-        for channel in (self._temps, self._currents, self._pressure):
+        for channel in (self._picks, self._temps, self._currents, self._pressure):
             channel.button.setFixedWidth(widest)
         self.additional_btn = QToolButton()
         self.additional_btn.setIcon(plus_box_icon())
@@ -900,7 +909,7 @@ class OverviewWidget(QWidget):
         data_layout = QVBoxLayout(data_box)
         data_layout.setContentsMargins(6, 4, 6, 4)
         data_layout.setSpacing(4)
-        for channel in (self._temps, self._currents, self._pressure):
+        for channel in (self._picks, self._temps, self._currents, self._pressure):
             channel_row = QHBoxLayout()
             channel_row.setSpacing(10)
             channel_row.addWidget(channel.button)

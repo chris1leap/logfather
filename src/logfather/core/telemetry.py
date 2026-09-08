@@ -65,6 +65,9 @@ METRICS: tuple[MetricSpec, ...] = (
     MetricSpec("canbus_errors", "CAN bus", "Errors", "behaviour_canbus_errors", "", in_replay=False),
     MetricSpec("canbus_errors_power", "CAN bus", "Errors near power event", "behaviour_canbus_errors_near_power_event", "", in_replay=False),
     MetricSpec("canbus_frames", "CAN bus", "Frames seen", "behaviour_canbus_frames_seen", "", in_replay=False),
+    # Pick rate (Chris, 2026-09-08): reported by the targeting node on Argus 2
+    # systems only; Argus 1 has no such metric in Grafana.
+    MetricSpec("picks_per_min", "Picks", "Picks per minute", "targeting_products_picked_per_min", "/min", in_replay=False),
 )
 GROUP_ORDER = ("Temperatures", "Motor temperatures", "Motor currents", "Air pressure")
 SAMPLE_INTERVAL_MS = 30_000
@@ -286,6 +289,8 @@ CURRENT_COLOURS = {
 # Air pressure on the Overview (Chris, 2026-09-08): one reading per system.
 PRESSURE_CHOICES: tuple[tuple[str, str], ...] = (("air_pressure", "Air pressure"),)
 PRESSURE_COLOURS = {"air_pressure": "#36cfc9"}
+PICKS_CHOICES: tuple[tuple[str, str], ...] = (("picks_per_min", "Picks per minute"),)
+PICKS_COLOURS = {"picks_per_min": "#95de64"}
 # The Additional box: one channel (strip) per entry, each with its own
 # choices, unit and colours.
 ADDITIONAL_CHANNELS: tuple[dict, ...] = (
@@ -303,7 +308,7 @@ ADDITIONAL_CHANNELS: tuple[dict, ...] = (
      "choices": (("canbus_errors", "CAN bus errors"), ("canbus_errors_power", "CAN errors near power event"), ("canbus_frames", "CAN frames seen")),
      "colours": {"canbus_errors": "#ff4d4f", "canbus_errors_power": "#ff9c6e", "canbus_frames": "#95de64"}},
 )
-SIGNAL_LABELS: dict[str, str] = dict(TEMPERATURE_CHOICES) | dict(CURRENT_CHOICES) | dict(PRESSURE_CHOICES)
+SIGNAL_LABELS: dict[str, str] = dict(TEMPERATURE_CHOICES) | dict(CURRENT_CHOICES) | dict(PRESSURE_CHOICES) | dict(PICKS_CHOICES)
 for _channel in ADDITIONAL_CHANNELS:
     SIGNAL_LABELS.update(dict(_channel["choices"]))
 
