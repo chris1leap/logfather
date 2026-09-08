@@ -94,6 +94,34 @@ question to take to the drive vendor is why the master's heartbeat and tick
 stall for several seconds every 10 s, since a stall over 1.5 s while the
 drives are guarding the master is enough to trip 0x8130.
 
+## Object 0x2202: the PVT trajectory buffer
+
+Manufacturer object 0x2202 is the drive's queue of position-velocity-time
+points streamed by the master (the segmented writes to 0x2200:02 are the
+points themselves). Its three sub-indices, inferred from how they behave in
+both captures:
+
+| Sub-index | Access | Meaning |
+|---|---|---|
+| 2202:01 | written, always 0 | Clear the buffer. Written just before motion restarts (18:34:13; 19:05:44 to 19:06:06). |
+| 2202:02 | polled continuously | Fill level: points waiting, 0 to about 52. Climbs while the master streams, falls one step every ~40 ms as the drive executes. |
+| 2202:03 | read around a restart | Free space: 256 when empty, falling as points arrive. Fill plus free is 256, so the buffer holds 256 points. |
+
+Values are little-endian 32-bit integers, so a reply of `00 01 00 00` means
+256, an empty buffer. Every drive returned that at 19:06:06, one second after
+the NMT start and just before the first points were loaded: the master
+checking the buffers are clear before it begins streaming.
+
+A 16-byte read of 0x2014:01 costs 8 frames (request, reply announcing 16
+bytes, then three request/segment pairs of 7, 7 and 2 bytes), about one
+millisecond of bus time per read; it runs about 48 times a second across the
+five drives.
+
+Also at 19:05:45 the master wrote configuration to every drive after the
+reset: 0x2300:03 as a float of 3876 on drives 1 to 3 and 4560 on drives 5
+and 6, and 0x4301:05 as 85 on drives 1 to 3 and 100 on drives 5 and 6.
+Probably per-axis limits; the drive manual is needed to name them.
+
 ## Bus utilisation
 
 The bit rate is 1 Mbit/s: the busiest 10 ms of the second capture holds 59
