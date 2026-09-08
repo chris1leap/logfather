@@ -162,6 +162,36 @@ If bus load ever matters: a point fits in two PDOs with no acknowledgements,
 or in one 8-byte frame as 16-bit scaled position and velocity with the time
 implied, which is how most CANopen motion profiles do it.
 
+## The master's 10-second stalls and what they do to a move
+
+Measured in the 18:59 capture (14 minutes of normal running):
+
+- The master's alive tick (27F) and heartbeat (700) stop for 2 to 4.5 s
+  about every 10 s: 78 stalls over 1.5 s in the capture. Inside every stall
+  the whole bus is silent for about a second; status polling then resumes,
+  but no trajectory points are sent until the stall ends.
+- 40 of the 78 stalls began with at least one drive mid-move (last point
+  sent at 20 units/s or more, points still queued); in 57 drive-cases a
+  buffer was actively draining when the stall hit.
+- While moving, a drive holds 180 to 840 ms of points (median 420 ms), far
+  less than a stall. Example at +17.2 s: drive 6 had 26 points queued at
+  162 units/s, the master sent nothing for 3.7 s, and the next point after
+  the stall restarted the move from rest at the original start position.
+  Another stall drained drive 1 from 23 points to 0 with nothing arriving.
+- No emergency was raised during any of these stalls, so the drives hold
+  position when they run out of points rather than faulting. The cost is
+  the arm freezing for 2 to 4 s mid-pick and the move being restarted; in
+  the Elastic logs this appears as "Non-timestamped PVTs received but
+  motors already stopped" and the bad_start_time state.
+
+So a lost frame is harmless (CAN retransmits it within microseconds and a
+half-written PVT point is rejected, never half-applied). The thing to design
+against is the master stopping for longer than the drives' reserve: find the
+10-second periodic job on the CCU that stalls the CAN thread (log flushing
+and metrics pushing are the obvious candidates), keep the CAN streaming on a
+thread that housekeeping cannot block, and preload more of the 256-point
+buffer before a move so the reserve covers a stall.
+
 ## Bus utilisation
 
 The bit rate is 1 Mbit/s: the busiest 10 ms of the second capture holds 59
