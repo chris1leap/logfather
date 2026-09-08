@@ -47,6 +47,7 @@ class SignalChannel(QObject):
         loading_text: str,
         empty_text: str,
         axis_min: float | None = None,
+        axis_title: str = "",
     ):
         super().__init__(owner)
         self.owner = owner
@@ -65,6 +66,8 @@ class SignalChannel(QObject):
         # A fixed floor for the strip's scale (pressure reads from 0 bar,
         # Chris, 2026-09-08); None scales to the readings in the window.
         self.axis_min = axis_min
+        # Written at the left of every strip (Chris, 2026-09-08).
+        self.axis_title = axis_title or title
         state = load_ui_state()
         valid = [k for k, _label in choices]
         stored = state.get(ui_keys)
@@ -186,6 +189,12 @@ class SignalChannel(QObject):
         bg = scene.addRect(rect, QPen(QColor("#31414d")), QBrush(QColor("#0b1014")))
         bg.setZValue(1)
         self.edge_bands.append((rect.bottom(), rect.left(), rect.right()))
+        title_font = QFont()
+        title_font.setPointSize(8)
+        title_item = scene.addText(self.axis_title, title_font)
+        title_item.setDefaultTextColor(QColor(theme.TEXT_MUTED))
+        title_item.setPos(22, rect.top() + max(0.0, (rect.height() - title_item.boundingRect().height()) / 2))
+        title_item.setZValue(4)
         tracks = self.data.get(state.robot_id or "", {})
         w0 = int(window_start.timestamp() * 1000)
         w1 = int(window_end.timestamp() * 1000)

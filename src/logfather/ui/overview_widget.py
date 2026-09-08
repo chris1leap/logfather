@@ -729,6 +729,7 @@ class OverviewWidget(QWidget):
             default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
             short={"CPU": "CPU", "RCU": "RCU", "GPU": "GPU", "Brake resistor": "Brake", "Hottest motor": "Hot"},
             loading_text="Loading temperatures...", empty_text="No temperature readings in this window",
+            axis_title="Temperature",
         )
         self._currents = SignalChannel(
             self, name="currents", title="Currents", icon=current_icon(),
@@ -738,6 +739,7 @@ class OverviewWidget(QWidget):
             default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT,
             short={"Highest motor": "Max"},
             loading_text="Loading currents...", empty_text="No current readings in this window",
+            axis_title="Current",
         )
         self._pressure = SignalChannel(
             self, name="pressure", title="Pressure", icon=gauge_icon(),
@@ -748,6 +750,7 @@ class OverviewWidget(QWidget):
             short={"Air pressure": "Air"},
             loading_text="Loading air pressure...", empty_text="No air pressure readings in this window",
             axis_min=0.0,
+            axis_title="Pressure",
         )
         self._channels = (self._temps, self._currents, self._pressure)
 
