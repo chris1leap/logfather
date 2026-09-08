@@ -896,7 +896,7 @@ class OverviewWidget(QWidget):
             channel_row.addWidget(channel.key_label)
             channel_row.addStretch(1)
             data_layout.addLayout(channel_row)
-        additional_box = QGroupBox("Additional")
+        additional_box = QGroupBox("Additional data")
         additional_box.setStyleSheet(data_box.styleSheet())
         additional_layout = QVBoxLayout(additional_box)
         additional_layout.setContentsMargins(6, 4, 6, 4)
@@ -1224,7 +1224,7 @@ class OverviewWidget(QWidget):
 
     def _refresh_additional_label(self):
         n = sum(len(channel.keys) for channel in self._additional)
-        self.additional_btn.setText("Additional" if not n else f"Additional ({n})")
+        self.additional_btn.setText("Additional data" if not n else f"Additional data ({n})")
         bits = []
         for channel in self._additional:
             many = len(channel.choices) > 1

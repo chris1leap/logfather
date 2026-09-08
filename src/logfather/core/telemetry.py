@@ -73,6 +73,18 @@ class Track:
     def value_at(self, t_ms: int, tolerance_ms: int = 3 * SAMPLE_INTERVAL_MS) -> Optional[float]:
         return value_at(self.times_ms, self.values, t_ms, tolerance_ms)
 
+    def dense(self) -> tuple[list[int], list[float]]:
+        """(times, values) with the gaps dropped, cached: min/max over a
+        slice of these runs at C speed, which the per-second Overview
+        redraw needs (2026-09-08)."""
+        cached = self.__dict__.get("_dense")
+        if cached is None:
+            times = [t for t, v in zip(self.times_ms, self.values) if v is not None]
+            values = [v for v in self.values if v is not None]
+            cached = (times, values)
+            self.__dict__["_dense"] = cached
+        return cached
+
 
 @dataclass
 class TrackGroup:
@@ -341,13 +353,12 @@ def tracks_by_robot(series_list: Iterable[Series], label: str, name: str, spec_k
 
 def window_stats(track: Track, t0_ms: int, t1_ms: int) -> Optional[tuple[float, float, float]]:
     """(min, max, latest) of the samples inside [t0, t1], or None."""
-    lo = hi = last = None
-    for t, v in zip(track.times_ms, track.values):
-        if v is None or t < t0_ms or t > t1_ms:
-            continue
-        lo = v if lo is None else min(lo, v)
-        hi = v if hi is None else max(hi, v)
-        last = v
-    if lo is None:
+    from bisect import bisect_right
+
+    times, values = track.dense()
+    i0 = bisect_left(times, t0_ms)
+    i1 = bisect_right(times, t1_ms)
+    if i1 <= i0:
         return None
-    return lo, hi, last
+    window = values[i0:i1]
+    return min(window), max(window), window[-1]

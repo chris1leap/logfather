@@ -12,7 +12,8 @@ from datetime import datetime
 from typing import Callable
 
 from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt
-from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QPainterPath, QPen
+from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QPainterPath, QPen, QTransform
+from PySide6.QtWidgets import QGraphicsItem
 from PySide6.QtWidgets import QLabel, QMenu, QSizePolicy, QToolButton
 
 from logfather.core.telemetry import window_stats
@@ -88,6 +89,11 @@ class SignalChannel(QObject):
         self.edge_hover = False
         self.hover_rows: list[tuple] = []
         self.hover_items: list = []
+        # (robot, key) -> QPainterPath in (seconds since the epoch, value)
+        # space, built once per data load; each redraw only places it
+        # through a transform (the per-second live redraw was rebuilding
+        # every segment in Python and froze the window, 2026-09-08).
+        self._paths: dict[tuple[str, str], QPainterPath] = {}
 
         self.button = QToolButton()
         self.button.setIcon(icon)
@@ -165,6 +171,7 @@ class SignalChannel(QObject):
 
     def _on_loaded(self, result, keys, span, now_local) -> None:
         self.data = result or {}
+        self._paths = {}
         self.keys_loaded = keys
         self.window = span
         self.fetched_local = now_local
@@ -218,29 +225,21 @@ class SignalChannel(QObject):
             lo, hi = lo - 0.5, hi + 0.5
         inner_top = rect.top() + 2
         inner_h = rect.height() - 4
-        span_ms = max(1, w1 - w0)
+        span_s = max(1.0, (w1 - w0) / 1000.0)
+        # Children of the background clip to it, so a day-long path shows
+        # only the visible window.
+        bg.setFlag(QGraphicsItem.ItemClipsChildrenToShape, True)
+        sx = rect.width() / span_s
+        sy = -inner_h / (hi - lo)
+        transform = QTransform(sx, 0.0, 0.0, sy, rect.left() - (w0 / 1000.0) * sx, inner_top + inner_h - lo * sy)
         for key, _label, track, _stats in chosen:
-            path = QPainterPath()
-            pen_down = False
-            last_t = None
-            for t, v in zip(track.times_ms, track.values):
-                if v is None or t < w0 or t > w1:
-                    pen_down = False
-                    continue
-                if pen_down and last_t is not None and t - last_t > 5 * 60_000:
-                    pen_down = False
-                x = rect.left() + (t - w0) / span_ms * rect.width()
-                yv = inner_top + inner_h - (v - lo) / (hi - lo) * inner_h
-                if pen_down:
-                    path.lineTo(x, yv)
-                else:
-                    path.moveTo(x, yv)
-                    pen_down = True
-                last_t = t
+            path = self._path_for(state.robot_id or "", key, track)
             pen = QPen(QColor(self.colours.get(key, "#ffffff")))
             pen.setWidthF(1.3)
             pen.setCosmetic(True)
             item = scene.addPath(path, pen)
+            item.setParentItem(bg)
+            item.setTransform(transform)
             item.setZValue(3.5)
             item.setAcceptedMouseButtons(Qt.NoButton)
         small = QFont()
@@ -262,6 +261,29 @@ class SignalChannel(QObject):
         latest_item.setPos(scene_width - right_pad + 8, rect.top() - 4)
         latest_item.setZValue(4)
         self.hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen], state.name))
+
+    def _path_for(self, robot: str, key: str, track) -> QPainterPath:
+        cached = self._paths.get((robot, key))
+        if cached is not None:
+            return cached
+        path = QPainterPath()
+        pen_down = False
+        last_t = None
+        for t, v in zip(track.times_ms, track.values):
+            if v is None:
+                pen_down = False
+                continue
+            if pen_down and last_t is not None and t - last_t > 5 * 60_000:
+                pen_down = False  # a gap over five minutes breaks the line
+            x = t / 1000.0
+            if pen_down:
+                path.lineTo(x, v)
+            else:
+                path.moveTo(x, v)
+                pen_down = True
+            last_t = t
+        self._paths[(robot, key)] = path
+        return path
 
     # ---- stretching by dragging the bottom line ----------------------------
     def edge_at(self, scene_pos) -> bool:
