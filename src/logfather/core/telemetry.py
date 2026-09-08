@@ -284,7 +284,7 @@ PRESSURE_COLOURS = {"air_pressure": "#36cfc9"}
 ADDITIONAL_CHANNELS: tuple[dict, ...] = (
     {"name": "cpu", "title": "CPU load", "unit": "%", "axis_unit": "%", "decimals": 0, "axis_min": 0.0,
      "choices": (("ccu_cpu", "CCU"), ("rcu_cpu", "RCU")), "colours": {"ccu_cpu": "#5e9bff", "rcu_cpu": "#ff8a65"}},
-    {"name": "memory", "title": "Memory", "unit": "%", "axis_unit": "%", "decimals": 0, "axis_min": 0.0,
+    {"name": "memory", "title": "Memory", "unit": "%", "axis_unit": "%", "decimals": 0, "axis_min": 0.0, "axis_max": 100.0,
      "choices": (("ccu_memory", "CCU"), ("rcu_memory", "RCU")), "colours": {"ccu_memory": "#2ecc71", "rcu_memory": "#f1c40f"}},
     {"name": "clock", "title": "Clock offset", "unit": " s", "axis_unit": "s", "decimals": 3, "axis_min": None,
      "choices": (("clock_offset", "RCU to CCU"),), "colours": {"clock_offset": "#d46bff"}},

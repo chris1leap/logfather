@@ -764,7 +764,7 @@ class OverviewWidget(QWidget):
                 separator_before="", ui_keys=f"overview_add_{spec['name']}", ui_strip=f"overview_add_{spec['name']}_strip_height",
                 default_strip_h=OVERVIEW_TEMP_STRIP_HEIGHT, short={},
                 loading_text=f"Loading {spec['title'].lower()}...", empty_text=f"No {spec['title'].lower()} readings in this window",
-                axis_min=spec["axis_min"], axis_title=spec["title"],
+                axis_min=spec["axis_min"], axis_max=spec.get("axis_max"), axis_title=spec["title"],
             ))
         self._channels = (self._temps, self._currents, self._pressure, *self._additional)
         # The three Data-box buttons share one width, the widest of them
