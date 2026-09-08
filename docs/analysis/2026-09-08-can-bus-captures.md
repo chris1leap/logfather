@@ -61,6 +61,9 @@ its own clock inside. Two things in the stream:
 
 ## Capture 2: 18:59:49 to 19:13:42 (`19h.txt`)
 
+Interactive timeline for 19:04:30 to 19:07:30 (the stop/start in the middle):
+<https://claude.ai/code/artifact/df1c09fb-fefb-432a-a27b-e27b39524b19>
+
 807,796 frames in 13 minutes 52 seconds, no power event tagged, only 2 error
 frames in the whole capture. This is the healthy running pattern plus one
 deliberate stop/start of the drives.
@@ -90,3 +93,22 @@ end of a fault (here the heartbeat loss), not a fault in itself. The
 question to take to the drive vendor is why the master's heartbeat and tick
 stall for several seconds every 10 s, since a stall over 1.5 s while the
 drives are guarding the master is enough to trip 0x8130.
+
+## Bus utilisation
+
+The bit rate is 1 Mbit/s: the busiest 10 ms of the second capture holds 59
+eight-byte frames, about 77% of a 1 Mbit/s bus, which no slower rate could
+carry. Frame sizes assume standard 11-bit IDs, worst-case bit stuffing on the
+stuffable part, and about 20 bits per error frame.
+
+| | 18:32 capture | 18:59 capture |
+|---|---|---|
+| Averaged over the whole capture | 7.5% | 12.6% |
+| Median second | 1.0% | 15.9% |
+| Busiest second | 43.1% | 38.1% |
+| While the bus is active (silences over 0.3 s excluded) | 28.6% | 42.5% |
+| Busiest 10 ms | error storm, saturated | 76.7% |
+
+So the bus is lightly loaded on average but the traffic is bursty: SDO
+polling runs at 40 to 45% for a few hundred milliseconds, then the bus goes
+quiet for most of a second.
