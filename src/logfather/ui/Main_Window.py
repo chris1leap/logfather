@@ -521,6 +521,7 @@ class MainWindow(QWidget):
     def _on_clip_transfer_progress(self, source_path: str, done, total):
         label = f"Downloading {Path(source_path).name}"
         self._set_activity(f"clip:{source_path}", label, int(done or 0), int(total or 0))
+        self.viewer.show_download_progress(source_path, int(done or 0), int(total or 0), self._activity_label.text())
 
     def _on_clip_transfer_finished(self, source_path: str, _ok: bool):
         self._clear_activity(f"clip:{source_path}")
@@ -540,13 +541,14 @@ class MainWindow(QWidget):
         if downloads:
             done = sum(v[1] or 0 for v in downloads.values())
             total = sum(v[2] or 0 for v in downloads.values())
+            pct = f" ({int(done * 100 / total)}%)" if total else ""
             if len(downloads) == 1:
                 (label, d, t, _ts) = next(iter(downloads.values()))
-                text = f"{label} — {self._mb(d or 0)} / {self._mb(t)} MB"
+                text = f"{label} — {self._mb(d or 0)} / {self._mb(t)} MB{pct}"
             else:
                 text = (
                     f"Downloading {len(downloads)} files — "
-                    f"{self._mb(done)} / {self._mb(total)} MB"
+                    f"{self._mb(done)} / {self._mb(total)} MB{pct}"
                 )
             rate = sum(
                 r
@@ -554,6 +556,8 @@ class MainWindow(QWidget):
                 if (r := self._activity_rate(k, v[1] or 0)) is not None
             )
             remaining = total - done
+            if rate > 0:
+                text += f" — {rate / (1024 * 1024):.1f} MB/s"
             if rate > 0 and remaining > 0:
                 text += f" — {self._eta_text(remaining, rate)}"
             self._activity_label.setText(text)

@@ -24,6 +24,15 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-08
 
+- Log-time clock back on the top row (Chris, 2026-09-08): the green
+  computed log time sits between the clip position and the frame
+  counter again; it had moved into the Sync strip on 2026-09-04.
+- Fits a laptop screen (Chris, on site, 2026-09-08): the right column
+  (log tabs plus the Data boxes) no longer imposes its ~780 px minimum
+  height, so the timeline and activity bar stay on screen at 1463x866.
+- Clip download progress (Chris, 2026-09-08): the activity bar and the
+  'Loading clip' dialog show downloaded / total MB, percentage, MB/s
+  and time remaining.
 - Secondary windows fit the screen (Chris, 2026-09-08): the Data,
   Errors & Stops and Software windows open sized to the screen the main
   window is on, centred over it with the title bar kept visible, and are

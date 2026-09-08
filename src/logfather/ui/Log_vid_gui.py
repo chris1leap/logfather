@@ -799,10 +799,13 @@ class VideoLogViewer(QWidget):
         self.event_marker_bar = EventMarkerBar()
         self.timeline_marker_bar = EventMarkerBar()
         self.timeline_marker_bar.set_triangle_red_markers(True)
-        # Clock + frame LCDs only; the sync buttons and the calc LCD (the
-        # computed log time, a sync-time concern) live in the sync strip.
+        # Clip position, log time and frame LCDs across the top (Chris,
+        # 2026-09-08: the green log-time clock had moved into the Sync
+        # strip and was missed); the sync buttons stay in the sync strip.
         lock_row = QHBoxLayout()
         lock_row.addWidget(self.info_label)
+        lock_row.addSpacing(8)
+        lock_row.addWidget(self.calc_label)
         lock_row.addSpacing(8)
         lock_row.addWidget(self.frame_label)
         lock_row.addStretch(1)
@@ -854,8 +857,6 @@ class VideoLogViewer(QWidget):
         sync_strip_layout = QHBoxLayout(self._sync_strip)
         sync_strip_layout.setContentsMargins(0, 0, 0, 0)
         sync_strip_layout.addWidget(self.video_sync_btn)
-        sync_strip_layout.addSpacing(8)
-        sync_strip_layout.addWidget(self.calc_label)
         sync_strip_layout.addSpacing(8)
         sync_strip_layout.addWidget(self.offset_caption)
         sync_strip_layout.addWidget(self.offset_slider)
@@ -1062,6 +1063,11 @@ class VideoLogViewer(QWidget):
         self.right_extra_layout.setContentsMargins(0, 0, 0, 0)
         column_layout.addLayout(self.right_extra_layout)
         self.right_column.setMaximumWidth(self._right_tabs_target_width)
+        # The tab pages and the boxes under them add up to ~780 px of
+        # minimum height, more than a laptop screen (Chris, on site,
+        # 2026-09-08: the timeline and activity bar were pushed off the
+        # bottom). Ignore that minimum: the column takes the row height.
+        self.right_column.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
         root_layout.addWidget(self.right_column, stretch=0)
 
         self.setLayout(root_layout)
@@ -1786,6 +1792,19 @@ class VideoLogViewer(QWidget):
         elif self._video_busy_dialog is not None:
             self._video_busy_dialog.close()
             self._video_busy_dialog = None
+
+    def show_download_progress(self, source_path: str, done: int, total: int, text: str) -> None:
+        """The 'Loading clip' dialog shows the same size, percentage and
+        rate as the activity bar (Chris, 2026-09-08: the bar sits at the
+        bottom of the window, off screen on a small laptop)."""
+        pending = self._pending_video_load
+        dlg = self._video_busy_dialog
+        if pending is None or dlg is None or str(pending[1]) != source_path:
+            return
+        if total:
+            dlg.setRange(0, 1000)
+            dlg.setValue(min(1000, int(done * 1000 / total)))
+        dlg.setLabelText(text)
 
     def _finish_pending_video_load(self, source_path: str, ok: bool) -> None:
         pending = self._pending_video_load
