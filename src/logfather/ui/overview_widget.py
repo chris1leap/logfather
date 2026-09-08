@@ -2310,7 +2310,9 @@ class OverviewWidget(QWidget):
         row_height = int((OVERVIEW_ROW_HEIGHT_WITH_TEMPS if any_signal else OVERVIEW_ROW_HEIGHT) * zoom)
         strip_heights = [(channel, channel.strip_height(zoom)) for channel in self._channels if channel.active]
         strip_h = sum(h for _channel, h in strip_heights)
-        row_step = row_height + strip_h
+        # A gap between systems of the same customer (Chris, 2026-09-08).
+        row_gap = int(8 * zoom)
+        row_step = row_height + strip_h + row_gap
         header_height = int(36 * zoom)
         display_rows: list[tuple[str, object]] = []
         last_customer = None
@@ -2475,7 +2477,7 @@ class OverviewWidget(QWidget):
             y = current_y
             # Machines sit slightly indented under their customer bar
             # (Chris, 2026-09-05).
-            row_rect = QRectF(18, y, scene_width - 22, row_step - 2)
+            row_rect = QRectF(18, y, scene_width - 22, row_step - row_gap - 2)
             background = QColor("#182028" if system_row_index % 2 == 0 else "#141b22")
             row_item = QGraphicsRectItem(row_rect)
             row_item.setPen(QPen(Qt.NoPen))
