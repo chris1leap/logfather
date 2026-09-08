@@ -173,7 +173,7 @@ class SystemFilterPopup(QWidget):
         # them); before, only clicking elsewhere did (Chris, 2026-09-08).
         foot = QHBoxLayout()
         foot.addStretch(1)
-        ok_btn = QPushButton("OK")
+        ok_btn = QPushButton("Update")
         ok_btn.setDefault(True)
         ok_btn.setStyleSheet(theme.PRIMARY_ACTION_BUTTON)
         ok_btn.clicked.connect(self.hide)
