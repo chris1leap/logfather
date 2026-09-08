@@ -1224,7 +1224,9 @@ class OverviewWidget(QWidget):
 
     def _refresh_additional_label(self):
         n = sum(len(channel.keys) for channel in self._additional)
-        self.additional_btn.setText("Additional data" if not n else f"Additional data ({n})")
+        # Just the icon and a count (Chris, 2026-09-08); the box carries the name.
+        self.additional_btn.setText("" if not n else f"({n})")
+        self.additional_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if n else Qt.ToolButtonIconOnly)
         bits = []
         for channel in self._additional:
             many = len(channel.choices) > 1
