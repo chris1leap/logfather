@@ -38,7 +38,7 @@ class DayRangeDialog(QDialog):
         self._highlighted: list[QDate] = []
         today = QDate.currentDate()
         layout = QVBoxLayout(self)
-        # Quick presets above the calendars (Chris, 2026-09-05); each is
+        # Quick presets (Chris, 2026-09-05); each is
         # a span ending today, counted inclusively.
         preset_row = QHBoxLayout()
         preset_row.addWidget(QLabel("Quick:"))
@@ -52,7 +52,6 @@ class DayRangeDialog(QDialog):
             btn.clicked.connect(lambda _checked=False, n=days: self._apply_preset(n))
             preset_row.addWidget(btn)
         preset_row.addStretch(1)
-        layout.addLayout(preset_row)
         cal_row = QHBoxLayout()
         cal_row.setSpacing(14)
         self._from_cal = QCalendarWidget()
@@ -91,6 +90,8 @@ class DayRangeDialog(QDialog):
         self._from_cal.selectionChanged.connect(self._on_from_changed)
         self._to_cal.selectionChanged.connect(self._refresh_labels)
         layout.addLayout(cal_row)
+        # Presets sit under the calendars (Chris, 2026-09-08).
+        layout.addLayout(preset_row)
         bottom_row = QHBoxLayout()
         self._total_label = QLabel("")
         self._total_label.setStyleSheet("font-weight: bold;")
