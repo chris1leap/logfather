@@ -174,17 +174,17 @@ def test_additional_channels_and_queries():
 
 
 def test_parse_pick_buckets_fills_gaps_and_smooths():
-    from logfather.data.pick_rate import bucket_minutes, parse_pick_buckets
+    from logfather.data.pick_rate import bucket_seconds, parse_pick_buckets
 
-    assert bucket_minutes(60) == 1 and bucket_minutes(5 * 24 * 60) == 5 and bucket_minutes(60 * 24 * 60) == 30
-    m = 60_000
+    assert bucket_seconds(60) == 20 and bucket_seconds(5 * 24 * 60) == 300 and bucket_seconds(60 * 24 * 60) == 1800
+    s20 = 20_000
     buckets = [
-        {"key": 0, "per_robot": {"buckets": [{"key": "35-2300-013", "doc_count": 10}]}, "per_system_id": {"buckets": []}},
-        {"key": 2 * m, "per_robot": {"buckets": [{"key": "35-2300-013", "doc_count": 20}]}, "per_system_id": {"buckets": [{"key": "013", "doc_count": 5}]}},
+        {"key": 0, "per_robot": {"buckets": [{"key": "35-2300-013", "doc_count": 4}]}, "per_system_id": {"buckets": []}},
+        {"key": 2 * s20, "per_robot": {"buckets": [{"key": "35-2300-013", "doc_count": 2}]}, "per_system_id": {"buckets": [{"key": "013", "doc_count": 3}]}},
     ]
-    tracks = parse_pick_buckets(buckets, 1, smooth=2)
+    tracks = parse_pick_buckets(buckets, 20, smooth_seconds=40)
     t = tracks["35-2300-013"]
-    assert t.times_ms == [0, m, 2 * m]              # the empty minute is filled in
-    assert t.values == [10.0, 5.0, 12.5]            # trailing 2-minute mean; both id fields merged
-    five = parse_pick_buckets([{"key": 0, "per_robot": {"buckets": [{"key": "35-2300-005", "doc_count": 50}]}, "per_system_id": {"buckets": []}}], 5, smooth=5)
-    assert five["35-2300-005"].values == [10.0]     # 50 picks in a 5-minute bucket
+    assert t.times_ms == [0, s20, 2 * s20]            # the empty bucket is filled in
+    assert t.values == [12.0, 6.0, 7.5]                # trailing 40 s window as a per-minute rate; both id fields merged
+    five = parse_pick_buckets([{"key": 0, "per_robot": {"buckets": [{"key": "35-2300-005", "doc_count": 50}]}, "per_system_id": {"buckets": []}}], 300, smooth_seconds=60)
+    assert five["35-2300-005"].values == [10.0]        # 50 picks in a 5-minute bucket

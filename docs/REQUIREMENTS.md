@@ -34,7 +34,8 @@ Living record of agreed functionality: what is open, and what has shipped
   minute, scaled from 0. Argus 2 from Grafana's
   targeting_products_picked_per_min; Argus 1 (no such metric) from the
   pick messages in Elastic (`data/pick_rate.py`: one date_histogram,
-  1/5/30-minute buckets by span, trailing five-minute mean).
+  20 s buckets up to two days, then 5 / 30 minutes; each point is the
+  trailing minute's rate; Chris, 2026-09-08).
 - Additional data: CAN bus family (Chris, 2026-09-08): CAN bus errors, CAN
   errors near power event, CAN frames seen. Not cumulative counters: the
   health node reports a count per window and restarts, so they are drawn
