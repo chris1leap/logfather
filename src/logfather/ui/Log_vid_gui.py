@@ -1007,6 +1007,10 @@ class VideoLogViewer(QWidget):
         corner_layout.addWidget(self._pin_btn)
         self.right_tabs.setCornerWidget(corner, Qt.TopRightCorner)
 
+    def add_right_panel_widget(self, widget: QWidget) -> None:
+        """Mount a widget under the right-hand tabs."""
+        self.right_extra_layout.addWidget(widget)
+
     def _open_config_dialog(self):
         dlg = self._config_dialog
         if not dlg.isVisible():
@@ -1046,13 +1050,26 @@ class VideoLogViewer(QWidget):
         sections (event filters, autosave/debounce timers, saved pin state)."""
         root_layout = QHBoxLayout()
         root_layout.addLayout(self._middle_layout, stretch=3)
-        root_layout.addWidget(self.right_tabs, stretch=0)
+        # The right column: the tabs, then whatever the main window mounts
+        # under them (the Data and Additional data boxes, Chris,
+        # 2026-09-08). The hover-reveal animates the whole column.
+        self.right_column = QWidget()
+        column_layout = QVBoxLayout(self.right_column)
+        column_layout.setContentsMargins(0, 0, 0, 0)
+        column_layout.setSpacing(6)
+        column_layout.addWidget(self.right_tabs, 1)
+        self.right_extra_layout = QVBoxLayout()
+        self.right_extra_layout.setContentsMargins(0, 0, 0, 0)
+        column_layout.addLayout(self.right_extra_layout)
+        self.right_column.setMaximumWidth(self._right_tabs_target_width)
+        root_layout.addWidget(self.right_column, stretch=0)
 
         self.setLayout(root_layout)
         self.setMinimumSize(980, 560)
         self.setMouseTracking(True)
         self.installEventFilter(self)
         self.right_tabs.installEventFilter(self)
+        self.right_column.installEventFilter(self)
         self._log_busy_dialog: QProgressDialog | None = None
         self._set_filter_tabs_enabled(False)
 
@@ -1116,7 +1133,7 @@ class VideoLogViewer(QWidget):
                     pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
                     if pos.x() >= self.width() - self._right_reveal_px:
                         self._set_right_tabs_visible(True)
-            elif event.type() == QEvent.Leave and obj is self.right_tabs:
+            elif event.type() == QEvent.Leave and obj in (self.right_tabs, self.right_column):
                 QTimer.singleShot(50, self._auto_hide_right_tabs)
         return super().eventFilter(obj, event)
 
@@ -1127,7 +1144,7 @@ class VideoLogViewer(QWidget):
         self._right_tabs_expanded = visible
         if self._right_tabs_anim.state() == QVariantAnimation.Running:
             self._right_tabs_anim.stop()
-        current = self.right_tabs.width()
+        current = self.right_column.width()
         if current <= 0:
             current = 0 if not visible else self._right_tabs_target_width
         end = self._right_tabs_target_width if visible else 0
@@ -1137,8 +1154,8 @@ class VideoLogViewer(QWidget):
 
     def _on_right_tabs_anim_step(self, value):
         width = max(0, int(value))
-        self.right_tabs.setMinimumWidth(width)
-        self.right_tabs.setMaximumWidth(width)
+        self.right_column.setMinimumWidth(width)
+        self.right_column.setMaximumWidth(width)
 
     def _auto_hide_right_tabs(self):
         if not self._right_tabs_expanded or self._right_tabs_pinned:

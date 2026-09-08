@@ -89,7 +89,8 @@ ENABLE_PREFETCH_ADJACENT = True
 ENABLE_DAY_PREFETCH = False
 ENABLE_LOG_BUTTON = True
 TIMELINE_MIN_HEIGHT = 165
-TIMELINE_MAX_HEIGHT = 360
+# More room for the timeline and its reading strips (Chris, 2026-09-08).
+TIMELINE_MAX_HEIGHT = 520
 TIMELINE_EXPAND_DELAY_MS = 1500
 
 
@@ -176,8 +177,10 @@ class MainWindow(QWidget):
             static_tracks=static_tracks,
             cache_root=cache_root,
         )
-        # The timeline's reading strips need the settings for Grafana / Elastic.
+        # The timeline's reading strips need the settings for Grafana / Elastic;
+        # their boxes sit under the log tabs (Chris, 2026-09-08).
         self.time_picker.settings = self.settings
+        self.viewer.add_right_panel_widget(self.time_picker.signal_boxes_widget())
         self.content_stack = QStackedWidget()
         self.content_stack.addWidget(self.viewer)
         self.content_stack.addWidget(self.overview_widget)
@@ -325,8 +328,8 @@ class MainWindow(QWidget):
         main_splitter = QSplitter(Qt.Vertical)
         main_splitter.addWidget(horizontal_splitter)
         main_splitter.addWidget(self.time_picker)
-        main_splitter.setStretchFactor(0, 4)
-        main_splitter.setStretchFactor(1, 1)
+        main_splitter.setStretchFactor(0, 3)
+        main_splitter.setStretchFactor(1, 2)
         self._main_splitter = main_splitter
         self._timeline_anim = QVariantAnimation(self)
         self._timeline_anim.setDuration(170)

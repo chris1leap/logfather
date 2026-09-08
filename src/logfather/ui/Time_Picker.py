@@ -153,9 +153,6 @@ class TimePicker(QWidget):
         layout.setSpacing(6)
         if SHOW_TIMELINE_TOP_BUTTONS:
             layout.addLayout(top)
-        boxes_row = self._signals.row_layout()
-        boxes_row.addWidget(self.status_label)
-        layout.addLayout(boxes_row)
         layout.addWidget(self.view, 1)
         self.setLayout(layout)
 
@@ -928,6 +925,17 @@ class TimePicker(QWidget):
 
     def hide_thumbnail_preview(self) -> None:
         pass
+
+    def signal_boxes_widget(self) -> QWidget:
+        """The Data and Additional data boxes, for the main window to mount
+        under the log tabs (Chris, 2026-09-08)."""
+        holder = QWidget()
+        column = QVBoxLayout(holder)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(4)
+        column.addLayout(self._signals.row_layout())
+        column.addWidget(self.status_label)
+        return holder
 
     def _schedule_redraw(self) -> None:
         if self._items and self._current_date:
