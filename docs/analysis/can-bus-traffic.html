@@ -78,6 +78,9 @@
   .toolbar .seek { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; }
   .toolbar input[type=range] { flex: 1; accent-color: var(--eth); margin: 0; }
   .toolbar .err { color: var(--estop); flex-basis: 100%; }
+  .toolbar.busy { opacity: .6; pointer-events: none; }
+  .toolbar.busy .file, .toolbar.busy #progress { pointer-events: auto; }
+  .toolbar #progress { flex-basis: 100%; }
   /* sender / receiver highlight and the moving dots */
   :root { --send: #2e5eaa; --recv: #2e8b3a; --send-soft: rgba(46,94,170,.16); --recv-soft: rgba(46,139,58,.16); }
   @media (prefers-color-scheme: dark) { :root { --send: #7fa6e8; --recv: #6fcf7a; --send-soft: rgba(127,166,232,.22); --recv-soft: rgba(111,207,122,.22); } }
@@ -211,6 +214,7 @@
     </label>
     <div class="seek"><span id="seek-label">frame 1</span><input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Position in the capture"></div>
     <span class="err" id="load-error" hidden></span>
+    <span class="source" id="progress" hidden></span>
   </div>
   <div class="nav">
     <div class="side left">
@@ -246,19 +250,73 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
   const u32 = bs => (bs[0] | bs[1] << 8 | bs[2] << 16 | (bs[3] << 24 >>> 0)) >>> 0;
   const fmt = (x, d) => Number(x).toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
   const byId = id => document.getElementById(id);
+  const bytesOf = hex => { const b = []; for (let k = 0; k < hex.length; k += 2) b.push(parseInt(hex.substr(k, 2), 16)); return b; };
+  const yieldToUI = () => new Promise(r => setTimeout(r, 0));
 
   // ---- the loaded capture
-  let IDS, T, I, D, N, T0, startClock, DEC, byFamily, cur = 0;
+  // FAM: family index per frame; FROM/TO: node number (0 = Rozum board, -1 = none/all); CTX: for SDO segments only,
+  // the object, size, offset and bytes so far, so the fields can be named when the frame is shown.
+  const FAMILIES = ["Other", "Error frame", "Heartbeat (master)", "Heartbeat (drive)", "Master tick", "NMT command", "SYNC", "Emergency", "PDO",
+    "Motor status", "Buffer poll", "Buffer clear", "PVT point", "Configuration write", "SDO read", "SDO write", "SDO abort"];
+  const F = Object.fromEntries(FAMILIES.map((n, i) => [n, i]));
+  let IDS, T, I, D, N, T0, startClock, FAM, FROM, TO, CTX, byFamily, cur = 0, loading = false;
   const clock = us => { const [h, m, sec] = startClock.split(":"); const base = (+h) * 3600e6 + (+m) * 60e6 + parseFloat(sec) * 1e6 + us;
     const hh = Math.floor(base / 3600e6) % 24, mm = Math.floor(base % 3600e6 / 60e6), ss = (base % 60e6) / 1e6;
     return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0") + ":" + ss.toFixed(3).padStart(6, "0"); };
 
-  // ---- decoding, done once per capture in frame order with per-node SDO context
-  const STATUS = ["position", "velocity", "current", "temperature"];
-  const PVT = ["position", "velocity", "time"];
-  let up = {}, down = {};
+  // ---- pass 1: classify every frame in order (cheap; keeps per-node SDO context)
+  const familyOf = (obj, sub) => obj === "2014" ? F["Motor status"] : obj === "2202" ? (sub === 1 ? F["Buffer clear"] : F["Buffer poll"]) : obj === "2200" ? F["PVT point"] : F["Configuration write"];
+  function classify(i, up, down) {
+    const id = IDS[I[i]], v = parseInt(id, 16), hex = D[i];
+    const b0 = parseInt(hex.substr(0, 2), 16) || 0, b1 = parseInt(hex.substr(2, 2), 16) || 0, b2 = parseInt(hex.substr(4, 2), 16) || 0, b3 = parseInt(hex.substr(6, 2), 16) || 0;
+    let fam = F.Other, from = -1, to = -1, ctx = null;
+    if (id === "1FFFFFFF" || v >= 0x20000000) fam = F["Error frame"];
+    else if (v >= 0x700 && v <= 0x77F) { const n = v - 0x700; fam = n ? F["Heartbeat (drive)"] : F["Heartbeat (master)"]; from = n; to = n ? 0 : -1; }
+    else if (v === 0x27F) { fam = F["Master tick"]; from = 0; }
+    else if (v === 0x000) { fam = F["NMT command"]; from = 0; to = b1 || -1; }
+    else if (v === 0x080 || v === 0x100) { fam = F.SYNC; from = 0; }
+    else if (v >= 0x081 && v <= 0x0FF) { fam = F.Emergency; from = v - 0x80; to = 0; }
+    else if ((v >= 0x181 && v <= 0x1FF) || (v >= 0x281 && v <= 0x2FF) || (v >= 0x381 && v <= 0x3FF) || (v >= 0x481 && v <= 0x4FF)) { fam = F.PDO; from = v & 0x7F; to = 0; }
+    else {
+      const isReq = v >= 0x601 && v <= 0x67F, isRep = v >= 0x581 && v <= 0x5FF;
+      if (isReq || isRep) {
+        const n = v - (isReq ? 0x600 : 0x580), cs = b0, obj = hex2(b2) + hex2(b1), sub = b3;
+        from = isReq ? 0 : n; to = isReq ? n : 0;
+        const size = () => u32(bytesOf(hex.substr(8, 8)).concat([0, 0, 0, 0]).slice(0, 4));
+        if (isReq) {
+          if (cs === 0x40) { up[n] = { obj, sub, size: 0, buf: "" }; fam = familyOf(obj, sub); }
+          else if (cs === 0x21) { down[n] = { obj, sub, size: size(), buf: "" }; fam = familyOf(obj, sub); }
+          else if ((cs & 0xE3) === 0x23) fam = familyOf(obj, sub);
+          else if ((cs & 0xE0) === 0x00) {   // download data segment
+            const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1, c = down[n], off = c ? c.buf.length / 2 : 0;
+            const ok = c && ((off / 7) & 1) === t && (last ? off + k === c.size : off + k < c.size);
+            if (ok) { c.buf += hex.substr(2, 2 * k); ctx = { obj: c.obj, sub: c.sub, size: c.size, off, buf: c.buf }; fam = familyOf(c.obj, c.sub); if (last) delete down[n]; }
+            else { delete down[n]; fam = F["PVT point"]; }
+          }
+          else if ((cs & 0xE0) === 0x60) { const c = up[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO read"]; }
+          else fam = F["SDO read"];
+        } else {
+          if (cs === 0x41) { up[n] = { obj, sub, size: size(), buf: "" }; fam = familyOf(obj, sub); }
+          else if ((cs & 0xE3) === 0x43) fam = familyOf(obj, sub);
+          else if (cs === 0x60) { const c = down[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO write"]; }
+          else if ((cs & 0xE0) === 0x20) { const c = down[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO write"]; }
+          else if ((cs & 0xE0) === 0x00) {   // upload data segment
+            const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1, c = up[n], off = c ? c.buf.length / 2 : 0;
+            const ok = c && ((off / 7) & 1) === t && (last ? off + k === c.size : off + k < c.size);
+            if (ok) { c.buf += hex.substr(2, 2 * k); ctx = { obj: c.obj, sub: c.sub, size: c.size, off, buf: c.buf }; fam = familyOf(c.obj, c.sub); if (last) delete up[n]; }
+            else { delete up[n]; fam = F["Motor status"]; }
+          }
+          else if (cs === 0x80) fam = F["SDO abort"];
+          else fam = F["SDO write"];
+        }
+      }
+    }
+    FAM[i] = fam; FROM[i] = from; TO[i] = to; if (ctx) CTX[i] = ctx;
+  }
+
+  // ---- pass 2, on demand: the full description of one frame
+  const STATUS = ["position", "velocity", "current", "temperature"], PVT = ["position", "velocity", "time"];
   const objName = (obj, sub) => obj === "2014" && sub === 1 ? "the 16-byte status block" : obj === "2202" ? (sub === 1 ? "buffer clear" : sub === 2 ? "buffer fill level" : sub === 3 ? "buffer free slots" : "buffer object") : obj === "2200" ? "the trajectory buffer" : "object " + obj + ":" + hex2(sub);
-  const familyOf = (obj, sub) => obj === "2014" ? "Motor status" : obj === "2202" ? (sub === 1 ? "Buffer clear" : "Buffer poll") : obj === "2200" ? "PVT point" : "Configuration write";
   const runsOver = (names, unit, offset, n, buf, isFloat) => {
     const segs = []; let o = offset;
     while (o < offset + n) {
@@ -272,100 +330,111 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
     }
     return segs;
   };
-  const statusUnit = f => ["", "", "A", "°C"][f];
-  function decode(i) {
-    const id = IDS[I[i]], v = parseInt(id, 16), b = [];
-    for (let k = 0; k < D[i].length; k += 2) b.push(parseInt(D[i].substr(k, 2), 16));
-    const r = { family: "Other", sub: "", from: "?", to: "?", kind: "COB-ID " + id, segs: [] };
-    if (id === "1FFFFFFF" || v >= 0x20000000) { Object.assign(r, { family: "Error frame", from: "any node", to: "every node", kind: "Error frame: no COB-ID." }); r.segs = [[b.length, "Error frame data: class or controller state bytes. Not a data frame; a node signalling a corrupted frame.", "val"]]; return r; }
-    if (v === 0x700 || (v >= 0x701 && v <= 0x77F)) { const n = v - 0x700; const st = { 0: "boot-up", 4: "stopped", 5: "operational", 0x7F: "pre-operational", 2: "state 02 (not a standard state)" }[b[0]] || "state " + hex2(b[0]);
-      Object.assign(r, { family: n ? "Heartbeat (drive)" : "Heartbeat (master)", from: NODE(n), to: n ? "Rozum board" : "all drives", kind: "COB-ID <b>" + id + "</b> = 700 + node " + n + ": heartbeat." }); r.segs = [[1, "NMT state <b>" + hex2(b[0]) + "</b> = " + st + ".", "val"]]; return r; }
-    if (v === 0x27F) { Object.assign(r, { family: "Master tick", from: "Rozum board", to: "all drives", kind: "COB-ID <b>27F</b>: the master's clock tick, a broadcast." }); r.segs = [[4, "Microsecond counter = <b>" + fmt(u32(b) / 1e6, 3) + " s</b> (little-endian, wraps every 600 s).", "val"]]; return r; }
-    if (v === 0x000) { const cmd = { 1: "start", 2: "stop", 0x80: "enter pre-operational", 0x81: "reset node", 0x82: "reset communication" }[b[0]] || "command " + hex2(b[0]);
-      Object.assign(r, { family: "NMT command", sub: cmd, from: "Rozum board", to: b[1] ? "drive " + b[1] : "all drives", kind: "COB-ID <b>000</b>: network management command." }); r.segs = [[1, "Command <b>" + hex2(b[0]) + "</b> = " + cmd + ".", "cmd"], [1, "Target node <b>" + hex2(b[1]) + "</b>" + (b[1] ? "" : " = every node") + ".", "obj"]]; return r; }
-    if (v === 0x080 || v === 0x100) { Object.assign(r, { family: "SYNC", from: "Rozum board", to: "all drives", kind: "COB-ID <b>" + id + "</b>: SYNC." }); r.segs = b.length ? [[b.length, "SYNC payload.", "raw"]] : []; return r; }
-    if (v >= 0x081 && v <= 0x0FF) { const n = v - 0x80, code = b[1] << 8 | b[0]; const name = { 0: "error reset / no error", 0x3120: "input voltage too low", 0x8130: "heartbeat lost", 0xFF80: "manufacturer-specific FF80", 0xFF00: "manufacturer-specific FF00" }[code] || "code " + code.toString(16).toUpperCase();
-      Object.assign(r, { family: "Emergency", sub: name, from: NODE(n), to: "Rozum board", kind: "COB-ID <b>" + id + "</b> = 080 + node " + n + ": emergency." });
+  function describe(i) {
+    const id = IDS[I[i]], v = parseInt(id, 16), b = bytesOf(D[i]), fam = FAMILIES[FAM[i]];
+    const nm = n => n === 0 ? "Rozum board" : n > 0 ? "drive " + n : "all drives";
+    const r = { family: fam, sub: "", from: FROM[i] >= 0 ? nm(FROM[i]) : "any node", to: TO[i] >= 0 ? nm(TO[i]) : (fam === "Error frame" ? "every node" : "all drives"), kind: "COB-ID " + id, segs: [] };
+    if (fam === "Error frame") { r.kind = "Error frame: no COB-ID."; r.segs = [[b.length, "Error frame data: class or controller state bytes. Not a data frame; a node signalling a corrupted frame.", "val"]]; return r; }
+    if (fam.startsWith("Heartbeat")) { const n = v - 0x700; const st = { 0: "boot-up", 4: "stopped", 5: "operational", 0x7F: "pre-operational", 2: "state 02 (not a standard state)" }[b[0]] || "state " + hex2(b[0]);
+      r.kind = "COB-ID <b>" + id + "</b> = 700 + node " + n + ": heartbeat."; r.segs = [[1, "NMT state <b>" + hex2(b[0]) + "</b> = " + st + ".", "val"]]; return r; }
+    if (fam === "Master tick") { r.kind = "COB-ID <b>27F</b>: the master's clock tick, a broadcast."; r.segs = [[4, "Microsecond counter = <b>" + fmt(u32(b) / 1e6, 3) + " s</b> (little-endian, wraps every 600 s).", "val"]]; return r; }
+    if (fam === "NMT command") { const cmd = { 1: "start", 2: "stop", 0x80: "enter pre-operational", 0x81: "reset node", 0x82: "reset communication" }[b[0]] || "command " + hex2(b[0]);
+      r.sub = cmd; r.kind = "COB-ID <b>000</b>: network management command."; r.segs = [[1, "Command <b>" + hex2(b[0]) + "</b> = " + cmd + ".", "cmd"], [1, "Target node <b>" + hex2(b[1] || 0) + "</b>" + (b[1] ? "" : " = every node") + ".", "obj"]]; return r; }
+    if (fam === "SYNC") { r.kind = "COB-ID <b>" + id + "</b>: SYNC."; r.segs = b.length ? [[b.length, "SYNC payload.", "raw"]] : []; return r; }
+    if (fam === "Emergency") { const n = v - 0x80, code = (b[1] || 0) << 8 | (b[0] || 0); const name = { 0: "error reset / no error", 0x3120: "input voltage too low", 0x8130: "heartbeat lost", 0xFF80: "manufacturer-specific FF80", 0xFF00: "manufacturer-specific FF00" }[code] || "code " + code.toString(16).toUpperCase();
+      r.sub = name; r.kind = "COB-ID <b>" + id + "</b> = 080 + node " + n + ": emergency.";
       r.segs = [[2, "Error code <b>" + code.toString(16).toUpperCase().padStart(4, "0") + "</b> (bytes swapped): " + name + ".", "val"], [1, "Error register <b>" + hex2(b[2] || 0) + "</b>" + (b[2] & 0x10 ? ": communication error" : b[2] ? "" : ": no error") + ".", "val"], [1, "Manufacturer byte.", "raw"], [4, "Manufacturer value: as a float <b>" + (b.length >= 8 ? fmt(f32(b.slice(4, 8)), 3) : "?") + "</b>.", "val"]]; return r; }
-    if ((v >= 0x181 && v <= 0x1FF) || (v >= 0x281 && v <= 0x2FF && v !== 0x27F) || (v >= 0x381 && v <= 0x3FF) || (v >= 0x481 && v <= 0x4FF)) { const base = v & 0x780, n = v & 0x7F; const nm = { 0x180: "TPDO1", 0x280: "TPDO2", 0x380: "TPDO3", 0x480: "TPDO4" }[base];
-      Object.assign(r, { family: "PDO", sub: nm, from: NODE(n), to: "Rozum board", kind: "COB-ID <b>" + id + "</b> = " + nm + " of node " + n + ": process data, sent by the drive." }); r.segs = [[b.length, "Process data, " + b.length + " bytes.", "val"]]; return r; }
+    if (fam === "PDO") { const base = v & 0x780, n = v & 0x7F; const t = { 0x180: "TPDO1", 0x280: "TPDO2", 0x380: "TPDO3", 0x480: "TPDO4" }[base] || "PDO";
+      r.sub = t; r.kind = "COB-ID <b>" + id + "</b> = " + t + " of node " + n + ": process data, sent by the drive."; r.segs = [[b.length, "Process data, " + b.length + " bytes.", "val"]]; return r; }
     const isReq = v >= 0x601 && v <= 0x67F, isRep = v >= 0x581 && v <= 0x5FF;
-    if (!isReq && !isRep) return r;
-    const n = v - (isReq ? 0x600 : 0x580), cs = b[0];
+    if (!isReq && !isRep) { r.segs = [[b.length, "Data.", "raw"]]; return r; }
+    const n = v - (isReq ? 0x600 : 0x580), cs = b[0], obj = hex2(b[2] || 0) + hex2(b[1] || 0), sub = b[3] || 0, ctx = CTX[i];
     r.kind = "COB-ID <b>" + id + "</b> = " + (isReq ? "600" : "580") + " + node " + n + ": SDO " + (isReq ? "request" : "reply") + ".";
-    r.from = isReq ? "Rozum board" : NODE(n); r.to = isReq ? NODE(n) : "Rozum board";
-    const obj = () => hex2(b[2]) + hex2(b[1]), sub = () => b[3];
-    const objSegs = () => [[2, "Object <b>" + obj() + "</b> (low byte first).", "obj"], [1, "Sub-index <b>" + hex2(sub()) + "</b>: " + objName(obj(), sub()) + ".", "obj"]];
+    const objSegs = () => [[2, "Object <b>" + obj + "</b> (low byte first).", "obj"], [1, "Sub-index <b>" + hex2(sub) + "</b>: " + objName(obj, sub) + ".", "obj"]];
+    const sizeVal = u32(b.slice(4, 8).concat([0, 0, 0, 0]).slice(0, 4));
     if (isReq) {
-      if (cs === 0x40) { up[n] = { obj: obj(), sub: sub(), buf: [] }; Object.assign(r, { family: familyOf(obj(), sub()), sub: "read request" }); r.segs = [[1, "Command byte <b>40</b>: read request (SDO upload).", "cmd"], ...objSegs(), [4, "Unused in a read request.", "raw"]]; return r; }
-      if (cs === 0x21) { down[n] = { obj: obj(), sub: sub(), size: u32(b.slice(4, 8)), buf: [] }; Object.assign(r, { family: familyOf(obj(), sub()), sub: "write request" }); r.segs = [[1, "Command byte <b>21</b>: start a segmented write (SDO download); the size follows.", "cmd"], ...objSegs(), [4, "Size = <b>" + u32(b.slice(4, 8)) + " bytes</b>" + (obj() === "2200" ? ": float position, float velocity, 32-bit time" : "") + ".", "val"]]; return r; }
-      if ((cs & 0xE3) === 0x23) { const k = 4 - ((cs >> 2) & 3), val = b.slice(4, 4 + k); Object.assign(r, { family: familyOf(obj(), sub()), sub: "write" });
+      if (cs === 0x40) { r.sub = "read request"; r.segs = [[1, "Command byte <b>40</b>: read request (SDO upload).", "cmd"], ...objSegs(), [4, "Unused in a read request.", "raw"]]; return r; }
+      if (cs === 0x21) { r.sub = "write request"; r.segs = [[1, "Command byte <b>21</b>: start a segmented write (SDO download); the size follows.", "cmd"], ...objSegs(), [4, "Size = <b>" + sizeVal + " bytes</b>" + (obj === "2200" ? ": float position, float velocity, 32-bit time" : "") + ".", "val"]]; return r; }
+      if ((cs & 0xE3) === 0x23) { const k = 4 - ((cs >> 2) & 3), val = b.slice(4, 4 + k); r.sub = "write";
         r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: expedited write of " + k + " byte" + (k > 1 ? "s" : "") + ".", "cmd"], ...objSegs(), [k, "Value = <b>" + (k === 4 ? u32(val) + "</b> as an integer, <b>" + fmt(f32(val), 3) + "</b> as a float" : u32(val.concat([0, 0, 0])) + "</b>") + ".", "val"]]; if (k < 4) r.segs.push([4 - k, "Unused.", "raw"]); return r; }
-      if ((cs & 0xE0) === 0x00) { const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1; let ctx = down[n]; const off = ctx ? ctx.buf.length : 0;
-        const consistent = ctx && ((off / 7) & 1) === t && (last ? off + k === ctx.size : off + k < ctx.size);
-        if (!consistent) { ctx = null; delete down[n]; } else ctx.buf.push(...b.slice(1, 1 + k));
-        Object.assign(r, { family: ctx ? familyOf(ctx.obj, ctx.sub) : "PVT point", sub: ctx ? "data segment " + (Math.floor(off / 7) + 1) + " of " + Math.ceil(ctx.size / 7) : (last ? "last segment" : "segment") + " (earlier frames not kept by the monitor)" });
+      if ((cs & 0xE0) === 0x00) { const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1;
+        r.sub = ctx ? "data segment " + (Math.floor(ctx.off / 7) + 1) + " of " + Math.ceil(ctx.size / 7) : (last ? "last segment" : "segment") + " (earlier frames not kept by the monitor)";
         r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: data segment, toggle bit " + t + ", " + k + " bytes valid" + (last ? ", the last segment" : ", more to follow") + ".", "cmd"]];
-        r.segs.push(...(ctx && ctx.obj === "2200" ? runsOver(PVT, f => (f === 2 ? "ms" : ""), off, k, ctx.buf, f => f < 2) : [[k, k + " data bytes of a trajectory point whose first frame the monitor did not keep.", "val"]]));
-        if (k < 7) r.segs.push([7 - k, "Padding.", "raw"]); if (last) delete down[n]; return r; }
-      if ((cs & 0xE0) === 0x60) { const t = (cs >> 4) & 1, ctx = up[n]; Object.assign(r, { family: ctx ? familyOf(ctx.obj, ctx.sub) : "SDO read", sub: "next segment" }); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: send the next segment (toggle bit " + t + ").", "cmd"], [7, "Unused.", "raw"]]; return r; }
-      Object.assign(r, { family: "SDO request", sub: "command " + hex2(cs) }); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>.", "cmd"], [b.length - 1, "Data.", "raw"]]; return r;
+        r.segs.push(...(ctx && ctx.obj === "2200" ? runsOver(PVT, f => (f === 2 ? "ms" : ""), ctx.off, k, bytesOf(ctx.buf), f => f < 2) : [[k, k + " data bytes of a trajectory point whose first frame the monitor did not keep.", "val"]]));
+        if (k < 7) r.segs.push([7 - k, "Padding.", "raw"]); return r; }
+      if ((cs & 0xE0) === 0x60) { r.sub = "next segment"; r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: send the next segment (toggle bit " + ((cs >> 4) & 1) + ").", "cmd"], [7, "Unused.", "raw"]]; return r; }
+      r.sub = "command " + hex2(cs); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>.", "cmd"], [b.length - 1, "Data.", "raw"]]; return r;
     }
-    if (cs === 0x41) { up[n] = { obj: obj(), sub: sub(), size: u32(b.slice(4, 8)), buf: [] }; Object.assign(r, { family: familyOf(obj(), sub()), sub: "read reply" }); r.segs = [[1, "Command byte <b>41</b>: segmented reply; the size follows.", "cmd"], ...objSegs(), [4, "Size = <b>" + u32(b.slice(4, 8)) + " bytes</b>, coming in segments of up to 7.", "val"]]; return r; }
-    if ((cs & 0xE3) === 0x43) { const k = 4 - ((cs >> 2) & 3), val = b.slice(4, 4 + k), o = obj(); Object.assign(r, { family: familyOf(o, sub()), sub: "reply" });
-      r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: expedited reply, " + k + " byte" + (k > 1 ? "s" : "") + " valid.", "cmd"], ...objSegs(), [k, "Value = <b>" + u32(val.concat([0, 0, 0, 0]).slice(0, 4)) + "</b>" + (o === "2202" ? (sub() === 2 ? " points waiting in the buffer" : sub() === 3 ? " free slots of 256" : "") : "") + ".", "val"]]; if (k < 4) r.segs.push([4 - k, "Unused.", "raw"]); return r; }
-    if (cs === 0x60) { const ctx = down[n]; Object.assign(r, { family: ctx ? familyOf(ctx.obj, ctx.sub) : "SDO write", sub: "accepted" }); r.segs = [[1, "Command byte <b>60</b>: write accepted.", "cmd"], ...(b.length > 1 ? objSegs() : []), [4, "Unused.", "raw"]]; return r; }
-    if ((cs & 0xE0) === 0x20) { const t = (cs >> 4) & 1, ctx = down[n]; Object.assign(r, { family: ctx ? familyOf(ctx.obj, ctx.sub) : "SDO write", sub: "segment acknowledged" }); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: segment accepted (toggle bit " + t + ").", "cmd"], [7, "Unused.", "raw"]]; return r; }
-    if ((cs & 0xE0) === 0x00) { const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1; let ctx = up[n]; const off = ctx ? ctx.buf.length : 0;
-      const consistent = ctx && ((off / 7) & 1) === t && (last ? off + k === ctx.size : off + k < ctx.size);
-      if (!consistent) { ctx = null; delete up[n]; } else ctx.buf.push(...b.slice(1, 1 + k));
-      Object.assign(r, { family: ctx ? familyOf(ctx.obj, ctx.sub) : "Motor status", sub: ctx ? "segment " + (Math.floor(off / 7) + 1) + " of " + Math.ceil(ctx.size / 7) : (last ? "last segment" : "segment") + " (earlier frames not kept by the monitor)" });
+    if (cs === 0x41) { r.sub = "read reply"; r.segs = [[1, "Command byte <b>41</b>: segmented reply; the size follows.", "cmd"], ...objSegs(), [4, "Size = <b>" + sizeVal + " bytes</b>, coming in segments of up to 7.", "val"]]; return r; }
+    if ((cs & 0xE3) === 0x43) { const k = 4 - ((cs >> 2) & 3), val = b.slice(4, 4 + k); r.sub = "reply";
+      r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: expedited reply, " + k + " byte" + (k > 1 ? "s" : "") + " valid.", "cmd"], ...objSegs(), [k, "Value = <b>" + u32(val.concat([0, 0, 0, 0]).slice(0, 4)) + "</b>" + (obj === "2202" ? (sub === 2 ? " points waiting in the buffer" : sub === 3 ? " free slots of 256" : "") : "") + ".", "val"]]; if (k < 4) r.segs.push([4 - k, "Unused.", "raw"]); return r; }
+    if (cs === 0x60) { r.sub = "accepted"; r.segs = [[1, "Command byte <b>60</b>: write accepted.", "cmd"], ...(b.length > 1 ? objSegs() : []), [4, "Unused.", "raw"]]; return r; }
+    if ((cs & 0xE0) === 0x20) { r.sub = "segment acknowledged"; r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: segment accepted (toggle bit " + ((cs >> 4) & 1) + ").", "cmd"], [7, "Unused.", "raw"]]; return r; }
+    if ((cs & 0xE0) === 0x00) { const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1;
+      r.sub = ctx ? "segment " + (Math.floor(ctx.off / 7) + 1) + " of " + Math.ceil(ctx.size / 7) : (last ? "last segment" : "segment") + " (earlier frames not kept by the monitor)";
       r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: data segment, toggle bit " + t + ", " + k + " bytes valid" + (last ? ", the last segment" : ", more to follow") + ".", "cmd"]];
-      r.segs.push(...(ctx && ctx.obj === "2014" ? runsOver(STATUS, statusUnit, off, k, ctx.buf, () => true) : [[k, k + " data bytes of a status block whose earlier segments the monitor did not keep, so the fields cannot be named.", "val"]]));
-      if (k < 7) r.segs.push([7 - k, "Padding.", "raw"]); if (last) delete up[n]; return r; }
-    if (cs === 0x80) { Object.assign(r, { family: "SDO abort", from: NODE(n) }); r.segs = [[1, "Command byte <b>80</b>: abort.", "cmd"], ...objSegs(), [4, "Abort code.", "val"]]; return r; }
-    Object.assign(r, { family: "SDO reply", sub: "command " + hex2(cs) }); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>.", "cmd"], [b.length - 1, "Data.", "raw"]]; return r;
+      r.segs.push(...(ctx && ctx.obj === "2014" ? runsOver(STATUS, f => ["", "", "A", "°C"][f], ctx.off, k, bytesOf(ctx.buf), () => true) : [[k, k + " data bytes of a status block whose earlier segments the monitor did not keep, so the fields cannot be named.", "val"]]));
+      if (k < 7) r.segs.push([7 - k, "Padding.", "raw"]); return r; }
+    if (cs === 0x80) { r.sub = "abort"; r.segs = [[1, "Command byte <b>80</b>: abort.", "cmd"], ...objSegs(), [4, "Abort code.", "val"]]; return r; }
+    r.sub = "command " + hex2(cs); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>.", "cmd"], [b.length - 1, "Data.", "raw"]]; return r;
   }
 
-  function load(raw, sourceName) {
-    stopReplay();
-    IDS = raw.ids; T = raw.T; I = raw.I; D = raw.D; N = T.length; T0 = T[0]; startClock = raw.start_clock;
-    up = {}; down = {}; DEC = new Array(N);
-    for (let i = 0; i < N; i++) DEC[i] = decode(i);
-    byFamily = {}; DEC.forEach((d, i) => (byFamily[d.family] = byFamily[d.family] || []).push(i));
-    byId("source").textContent = sourceName + ": " + fmt(N, 0) + " frames, " + fmt((T[N - 1] - T0) / 1e6, 1) + " s, from " + startClock.substr(0, 12);
-    byId("seek").max = N - 1;
-    show(raw.start_index || 0);
+  // ---- loading, in chunks so the page stays responsive and shows progress
+  const progress = (msg) => { const el = byId("progress"); el.hidden = !msg; el.textContent = msg || ""; };
+  async function load(raw, sourceName) {
+    stopReplay(); loading = true; byId("frame").closest(".nav").classList.add("busy"); document.querySelector(".toolbar").classList.add("busy");
+    try {
+      IDS = raw.ids; T = raw.T; I = raw.I; D = raw.D; N = T.length; T0 = T[0]; startClock = raw.start_clock;
+      FAM = new Uint8Array(N); FROM = new Int8Array(N); TO = new Int8Array(N); CTX = {};
+      const up = {}, down = {}; const CH = 20000;
+      for (let i = 0; i < N; i++) { classify(i, up, down); if (i % CH === CH - 1) { progress("Decoding " + fmt(i + 1, 0) + " of " + fmt(N, 0) + " frames…"); await yieldToUI(); } }
+      byFamily = FAMILIES.map(() => []); for (let i = 0; i < N; i++) byFamily[FAM[i]].push(i);
+      byId("source").textContent = sourceName + ": " + fmt(N, 0) + " frames, " + fmt((T[N - 1] - T0) / 1e6, 1) + " s, from " + startClock.substr(0, 12);
+      byId("seek").max = N - 1;
+      show(raw.start_index || 0);
+    } finally { loading = false; progress(""); byId("frame").closest(".nav").classList.remove("busy"); document.querySelector(".toolbar").classList.remove("busy"); }
   }
 
   // ---- parse a capture file: the monitor's format, or plain candump with or without timestamps
-  function parseCapture(text) {
+  async function parseCapture(text) {
     const monitor = /^(?:\S+\t)?(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?)\t\(([\d.]+)\)\s+\S+\s+([0-9A-Fa-f]+)\s+\[(\d+)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)$/;
     const dumpT = /^\(([\d.]+)\)\s+\S+\s+([0-9A-Fa-f]+)\s*(?:#|\[(\d+)\]\s*)((?:[0-9A-Fa-f]{2}\s*)*)$/;
     const dumpPlain = /^\s*\S+\s+([0-9A-Fa-f]+)\s+\[(\d+)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)$/;
-    const frames = []; let last = 0, clock0 = null;
-    for (const line of text.split(/\r?\n/)) {
-      if (!line || line.startsWith("#")) continue;
-      let m;
-      if ((m = monitor.exec(line))) { last = Math.round(parseFloat(m[2]) * 1e6); frames.push([last, m[3].toUpperCase(), m[5].replace(/\s+/g, "").toUpperCase(), m[1].substr(11)]); }
-      else if ((m = dumpT.exec(line))) { last = Math.round(parseFloat(m[1]) * 1e6); frames.push([last, m[2].toUpperCase(), m[4].replace(/\s+/g, "").toUpperCase(), null]); }
-      else if ((m = dumpPlain.exec(line))) { last += 1000; frames.push([last, m[1].toUpperCase(), m[3].replace(/\s+/g, "").toUpperCase(), null]); }   // no timestamp: 1 ms after the previous frame
+    const Tt = [], Ii = [], Dd = [], ids = [], idx = {}; let last = 0, clock0 = null, clockAt = -1, n = 0;
+    const idOf = c => { c = c.toUpperCase(); if (!(c in idx)) { idx[c] = ids.length; ids.push(c); } return idx[c]; };
+    let pos = 0, lineNo = 0; const total = text.length;
+    while (pos < total) {
+      let nl = text.indexOf("\n", pos); if (nl < 0) nl = total;
+      const line = text.substring(pos, nl).replace(/\r$/, ""); pos = nl + 1; lineNo++;
+      if (line && line[0] !== "#") {
+        let m;
+        if ((m = monitor.exec(line))) { last = Math.round(parseFloat(m[2]) * 1e6); Tt.push(last); Ii.push(idOf(m[3])); Dd.push(m[5].replace(/\s+/g, "").toUpperCase()); if (clockAt < 0) { clockAt = n; clock0 = m[1].substr(11); } n++; }
+        else if ((m = dumpT.exec(line))) { last = Math.round(parseFloat(m[1]) * 1e6); Tt.push(last); Ii.push(idOf(m[2])); Dd.push(m[4].replace(/\s+/g, "").toUpperCase()); n++; }
+        else if ((m = dumpPlain.exec(line))) { last += 1000; Tt.push(last); Ii.push(idOf(m[1])); Dd.push(m[3].replace(/\s+/g, "").toUpperCase()); n++; }
+      }
+      if (lineNo % 50000 === 0) { progress("Reading " + Math.round(100 * pos / total) + "% (" + fmt(n, 0) + " frames so far)…"); await yieldToUI(); }
     }
-    if (!frames.length) throw new Error("No CAN frames found. Expected lines like: can0  581   [8]  00 00 F0 51 3D FF 1F 51, with or without a timestamp in front.");
-    frames.sort((a, b) => a[0] - b[0]);
-    const ids = [...new Set(frames.map(f => f[1]))].sort(), idx = Object.fromEntries(ids.map((c, i) => [c, i]));
-    const withClock = frames.find(f => f[3]);
-    if (withClock) { const off = withClock[0] - frames[0][0]; const [h, mi, sec] = withClock[3].split(":"); const us = ((+h) * 3600e6 + (+mi) * 60e6 + parseFloat(sec) * 1e6 - off + 86400e6) % 86400e6;
+    if (!n) throw new Error("No CAN frames found. Expected lines like: can0  581   [8]  00 00 F0 51 3D FF 1F 51, with or without a timestamp in front.");
+    // keep frame order by time (files are almost always already in order)
+    let sorted = true; for (let i = 1; i < n; i++) if (Tt[i] < Tt[i - 1]) { sorted = false; break; }
+    let order = null; if (!sorted) { order = Array.from({ length: n }, (_, i) => i).sort((a, b) => Tt[a] - Tt[b]); }
+    const pick = arr => order ? order.map(i => arr[i]) : arr;
+    const Ts = pick(Tt), Is = pick(Ii), Ds = pick(Dd);
+    if (clock0 !== null) { const at = order ? order.indexOf(clockAt) : clockAt; const off = Ts[at] - Ts[0]; const [h, mi, sec] = clock0.split(":"); const us = ((+h) * 3600e6 + (+mi) * 60e6 + parseFloat(sec) * 1e6 - off + 86400e6) % 86400e6;
       clock0 = String(Math.floor(us / 3600e6)).padStart(2, "0") + ":" + String(Math.floor(us % 3600e6 / 60e6)).padStart(2, "0") + ":" + ((us % 60e6) / 1e6).toFixed(6).padStart(9, "0"); }
-    else if (frames[0][0] > 1e15) { const d = new Date(frames[0][0] / 1000); clock0 = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + (d.getSeconds() + (frames[0][0] % 1e6) / 1e6).toFixed(6).padStart(9, "0"); }
+    else if (Ts[0] > 1e15) { const d = new Date(Ts[0] / 1000); clock0 = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + (d.getSeconds() + (Ts[0] % 1e6) / 1e6).toFixed(6).padStart(9, "0"); }
     else clock0 = "00:00:00.000000";
-    return { ids, start_clock: clock0, start_index: 0, T: frames.map(f => f[0]), I: frames.map(f => idx[f[1]]), D: frames.map(f => f[2]) };
+    // ids were numbered in order of first appearance; renumber them sorted so the page is deterministic
+    const sortedIds = ids.slice().sort(), remap = ids.map(c => sortedIds.indexOf(c));
+    return { ids: sortedIds, start_clock: clock0, start_index: 0, T: Ts, I: Is.map(i => remap[i]), D: Ds };
   }
-  byId("capture-file").addEventListener("change", e => {
-    const file = e.target.files[0]; if (!file) return;
+  byId("capture-file").addEventListener("change", async e => {
+    const file = e.target.files[0]; if (!file || loading) return;
     const err = byId("load-error"); err.hidden = true;
-    file.text().then(text => { try { load(parseCapture(text), file.name); } catch (ex) { err.textContent = ex.message; err.hidden = false; } })
-      .catch(ex => { err.textContent = "Could not read the file: " + ex.message; err.hidden = false; });
+    try { progress("Reading " + file.name + " (" + fmt(file.size / 1e6, 1) + " MB)…"); document.querySelector(".toolbar").classList.add("busy"); await yieldToUI();
+      const text = await file.text(); await load(await parseCapture(text), file.name); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; progress(""); document.querySelector(".toolbar").classList.remove("busy"); }
+    e.target.value = "";
   });
 
   // ---- rendering
@@ -373,7 +442,7 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
   const dtText = (from, to) => { const us = T[to] - T[from]; const a = Math.abs(us); const s = a < 1000 ? a + " µs" : a < 1e6 ? fmt(a / 1000, a < 10000 ? 2 : 1) + " ms" : fmt(a / 1e6, 2) + " s"; return (us < 0 ? "−" : "+") + s; };
   function show(i) {
     cur = Math.max(0, Math.min(N - 1, i));
-    const d = DEC[cur], id = IDS[I[cur]], bytes = D[cur].match(/../g) || [], dlc = bytes.length;
+    const d = describe(cur), id = IDS[I[cur]], bytes = D[cur].match(/../g) || [], dlc = bytes.length;
     byId("f-when").textContent = fmt((T[cur] - T0) / 1000, 3) + " ms from start · " + clock(T[cur] - T0) + " · frame " + fmt(cur + 1, 0) + " of " + fmt(N, 0);
     byId("f-summary").innerHTML = esc(d.family) + (d.sub ? ' <span class="dim">' + esc(d.sub) + "</span>" : "") + ' <span class="dim">·</span> ' + dlc + (dlc === 1 ? " byte" : " bytes") + ' <span class="dim">·</span> ' + esc(d.from) + ' <span class="dim">→</span> ' + esc(d.to);
     let raw = tok("can0", "iface", "The CAN interface the monitor listened on.") + "  " + tok(id, "id", d.kind + " From " + d.from + " to " + d.to + ".") + "   " + tok("[" + dlc + "]", "dlc", dlc + " data byte" + (dlc === 1 ? "" : "s") + " follow. A CAN frame carries at most 8.") + "  ";
@@ -383,7 +452,7 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
     byId("f-raw").innerHTML = raw + parts.join("  ");
     const pf = byId("prev-frame"), nf = byId("next-frame"); pf.disabled = cur === 0; nf.disabled = cur === N - 1;
     byId("prev-frame-dt").textContent = cur > 0 ? dtText(cur, cur - 1) : "at the start"; byId("next-frame-dt").textContent = cur < N - 1 ? dtText(cur, cur + 1) : "at the end";
-    const list = byFamily[d.family]; let p = -1, q = -1;
+    const list = byFamily[FAM[cur]]; let p = -1, q = -1;
     let lo = 0, hi = list.length; while (lo < hi) { const m = (lo + hi) >> 1; if (list[m] < cur) lo = m + 1; else hi = m; }
     if (lo > 0) p = list[lo - 1]; if (lo + 1 < list.length) q = list[lo + 1];
     byId("prev-type-label").textContent = "◀ Go to previous " + d.family; byId("next-type-label").textContent = "Go to next " + d.family + " ▶";
@@ -397,17 +466,18 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
   byId("next-frame").addEventListener("click", () => { stopReplay(); show(cur + 1); });
   byId("prev-type").addEventListener("click", e => { stopReplay(); const t = +e.currentTarget.dataset.target; if (t >= 0) show(t); });
   byId("next-type").addEventListener("click", e => { stopReplay(); const t = +e.currentTarget.dataset.target; if (t >= 0) show(t); });
-  document.addEventListener("keydown", e => { if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  document.addEventListener("keydown", e => { if (loading || e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
     if (e.key === "ArrowRight") { e.preventDefault(); stopReplay(); e.shiftKey ? byId("next-type").click() : show(cur + 1); }
     if (e.key === "ArrowLeft") { e.preventDefault(); stopReplay(); e.shiftKey ? byId("prev-type").click() : show(cur - 1); }
     if (e.key === " ") { e.preventDefault(); byId("play").click(); } });
   let seeking = false;
   byId("seek").addEventListener("input", e => { seeking = true; stopReplay(); show(+e.target.value); seeking = false; });
 
-  // ---- replay: walk the frames in order, paced by real time (slowed) or by a fixed rate
+  // ---- replay
   let timer = 0;
   function stopReplay() { if (timer) { clearTimeout(timer); timer = 0; } byId("play").textContent = "Replay ▶"; }
   function startReplay() {
+    if (loading) return;
     if (cur >= N - 1) show(0);
     byId("play").textContent = "Pause ❚❚";
     const tick = () => {
@@ -415,7 +485,7 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
       show(cur + 1);
       const [mode, val] = byId("speed").value.split(":"); const f = parseFloat(val);
       let wait = mode === "fps" ? 1000 / f : cur < N - 1 ? (T[cur + 1] - T[cur]) / 1000 / f : 0;
-      wait = Math.max(16, Math.min(wait, 5000));   // never faster than a screen refresh, never a gap over 5 s
+      wait = Math.max(16, Math.min(wait, 5000));
       timer = setTimeout(tick, wait);
     };
     timer = setTimeout(tick, 0);
@@ -428,25 +498,23 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
   const svg = document.querySelector("figure svg"), layer = byId("messages");
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let anim = 0;
-  function nodeOf(name) { const m = /drive (\d)/.exec(name); return m ? +m[1] : name.startsWith("Rozum") ? 0 : -1; }
   function animate(d) {
     document.querySelectorAll("figure svg g.sender, figure svg g.receiver").forEach(g => g.classList.remove("sender", "receiver"));
     svg.classList.remove("bus-error"); layer.innerHTML = ""; cancelAnimationFrame(anim);
     if (d.family === "Error frame") { svg.classList.add("bus-error"); return; }
-    const from = nodeOf(d.from), to = nodeOf(d.to);
+    const from = FROM[cur], to = TO[cur];
     const mark = (n, cls) => { const g = byId(n === 0 ? "rozum-board" : "drive-" + n); if (g) g.classList.add(cls); };
     if (from >= 0) mark(from, "sender");
     if (from === 0) byId("agx").classList.add("sender");
     if (to === 0) { mark(0, "receiver"); byId("agx").classList.add("receiver"); }
     else if (to > 0) mark(to, "receiver");
     else Object.keys(DRIVE_X).forEach(n => mark(+n, "receiver"));
-    const busEnd = to > 0 ? DRIVE_X[to] : DRIVE_X[6];
+    const busEnd = to > 0 && DRIVE_X[to] ? DRIVE_X[to] : DRIVE_X[6];
     let legs;
     if (from === 0) legs = [["eth", ETH_X0, ETH_X1], ["bus", BUS_X0, busEnd]];
     else if (from > 0 && DRIVE_X[from]) legs = [["bus", DRIVE_X[from], BUS_X0], ["eth", ETH_X1, ETH_X0]];
     else return;
     if (reduceMotion) return;
-    // dots move faster when the replay is running fast, so each frame's journey fits before the next
     const [mode, val] = byId("speed").value.split(":");
     const speed = timer && mode === "fps" ? Math.max(900, 1100 * parseFloat(val)) : 900;
     const mk = y => { const c = document.createElementNS("http://www.w3.org/2000/svg", "circle"); c.setAttribute("r", 6); c.setAttribute("cy", y); c.setAttribute("class", "dot" + (from > 0 ? " back" : "")); layer.appendChild(c); return c; };
