@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PikPak CAN Bus</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f4; --panel: #ffffff; --ink: #1c2429; --muted: #5c6870; --line: #cfd5cc;
+    --enclosure: #7c8a82; --canh: #c98a00; --canl: #2c7a5b; --eth: #2e5eaa; --estop: #c43c2e; --motor: #e9ede7;
+    --font: "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151a1d; --panel: #1d2429; --ink: #e6ebe8; --muted: #a3aeb3; --line: #333d44;
+            --enclosure: #8a9891; --canh: #e8b04a; --canl: #5fc2a0; --eth: #7fa6e8; --estop: #e5675a; --motor: #2a333a; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.45; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 20px 20px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+  svg { display: block; width: 100%; height: auto; }
+  figcaption { color: var(--muted); font-size: 13px; padding: 10px 4px 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+  .legend span::before { content: ""; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--c); margin-right: 8px; vertical-align: middle; }
+  /* SVG classes */
+  .box { fill: var(--panel); stroke: var(--ink); stroke-width: 1.6; }
+  .enclosure { fill: none; stroke: var(--enclosure); stroke-width: 1.4; stroke-dasharray: 7 5; }
+  .label { font-family: var(--font); fill: var(--ink); font-size: 14px; }
+  .label.small { font-size: 12px; fill: var(--muted); }
+  .label.title { font-size: 15px; font-weight: 600; }
+  .label.encl { font-size: 13px; font-weight: 600; fill: var(--enclosure); letter-spacing: .06em; }
+  .canh { stroke: var(--canh); stroke-width: 3; fill: none; }
+  .canl { stroke: var(--canl); stroke-width: 3; fill: none; }
+  .eth { stroke: var(--eth); stroke-width: 3; fill: none; }
+  .stub { stroke: var(--ink); stroke-width: 1.6; }
+  .motor { fill: var(--motor); stroke: var(--ink); stroke-width: 1.6; }
+  .estop-ring { fill: #f2d24b; stroke: var(--ink); stroke-width: 1.4; }
+  .estop-btn { fill: var(--estop); stroke: #7a1f16; stroke-width: 1.4; }
+  .route { fill: none; stroke: none; }  /* invisible paths the messages will travel along */
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PikPak CAN bus</h1>
+  <p class="sub">The devices between the RCU and the motors, and the cables the CAN messages travel over. Drawn for PikPak 007: five Rozum drive boards on CANopen nodes 1, 2, 3, 5 and 6.</p>
+
+  <figure>
+    <svg viewBox="0 0 1400 520" role="img" aria-label="Left to right: the RCU containing the AGX computer and, over an Ethernet link, the Rozum board; the E-Stop sits outside the RCU below the AGX; a CAN high and CAN low pair into the robot, and inside the robot five Rozum drive boards in series, nodes 1, 2, 3, 5 and 6, each with a motor beneath it.">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--eth)"/>
+        </marker>
+      </defs>
+
+      <!-- Routes for animated messages (invisible). ids are stable: use them later. -->
+      <path id="route-eth" class="route" d="M240,170 L340,170"/>
+      <path id="route-bus" class="route" d="M500,170 L1275,170"/>
+
+      <!-- RCU enclosure -->
+      <rect class="enclosure" x="30" y="80" width="500" height="160" rx="8"/>
+      <text class="label encl" x="46" y="104">RCU</text>
+      <g id="agx">
+        <rect class="box" x="60" y="130" width="180" height="80" rx="6"/>
+        <text class="label title" x="150" y="166" text-anchor="middle">AGX computer</text>
+        <text class="label small" x="150" y="188" text-anchor="middle">runs the actuator controller</text>
+      </g>
+      <!-- E-Stop below the AGX -->
+      <line class="stub" x1="150" y1="210" x2="150" y2="306"/>
+      <g id="estop">
+        <circle class="estop-ring" cx="150" cy="340" r="34"/>
+        <circle class="estop-btn" cx="150" cy="340" r="22"/>
+        <text class="label title" x="150" y="400" text-anchor="middle">E-Stop</text>
+      </g>
+
+      <!-- Ethernet link -->
+      <line class="eth" x1="240" y1="170" x2="340" y2="170" marker-end="url(#arrow)"/>
+      <text class="label small" x="290" y="150" text-anchor="middle">Ethernet</text>
+      <text class="label small" x="290" y="200" text-anchor="middle">CAN messages</text>
+
+      <!-- Rozum board -->
+      <g id="rozum-board">
+        <rect class="box" x="340" y="130" width="160" height="80" rx="6"/>
+        <text class="label title" x="420" y="166" text-anchor="middle">Rozum board</text>
+        <text class="label small" x="420" y="188" text-anchor="middle">CAN master, node 127</text>
+      </g>
+
+      <!-- CAN pair from the Rozum board into the robot -->
+      <line class="canh" x1="500" y1="163" x2="620" y2="163"/>
+      <line class="canl" x1="500" y1="177" x2="620" y2="177"/>
+      <text class="label small" x="560" y="150" text-anchor="middle">CAN high</text>
+      <text class="label small" x="560" y="200" text-anchor="middle">CAN low</text>
+      <text class="label small" x="560" y="220" text-anchor="middle">1 Mbit/s</text>
+
+      <!-- Robot enclosure -->
+      <rect class="enclosure" x="580" y="80" width="790" height="400" rx="8"/>
+      <text class="label encl" x="596" y="104">ROBOT</text>
+
+      <!-- CAN pair between boards, in series -->
+      <line class="canh" x1="730" y1="163" x2="770" y2="163"/>
+      <line class="canl" x1="730" y1="177" x2="770" y2="177"/>
+      <line class="canh" x1="880" y1="163" x2="920" y2="163"/>
+      <line class="canl" x1="880" y1="177" x2="920" y2="177"/>
+      <line class="canh" x1="1030" y1="163" x2="1070" y2="163"/>
+      <line class="canl" x1="1030" y1="177" x2="1070" y2="177"/>
+      <line class="canh" x1="1180" y1="163" x2="1220" y2="163"/>
+      <line class="canl" x1="1180" y1="177" x2="1220" y2="177"/>
+
+      <!-- Drive boards -->
+      <g id="drive-1">
+        <rect class="box" x="620" y="130" width="110" height="80" rx="6"/>
+        <text class="label title" x="675" y="160" text-anchor="middle">Rozum</text>
+        <text class="label" x="675" y="178" text-anchor="middle">drive board</text>
+        <text class="label small" x="675" y="198" text-anchor="middle">node 1</text>
+      </g>
+      <g id="drive-2">
+        <rect class="box" x="770" y="130" width="110" height="80" rx="6"/>
+        <text class="label title" x="825" y="160" text-anchor="middle">Rozum</text>
+        <text class="label" x="825" y="178" text-anchor="middle">drive board</text>
+        <text class="label small" x="825" y="198" text-anchor="middle">node 2</text>
+      </g>
+      <g id="drive-3">
+        <rect class="box" x="920" y="130" width="110" height="80" rx="6"/>
+        <text class="label title" x="975" y="160" text-anchor="middle">Rozum</text>
+        <text class="label" x="975" y="178" text-anchor="middle">drive board</text>
+        <text class="label small" x="975" y="198" text-anchor="middle">node 3</text>
+      </g>
+      <g id="drive-5">
+        <rect class="box" x="1070" y="130" width="110" height="80" rx="6"/>
+        <text class="label title" x="1125" y="160" text-anchor="middle">Rozum</text>
+        <text class="label" x="1125" y="178" text-anchor="middle">drive board</text>
+        <text class="label small" x="1125" y="198" text-anchor="middle">node 5</text>
+      </g>
+      <g id="drive-6">
+        <rect class="box" x="1220" y="130" width="110" height="80" rx="6"/>
+        <text class="label title" x="1275" y="160" text-anchor="middle">Rozum</text>
+        <text class="label" x="1275" y="178" text-anchor="middle">drive board</text>
+        <text class="label small" x="1275" y="198" text-anchor="middle">node 6</text>
+      </g>
+
+      <!-- Motors beneath each board -->
+      <line class="stub" x1="675" y1="210" x2="675" y2="270"/>
+      <line class="stub" x1="825" y1="210" x2="825" y2="270"/>
+      <line class="stub" x1="975" y1="210" x2="975" y2="270"/>
+      <line class="stub" x1="1125" y1="210" x2="1125" y2="270"/>
+      <line class="stub" x1="1275" y1="210" x2="1275" y2="270"/>
+      <g id="motor-1"><circle class="motor" cx="675" cy="302" r="32"/><text class="label title" x="675" y="308" text-anchor="middle">M1</text><text class="label small" x="675" y="358" text-anchor="middle">Motor 1</text></g>
+      <g id="motor-2"><circle class="motor" cx="825" cy="302" r="32"/><text class="label title" x="825" y="308" text-anchor="middle">M2</text><text class="label small" x="825" y="358" text-anchor="middle">Motor 2</text></g>
+      <g id="motor-3"><circle class="motor" cx="975" cy="302" r="32"/><text class="label title" x="975" y="308" text-anchor="middle">M3</text><text class="label small" x="975" y="358" text-anchor="middle">Motor 3</text></g>
+      <g id="motor-5"><circle class="motor" cx="1125" cy="302" r="32"/><text class="label title" x="1125" y="308" text-anchor="middle">M5</text><text class="label small" x="1125" y="358" text-anchor="middle">Motor 5</text></g>
+      <g id="motor-6"><circle class="motor" cx="1275" cy="302" r="32"/><text class="label title" x="1275" y="308" text-anchor="middle">M6</text><text class="label small" x="1275" y="358" text-anchor="middle">Motor 6</text></g>
+
+      <!-- Messages will be drawn here -->
+      <g id="messages"></g>
+    </svg>
+    <figcaption>Inside the RCU the AGX computer sends CAN messages over Ethernet to the Rozum board, which puts them on the CAN high / CAN low pair. The pair runs into the robot and through the five Rozum drive boards in series; each board drives the motor beneath it. The E-Stop is outside the RCU, wired to the AGX.</figcaption>
+  </figure>
+
+  <div class="legend">
+    <span style="--c: var(--eth)">Ethernet</span>
+    <span style="--c: var(--canh)">CAN high</span>
+    <span style="--c: var(--canl)">CAN low</span>
+  </div>
+</div>
+</body>
+</html>
