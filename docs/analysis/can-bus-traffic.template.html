@@ -42,7 +42,7 @@
   /* Current CAN frame panel */
   :root { --t-iface: #8a959b; --t-id: #2e5eaa; --t-dlc: #c98a00; --t-cmd: #6e4db8; --t-obj: #2c8c7c; --t-val: #2e8b3a; --t-raw: #9aa3a0; }
   @media (prefers-color-scheme: dark) { :root { --t-id: #7fa6e8; --t-dlc: #e8b04a; --t-cmd: #a78bea; --t-obj: #5fc2b0; --t-val: #6fcf7a; --t-raw: #6f7b82; } }
-  .frame { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+  .frame { margin-top: 0; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
   .frame .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 10px; }
   .frame h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
   .frame select { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; margin-left: auto; }
@@ -54,7 +54,7 @@
   .tip { position: fixed; z-index: 10; max-width: 340px; background: var(--ink); color: var(--bg); font-family: var(--font); font-size: 13px; line-height: 1.4; padding: 8px 10px; border-radius: 5px; pointer-events: none; white-space: normal; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
   .tip b { color: inherit; }
   .tip[hidden] { display: none; }
-  .nav { display: grid; grid-template-columns: 200px 1fr 200px; gap: 12px; align-items: center; }
+  .nav { display: grid; grid-template-columns: 190px 1fr 190px; gap: 12px; align-items: center; margin-top: 14px; }
   @media (max-width: 760px) { .nav { grid-template-columns: 1fr; } }
   .nav .side { display: flex; flex-direction: column; gap: 6px; }
   .nav button { font: inherit; font-size: 13px; text-align: left; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: pointer; line-height: 1.3; }
@@ -167,25 +167,25 @@
     <span style="--c: var(--canl)">CAN low</span>
   </div>
 
-  <section class="frame" id="frame">
-    <div class="head">
-      <h2>Current CAN frame</h2>
-      <span class="when" id="f-when"></span>
-      <span class="hint">← → step one frame · Shift ← → step to the same type</span>
+  <div class="nav">
+    <div class="side left">
+      <button id="prev-frame"><b>◀ Previous frame</b><small id="prev-frame-dt"></small></button>
+      <button id="prev-type"><b id="prev-type-label">◀ Go to previous</b><small id="prev-type-dt"></small></button>
     </div>
-    <p class="summary" id="f-summary"></p>
-    <div class="nav">
-      <div class="side left">
-        <button id="prev-frame"><b>◀ Previous frame</b><small id="prev-frame-dt"></small></button>
-        <button id="prev-type"><b id="prev-type-label">◀ Go to previous</b><small id="prev-type-dt"></small></button>
+    <section class="frame" id="frame">
+      <div class="head">
+        <h2>Current CAN frame</h2>
+        <span class="when" id="f-when"></span>
+        <span class="hint">← → step one frame · Shift ← → step to the same type</span>
       </div>
+      <p class="summary" id="f-summary"></p>
       <div class="raw" id="f-raw"></div>
-      <div class="side right">
-        <button id="next-frame"><b>Next frame ▶</b><small id="next-frame-dt"></small></button>
-        <button id="next-type"><b id="next-type-label">Go to next ▶</b><small id="next-type-dt"></small></button>
-      </div>
+    </section>
+    <div class="side right">
+      <button id="next-frame"><b>Next frame ▶</b><small id="next-frame-dt"></small></button>
+      <button id="next-type"><b id="next-type-label">Go to next ▶</b><small id="next-type-dt"></small></button>
     </div>
-  </section>
+  </div>
   <div class="tip" id="tip" hidden></div>
 </div>
 <script>
