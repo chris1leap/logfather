@@ -110,6 +110,8 @@
   .hb li button small { color: var(--muted); }
   .seek { position: relative; }
   .seek .marks { position: absolute; left: 0; right: 0; top: -6px; height: 5px; pointer-events: none; }
+  .seek .cursor { position: absolute; top: -26px; transform: translateX(-50%); font-family: Consolas, "Courier New", monospace; font-size: 12px; font-weight: 600; color: var(--eth); background: var(--panel); padding: 0 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
+  .seek .cursor::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 0; height: 0; margin-left: -4px; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--eth); }
   .seek .marks i { position: absolute; top: 0; width: 2px; height: 5px; background: var(--estop); }
   /* sender / receiver highlight and the moving dots */
   :root { --send: #2e5eaa; --recv: #2e8b3a; --send-soft: rgba(46,94,170,.16); --recv-soft: rgba(46,139,58,.16); }
@@ -244,7 +246,7 @@
       </select>
     </label>
     <label>Go to time <input type="text" id="goto" placeholder="19:05:38.000" size="12" spellcheck="false" aria-label="Wall-clock time to jump to"><button id="goto-btn">Go</button></label>
-    <div class="seek"><span class="clock" id="seek-start"></span><span style="flex:1;position:relative;display:flex"><span class="marks" id="marks"></span><input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Position in the capture" style="width:100%"></span><span class="clock" id="seek-end"></span><span id="seek-label">frame 1</span></div>
+    <div class="seek"><span class="clock" id="seek-start"></span><span style="flex:1;position:relative;display:flex;margin-top:22px"><span class="cursor" id="seek-time"></span><span class="marks" id="marks"></span><input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Position in the capture" style="width:100%"></span><span class="clock" id="seek-end"></span><span id="seek-label">frame 1</span></div>
     <span class="err" id="load-error" hidden></span>
     <span class="source" id="progress" hidden></span>
   </div>
@@ -580,6 +582,7 @@
     byId("prev-type-dt").textContent = p >= 0 ? dtText(cur, p) : "none earlier"; byId("next-type-dt").textContent = q >= 0 ? dtText(cur, q) : "none later";
     byId("prev-type").dataset.target = p; byId("next-type").dataset.target = q;
     if (!seeking) byId("seek").value = cur; byId("seek-label").textContent = "frame " + fmt(cur + 1, 0);
+    const ct = byId("seek-time"); ct.textContent = clock(T[cur] - T0); ct.style.left = "clamp(34px, " + (N > 1 ? 100 * cur / (N - 1) : 0).toFixed(3) + "%, calc(100% - 34px))";
     traffic();
     animate(d);
   }
