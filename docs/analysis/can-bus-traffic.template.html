@@ -65,6 +65,17 @@
   .nav .side.right button { text-align: right; }
   .when { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .frame .head .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  /* sender / receiver highlight and the moving dots */
+  :root { --send: #2e5eaa; --recv: #2e8b3a; --send-soft: rgba(46,94,170,.16); --recv-soft: rgba(46,139,58,.16); }
+  @media (prefers-color-scheme: dark) { :root { --send: #7fa6e8; --recv: #6fcf7a; --send-soft: rgba(127,166,232,.22); --recv-soft: rgba(111,207,122,.22); } }
+  g.sender .box, g.sender .motor, g.sender .estop-ring { stroke: var(--send); stroke-width: 3.5; fill: var(--send-soft); }
+  g.receiver .box, g.receiver .motor { stroke: var(--recv); stroke-width: 3.5; fill: var(--recv-soft); }
+  g.sender text.title, g.receiver text.title { font-weight: 700; }
+  .dot { fill: var(--send); stroke: var(--panel); stroke-width: 1.5; }
+  .dot.back { fill: var(--recv); }
+  .bus-error line.canh, .bus-error line.canl { stroke: var(--estop); }
+  .legend .send::before { border-top-color: var(--send); border-top-width: 5px; }
+  .legend .recv::before { border-top-color: var(--recv); border-top-width: 5px; }
   /* hover detail on diagram parts */
   svg [data-tip] { cursor: help; }
 </style>
@@ -165,6 +176,8 @@
     <span style="--c: var(--eth)">Ethernet</span>
     <span style="--c: var(--canh)">CAN high</span>
     <span style="--c: var(--canl)">CAN low</span>
+    <span class="send" style="--c: var(--send)">sender of the current frame</span>
+    <span class="recv" style="--c: var(--recv)">receiver</span>
   </div>
 
   <div class="nav">
@@ -312,6 +325,50 @@
     byId("prev-type").disabled = p < 0; byId("next-type").disabled = q < 0;
     byId("prev-type-dt").textContent = p >= 0 ? dtText(cur, p) : "none earlier"; byId("next-type-dt").textContent = q >= 0 ? dtText(cur, q) : "none later";
     byId("prev-type").dataset.target = p; byId("next-type").dataset.target = q;
+    animate(d);
+  }
+
+  // ---- sender / receiver highlight and moving dots along the cables
+  const DRIVE_X = { 1: 675, 2: 825, 3: 975, 5: 1125, 6: 1275 };   // centre x of each drive board in the drawing
+  const BUS_X0 = 500, ETH_X0 = 240, ETH_X1 = 340, Y = 80, Y_H = 73, Y_L = 87;
+  const svg = document.querySelector("figure svg"), layer = byId("messages");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let anim = 0;
+  function nodeOf(name) { const m = /drive (\d)/.exec(name); return m ? +m[1] : name.startsWith("Rozum") ? 0 : -1; }
+  function animate(d) {
+    document.querySelectorAll("figure svg g.sender, figure svg g.receiver").forEach(g => g.classList.remove("sender", "receiver"));
+    svg.classList.remove("bus-error"); layer.innerHTML = ""; cancelAnimationFrame(anim);
+    if (d.family === "Error frame") { svg.classList.add("bus-error"); return; }
+    const from = nodeOf(d.from), to = nodeOf(d.to);
+    const mark = (n, cls) => { const g = byId(n === 0 ? "rozum-board" : "drive-" + n); if (g) g.classList.add(cls); };
+    if (from >= 0) mark(from, "sender");
+    if (from === 0) byId("agx").classList.add("sender");
+    if (to === 0) { mark(0, "receiver"); byId("agx").classList.add("receiver"); }
+    else if (to > 0) mark(to, "receiver");
+    else Object.keys(DRIVE_X).forEach(n => mark(+n, "receiver"));       // broadcast
+    // route: a list of [x0, x1] legs on the ethernet and the bus, in travel order
+    const busEnd = to > 0 ? DRIVE_X[to] : DRIVE_X[6];
+    let legs;
+    if (from === 0) legs = [["eth", ETH_X0, ETH_X1], ["bus", BUS_X0, busEnd]];               // master to drives
+    else if (from > 0) legs = [["bus", DRIVE_X[from], BUS_X0], ["eth", ETH_X1, ETH_X0]];      // drive to master
+    else return;
+    if (reduceMotion) return;
+    const total = legs.reduce((a, l) => a + Math.abs(l[2] - l[1]), 0), speed = 900;         // drawing units per second
+    const mk = (cls, y) => { const c = document.createElementNS("http://www.w3.org/2000/svg", "circle"); c.setAttribute("r", 6); c.setAttribute("cy", y); c.setAttribute("class", "dot" + (from > 0 ? " back" : "")); layer.appendChild(c); return c; };
+    const dots = { eth: [mk("", Y)], bus: [mk("", Y_H), mk("", Y_L)] };
+    const t0 = performance.now();
+    const step = now => {
+      let dist = (now - t0) / 1000 * speed, done = true;
+      for (const [kind, x0, x1] of legs) {
+        const len = Math.abs(x1 - x0);
+        const on = dist >= 0 && dist <= len; const x = x0 + Math.sign(x1 - x0) * Math.max(0, Math.min(len, dist));
+        dots[kind].forEach(c => { c.setAttribute("cx", x); c.style.visibility = on ? "visible" : "hidden"; });
+        if (dist <= len) done = false;
+        dist -= len;
+      }
+      if (!done) anim = requestAnimationFrame(step); else layer.innerHTML = "";
+    };
+    anim = requestAnimationFrame(step);
   }
   byId("prev-frame").addEventListener("click", () => show(cur - 1));
   byId("next-frame").addEventListener("click", () => show(cur + 1));
