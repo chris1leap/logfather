@@ -99,7 +99,7 @@
   .hb { margin-top: 14px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
   .hb .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
   .hb h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
-  .hb input[type=number] { font: inherit; font-size: 13px; width: 4.5ch; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
+  .hb input[type=number] { font: inherit; font-size: 13px; width: 8ch; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
   .hb .count { font-weight: 600; }
   .hb .source { color: var(--muted); }
   .hb .note { color: var(--muted); flex-basis: 100%; }
@@ -275,11 +275,11 @@
   </section>
   <section class="hb">
     <div class="head">
-      <h2>Missed heartbeats</h2>
+      <h2>Master heartbeat gaps</h2>
       <span class="source" id="hb-source"></span>
-      <label>at least <input type="number" id="hb-n" min="1" max="50" value="4"> in a row</label>
+      <label>longer than <input type="number" id="hb-ms" min="1" max="600000" step="50" value="1000"> ms</label>
       <span class="count" id="hb-count"></span>
-      <span class="note"><span id="hb-periods"></span> A gap is counted from the last heartbeat seen to the next, in multiples of that spacing; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
+      <span class="note"><span id="hb-periods"></span> Only the master's heartbeat on 700 is checked. A gap is the time from one heartbeat to the next; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
     </div>
     <ol id="hb-list"></ol>
   </section>
@@ -537,23 +537,24 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
       for (let k = 1; k < list.length; k++) { const g = T[list[k]] - T[list[k - 1]]; if (g > 0 && g < 2e6) iv.push(g); }
       // the 10th percentile, not the median: dropped frames stretch most intervals but the shortest ones are the true spacing
       iv.sort((a, b) => a - b); HB_PERIOD[key] = iv.length ? iv[Math.floor(iv.length * 0.1)] : (+key === 0x700 ? 250000 : 900000); }
-    const parts = Object.keys(HB_PERIOD).sort().map(k => (+k === 0x700 ? "master" : "drive " + (+k - 0x700)) + " " + fmt(HB_PERIOD[k] / 1000, HB_PERIOD[k] < 10000 ? 1 : 0) + " ms");
-    byId("hb-periods").textContent = parts.length ? "Measured heartbeat spacing in this file: " + parts.join(", ") + "." : "";
+    const P = HB_PERIOD[0x700];
+    byId("hb-periods").textContent = P ? "Master heartbeat spacing measured in this file: " + fmt(P / 1000, P < 10000 ? 1 : 0) + " ms." : "";
   }
   let gaps = [];
   function findHeartbeatGaps() {
-    const need = Math.max(1, parseInt(byId("hb-n").value, 10) || 4); gaps = [];
-    for (const key in hbIndex) { const v = +key, P = HB_PERIOD[key] || 250000, list = hbIndex[key];
-      for (let k = 1; k < list.length; k++) { const gap = T[list[k]] - T[list[k - 1]]; const missed = Math.round(gap / P) - 1;
-        if (missed >= need) gaps.push({ i: list[k - 1], j: list[k], node: v - 0x700, gap, missed }); } }
-    gaps.sort((a, b) => a.i - b.i);
+    const limit = Math.max(1, parseFloat(byId("hb-ms").value) || 1000) * 1000; gaps = [];
+    const list = hbIndex[0x700] || [], P = HB_PERIOD[0x700] || 250000;
+    for (let k = 1; k < list.length; k++) { const gap = T[list[k]] - T[list[k - 1]];
+      if (gap > limit) gaps.push({ i: list[k - 1], j: list[k], node: 0, gap, missed: Math.max(0, Math.round(gap / P) - 1) }); }
+    if (!list.length) { byId("hb-count").textContent = "no master heartbeat (700) in this file"; byId("hb-list").innerHTML = ""; byId("marks").innerHTML = ""; return; }
     byId("hb-count").textContent = gaps.length ? fmt(gaps.length, 0) + " gap" + (gaps.length > 1 ? "s" : "") : "none";
     const seen = i => { if (!TOTALS) return ""; const key = clock(T[i] - T0).substr(0, 8); return key in TOTALS ? ", monitor saw " + fmt(TOTALS[key], 0) + " frames/s there" : ""; };
-    byId("hb-list").innerHTML = gaps.slice(0, 300).map((g, k) => '<li><button data-k="' + k + '"><b>' + (g.node ? "drive " + g.node : "master") + "</b> missed " + g.missed + " · " + clock(T[g.i] - T0) + " → " + clock(T[g.j] - T0) + " <small>(" + fmt(g.gap / 1e6, 2) + " s" + seen(g.i) + ")</small></button></li>").join("") + (gaps.length > 300 ? "<li><small>… " + fmt(gaps.length - 300, 0) + " more</small></li>" : "");
+    byId("hb-list").innerHTML = gaps.slice(0, 300).map((g, k) => '<li><button data-k="' + k + '"><b>' + fmt(g.gap / 1000, g.gap < 1e5 ? 1 : 0) + " ms</b> · " + clock(T[g.i] - T0) + " → " + clock(T[g.j] - T0) + " <small>(about " + g.missed + " heartbeat" + (g.missed === 1 ? "" : "s") + " missing" + seen(g.i) + ")</small></button></li>").join("") + (gaps.length > 300 ? "<li><small>… " + fmt(gaps.length - 300, 0) + " more</small></li>" : "");
     const span = T[N - 1] - T0 || 1;
     byId("marks").innerHTML = gaps.slice(0, 2000).map(g => '<i style="left:' + (100 * (T[g.i] - T0) / span).toFixed(2) + '%"></i>').join("");
   }
-  byId("hb-n").addEventListener("change", () => { if (!loading) findHeartbeatGaps(); });
+  byId("hb-ms").addEventListener("change", () => { if (!loading) findHeartbeatGaps(); });
+  byId("hb-ms").addEventListener("keydown", e => { if (e.key === "Enter" && !loading) findHeartbeatGaps(); });
   byId("hb-list").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { stopReplay(); show(gaps[+b.dataset.k].i); } });
 
   // ---- rendering
