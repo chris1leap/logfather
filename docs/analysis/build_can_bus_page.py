@@ -18,8 +18,15 @@ w1 = sys.argv[3] if len(sys.argv) > 3 else None
 focus = sys.argv[4] if len(sys.argv) > 4 else None
 rx = re.compile(r"^(\S+)\t(\S+ \S+)\t\(([\d.]+)\)\s+(\S+)\s+(\S+)\s+\[(\d+)\]\s*(.*)$")
 frames = []
+totals = {}
+crx = re.compile(r"^# (\d\d:\d\d:\d\d) total: (\d+)")
 with open(src, encoding="utf-8", errors="replace") as f:
     for line in f:
+        c = crx.match(line)
+        if c:
+            if (not w0 or c.group(1) >= w0[:8]) and (not w1 or c.group(1) <= w1[:8]):
+                totals[c.group(1)] = int(c.group(2))
+            continue
         m = rx.match(line.rstrip("\n"))
         if not m:
             continue
@@ -37,7 +44,8 @@ if focus:
             start_index = i
             break
 raw = {"ids": ids, "start_clock": frames[0][1], "start_index": start_index,
-       "T": [x[0] for x in frames], "I": [idx[x[2]] for x in frames], "D": [x[3] for x in frames]}
+       "T": [x[0] for x in frames], "I": [idx[x[2]] for x in frames], "D": [x[3] for x in frames],
+       "totals": totals or None}
 tpl = (HERE / "can-bus-traffic.template.html").read_text(encoding="utf-8")
 page = tpl.replace("/*DATA*/", "const RAW = " + json.dumps(raw, separators=(",", ":")) + ";", 1)
 out = HERE / "can-bus-traffic.html"

@@ -77,10 +77,24 @@
   .toolbar .source { color: var(--muted); }
   .toolbar .seek { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; }
   .toolbar input[type=range] { flex: 1; accent-color: var(--eth); margin: 0; }
+  .toolbar input[type=text] { font: inherit; font-family: Consolas, "Courier New", monospace; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); width: 11ch; }
+  .toolbar input[type=text].bad { border-color: var(--estop); }
+  .toolbar .clock { font-family: Consolas, "Courier New", monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .toolbar #seek-label { color: var(--muted); white-space: nowrap; }
   .toolbar .err { color: var(--estop); flex-basis: 100%; }
   .toolbar.busy { opacity: .6; pointer-events: none; }
   .toolbar.busy .file, .toolbar.busy #progress { pointer-events: auto; }
   .toolbar #progress { flex-basis: 100%; }
+  /* bus traffic meter */
+  .traffic { margin-top: 14px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center; font-size: 13px; }
+  .traffic h2 { grid-column: 1 / -1; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  .traffic .big { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .traffic .big small { font-size: 13px; font-weight: 400; color: var(--muted); }
+  .traffic .meter { height: 12px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; position: relative; }
+  .traffic .meter i { display: block; height: 100%; width: 0; background: var(--eth); transition: width .2s; }
+  .traffic .meter.warn i { background: var(--canh); } .traffic .meter.hot i { background: var(--estop); }
+  .traffic .meter b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--muted); opacity: .5; }
+  .traffic .detail { grid-column: 1 / -1; color: var(--muted); }
   /* sender / receiver highlight and the moving dots */
   :root { --send: #2e5eaa; --recv: #2e8b3a; --send-soft: rgba(46,94,170,.16); --recv-soft: rgba(46,139,58,.16); }
   @media (prefers-color-scheme: dark) { :root { --send: #7fa6e8; --recv: #6fcf7a; --send-soft: rgba(127,166,232,.22); --recv-soft: rgba(111,207,122,.22); } }
@@ -212,7 +226,8 @@
         <option value="fps:30">30 frames / s</option>
       </select>
     </label>
-    <div class="seek"><span id="seek-label">frame 1</span><input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Position in the capture"></div>
+    <label>Go to time <input type="text" id="goto" placeholder="19:05:38.000" size="12" spellcheck="false" aria-label="Wall-clock time to jump to"><button id="goto-btn">Go</button></label>
+    <div class="seek"><span class="clock" id="seek-start"></span><input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Position in the capture"><span class="clock" id="seek-end"></span><span id="seek-label">frame 1</span></div>
     <span class="err" id="load-error" hidden></span>
     <span class="source" id="progress" hidden></span>
   </div>
@@ -235,6 +250,12 @@
       <button id="next-type"><b id="next-type-label">Go to next ▶</b><small id="next-type-dt"></small></button>
     </div>
   </div>
+  <section class="traffic">
+    <h2>Bus traffic, the second before this frame</h2>
+    <div class="big"><span id="tr-load">–</span><small> of 1 Mbit/s</small></div>
+    <div class="meter" id="tr-meter" data-tip="Estimated bus load over the second before the current frame: frames × about 130 bits each (a full 8-byte frame with worst-case stuffing) against 1,000,000 bits a second. Marks at 30% and 50%, the usual comfort and ceiling figures for a control bus."><i id="tr-bar"></i><b style="left:30%"></b><b style="left:50%"></b></div>
+    <div class="detail" id="tr-detail"></div>
+  </section>
   <div class="tip" id="tip" hidden></div>
 </div>
 <script>
@@ -259,7 +280,7 @@
   const FAMILIES = ["Other", "Error frame", "Heartbeat (master)", "Heartbeat (drive)", "Master tick", "NMT command", "SYNC", "Emergency", "PDO",
     "Motor status", "Buffer poll", "Buffer clear", "PVT point", "Configuration write", "SDO read", "SDO write", "SDO abort"];
   const F = Object.fromEntries(FAMILIES.map((n, i) => [n, i]));
-  let IDS, T, I, D, N, T0, startClock, FAM, FROM, TO, CTX, byFamily, cur = 0, loading = false;
+  let IDS, T, I, D, N, T0, startClock, TOTALS, FAM, FROM, TO, CTX, byFamily, cur = 0, loading = false;
   const clock = us => { const [h, m, sec] = startClock.split(":"); const base = (+h) * 3600e6 + (+m) * 60e6 + parseFloat(sec) * 1e6 + us;
     const hh = Math.floor(base / 3600e6) % 24, mm = Math.floor(base % 3600e6 / 60e6), ss = (base % 60e6) / 1e6;
     return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0") + ":" + ss.toFixed(3).padStart(6, "0"); };
@@ -384,13 +405,13 @@
   async function load(raw, sourceName) {
     stopReplay(); loading = true; byId("frame").closest(".nav").classList.add("busy"); document.querySelector(".toolbar").classList.add("busy");
     try {
-      IDS = raw.ids; T = raw.T; I = raw.I; D = raw.D; N = T.length; T0 = T[0]; startClock = raw.start_clock;
+      IDS = raw.ids; T = raw.T; I = raw.I; D = raw.D; N = T.length; T0 = T[0]; startClock = raw.start_clock; TOTALS = raw.totals || null;
       FAM = new Uint8Array(N); FROM = new Int8Array(N); TO = new Int8Array(N); CTX = {};
       const up = {}, down = {}; const CH = 20000;
       for (let i = 0; i < N; i++) { classify(i, up, down); if (i % CH === CH - 1) { progress("Decoding " + fmt(i + 1, 0) + " of " + fmt(N, 0) + " frames…"); await yieldToUI(); } }
       byFamily = FAMILIES.map(() => []); for (let i = 0; i < N; i++) byFamily[FAM[i]].push(i);
       byId("source").textContent = sourceName + ": " + fmt(N, 0) + " frames, " + fmt((T[N - 1] - T0) / 1e6, 1) + " s, from " + startClock.substr(0, 12);
-      byId("seek").max = N - 1;
+      byId("seek").max = N - 1; byId("seek-start").textContent = clock(0); byId("seek-end").textContent = clock(T[N - 1] - T0);
       show(raw.start_index || 0);
     } finally { loading = false; progress(""); byId("frame").closest(".nav").classList.remove("busy"); document.querySelector(".toolbar").classList.remove("busy"); }
   }
@@ -401,12 +422,14 @@
     const dumpT = /^\(([\d.]+)\)\s+\S+\s+([0-9A-Fa-f]+)\s*(?:#|\[(\d+)\]\s*)((?:[0-9A-Fa-f]{2}\s*)*)$/;
     const dumpPlain = /^\s*\S+\s+([0-9A-Fa-f]+)\s+\[(\d+)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)$/;
     const Tt = [], Ii = [], Dd = [], ids = [], idx = {}; let last = 0, clock0 = null, clockAt = -1, n = 0;
+    const totals = {}; const totalRx = /^# (\d\d:\d\d:\d\d) total: (\d+)/;   // the monitor's per-second count of frames it saw
     const idOf = c => { c = c.toUpperCase(); if (!(c in idx)) { idx[c] = ids.length; ids.push(c); } return idx[c]; };
     let pos = 0, lineNo = 0; const total = text.length;
     while (pos < total) {
       let nl = text.indexOf("\n", pos); if (nl < 0) nl = total;
       const line = text.substring(pos, nl).replace(/\r$/, ""); pos = nl + 1; lineNo++;
-      if (line && line[0] !== "#") {
+      if (line && line[0] === "#") { const c = totalRx.exec(line); if (c) totals[c[1]] = +c[2]; }
+      else if (line) {
         let m;
         if ((m = monitor.exec(line))) { last = Math.round(parseFloat(m[2]) * 1e6); Tt.push(last); Ii.push(idOf(m[3])); Dd.push(m[5].replace(/\s+/g, "").toUpperCase()); if (clockAt < 0) { clockAt = n; clock0 = m[1].substr(11); } n++; }
         else if ((m = dumpT.exec(line))) { last = Math.round(parseFloat(m[1]) * 1e6); Tt.push(last); Ii.push(idOf(m[2])); Dd.push(m[4].replace(/\s+/g, "").toUpperCase()); n++; }
@@ -426,7 +449,7 @@
     else clock0 = "00:00:00.000000";
     // ids were numbered in order of first appearance; renumber them sorted so the page is deterministic
     const sortedIds = ids.slice().sort(), remap = ids.map(c => sortedIds.indexOf(c));
-    return { ids: sortedIds, start_clock: clock0, start_index: 0, T: Ts, I: Is.map(i => remap[i]), D: Ds };
+    return { ids: sortedIds, start_clock: clock0, start_index: 0, T: Ts, I: Is.map(i => remap[i]), D: Ds, totals: Object.keys(totals).length ? totals : null };
   }
   byId("capture-file").addEventListener("change", async e => {
     const file = e.target.files[0]; if (!file || loading) return;
@@ -460,7 +483,25 @@
     byId("prev-type-dt").textContent = p >= 0 ? dtText(cur, p) : "none earlier"; byId("next-type-dt").textContent = q >= 0 ? dtText(cur, q) : "none later";
     byId("prev-type").dataset.target = p; byId("next-type").dataset.target = q;
     if (!seeking) byId("seek").value = cur; byId("seek-label").textContent = "frame " + fmt(cur + 1, 0);
+    traffic();
     animate(d);
+  }
+  // ---- bus traffic over the second before the current frame
+  const bitsOf = hex => { const dlc = hex.length / 2; return 47 + 8 * dlc + Math.floor((34 + 8 * dlc) / 5); };   // data frame with worst-case stuffing
+  function traffic() {
+    const tEnd = T[cur], tStart = tEnd - 1e6;
+    let lo = 0, hi = cur; while (lo < hi) { const m = (lo + hi) >> 1; if (T[m] < tStart) lo = m + 1; else hi = m; }
+    const kept = cur - lo + 1; let bits = 0; for (let i = lo; i <= cur; i++) bits += IDS[I[i]] === "1FFFFFFF" ? 20 : bitsOf(D[i]);
+    const meanBits = kept ? bits / kept : 130;
+    // the monitor's own count for the second the frame sits in, when the file carried one
+    let seen = null; if (TOTALS) { const key = clock(tEnd - T0).substr(0, 8); if (key in TOTALS) seen = TOTALS[key]; }
+    const frames = seen !== null ? seen : kept, load = frames * meanBits / 1e6;
+    byId("tr-load").textContent = Math.round(load * 100) + "%";
+    const meter = byId("tr-meter"); byId("tr-bar").style.width = Math.min(100, load * 100) + "%";
+    meter.classList.toggle("warn", load >= 0.3 && load < 0.5); meter.classList.toggle("hot", load >= 0.5);
+    byId("tr-detail").textContent = seen !== null
+      ? fmt(seen, 0) + " frames a second seen by the monitor at this point (" + fmt(kept, 0) + " of them kept in the file), about " + Math.round(meanBits) + " bits each"
+      : fmt(kept, 0) + " frames in the file over the last second, about " + Math.round(meanBits) + " bits each. The monitor keeps only part of the traffic, so this is a lower bound.";
   }
   byId("prev-frame").addEventListener("click", () => { stopReplay(); show(cur - 1); });
   byId("next-frame").addEventListener("click", () => { stopReplay(); show(cur + 1); });
@@ -472,6 +513,20 @@
     if (e.key === " ") { e.preventDefault(); byId("play").click(); } });
   let seeking = false;
   byId("seek").addEventListener("input", e => { seeking = true; stopReplay(); show(+e.target.value); seeking = false; });
+  // jump to a wall-clock time: HH:MM:SS, HH:MM:SS.mmm, or MM:SS within the capture's hour
+  function gotoTime() {
+    const box = byId("goto"), m = /^\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})(?:[.,](\d{1,6}))?\s*$/.exec(box.value);
+    box.classList.toggle("bad", !m); if (!m || loading) return;
+    const [h0, m0, s0] = startClock.split(":"); const startUs = (+h0) * 3600e6 + (+m0) * 60e6 + parseFloat(s0) * 1e6;
+    const hh = m[1] !== undefined ? +m[1] : +h0, frac = m[4] ? parseInt((m[4] + "000000").substr(0, 6), 10) : 0;
+    let target = hh * 3600e6 + (+m[2]) * 60e6 + (+m[3]) * 1e6 + frac - startUs;
+    if (target < -1e6 && m[1] === undefined) target += 3600e6;          // MM:SS given: assume the next hour if it is behind the start
+    if (target < 0 && target > -86400e6 && hh < +h0) target += 86400e6; // past midnight
+    let lo = 0, hi = N; while (lo < hi) { const mid = (lo + hi) >> 1; if (T[mid] - T0 < target) lo = mid + 1; else hi = mid; }
+    stopReplay(); show(Math.min(lo, N - 1));
+  }
+  byId("goto-btn").addEventListener("click", gotoTime);
+  byId("goto").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); gotoTime(); } });
 
   // ---- replay
   let timer = 0;
