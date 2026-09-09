@@ -42,14 +42,23 @@
   /* Current CAN frame panel */
   .frame { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
   .frame h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
-  .frame .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 18px; }
+  .frame .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 18px; margin-bottom: 14px; }
   .frame .field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .frame .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
   .frame .v { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
-  .frame .v.mono { font-family: Consolas, "Courier New", monospace; font-weight: 500; font-size: 15px; letter-spacing: .03em; }
-  .frame .meaning { grid-column: 1 / -1; }
-  .frame .meaning .v { font-weight: 400; font-size: 14px; }
-  .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .frame .v.c-id { color: var(--t-id); } .frame .v.c-dlc { color: var(--t-dlc); } .frame .v.c-type { color: var(--t-cmd); }
+  :root { --t-iface: #8a959b; --t-id: #2e5eaa; --t-dlc: #c98a00; --t-cmd: #6e4db8; --t-obj: #2c8c7c; --t-val: #2e8b3a; --t-raw: #5c6870; }
+  @media (prefers-color-scheme: dark) { :root { --t-iface: #8a959b; --t-id: #7fa6e8; --t-dlc: #e8b04a; --t-cmd: #a78bea; --t-obj: #5fc2b0; --t-val: #6fcf7a; --t-raw: #a3aeb3; } }
+  .raw { font-family: Consolas, "Courier New", monospace; font-size: 18px; letter-spacing: .02em; white-space: pre; overflow-x: auto; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+  .raw .tok { border-bottom: 3px solid var(--c); padding-bottom: 2px; }
+  .segments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: stretch; }
+  .seg { flex: 1 1 150px; min-width: 130px; border-top: 3px solid var(--c); background: color-mix(in srgb, var(--c) 9%, var(--panel)); border-radius: 0 0 4px 4px; padding: 6px 8px 8px; }
+  .seg .hex { font-family: Consolas, "Courier New", monospace; font-size: 15px; font-weight: 600; color: var(--c); white-space: nowrap; }
+  .seg .what { font-size: 12px; color: var(--ink); margin-top: 3px; line-height: 1.35; }
+  .seg .what b { color: var(--c); }
+  .key { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .key span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); margin-right: 6px; vertical-align: -1px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
   .examples button { font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: pointer; }
   .examples button:hover, .examples button.on { border-color: var(--eth); }
   .examples button.on { background: color-mix(in srgb, var(--eth) 14%, var(--bg)); }
@@ -181,61 +190,113 @@
   <section class="frame" id="frame">
     <h2>Current CAN frame</h2>
     <div class="fields">
-      <div class="field"><span class="k">Data type</span><span class="v" id="f-type"></span></div>
-      <div class="field"><span class="k">Total bytes of data</span><span class="v" id="f-bytes"></span></div>
-      <div class="field"><span class="k">From</span><span class="v" id="f-from"></span></div>
-      <div class="field"><span class="k">To</span><span class="v" id="f-to"></span></div>
-      <div class="field"><span class="k">COB-ID</span><span class="v mono" id="f-id"></span></div>
-      <div class="field"><span class="k">Data</span><span class="v mono" id="f-data"></span></div>
-      <div class="field meaning"><span class="k">Meaning</span><span class="v" id="f-meaning"></span></div>
+      <div class="field"><span class="k">Data type</span><span class="v c-type" id="f-type"></span></div>
+      <div class="field"><span class="k">Total bytes of data</span><span class="v c-dlc" id="f-bytes"></span></div>
+      <div class="field"><span class="k">From</span><span class="v c-id" id="f-from"></span></div>
+      <div class="field"><span class="k">To</span><span class="v c-id" id="f-to"></span></div>
+    </div>
+    <div class="raw" id="f-raw"></div>
+    <div class="segments" id="f-segs"></div>
+    <div class="key">
+      <span style="--c: var(--t-iface)">interface</span>
+      <span style="--c: var(--t-id)">COB-ID: data type, from and to</span>
+      <span style="--c: var(--t-dlc)">data length</span>
+      <span style="--c: var(--t-cmd)">command byte</span>
+      <span style="--c: var(--t-obj)">object address</span>
+      <span style="--c: var(--t-val)">value bytes</span>
     </div>
     <div class="examples" id="examples">
-      <span class="note">Example frames from the 8 September capture of PikPak 007. Pick one to show it here; the moving messages will drive this panel later.</span>
+      <span class="note">Real frames from the 8 September capture of PikPak 007, exactly as the monitor wrote them. Pick one; the moving messages will drive this panel later.</span>
     </div>
   </section>
 </div>
 <script>
-  // Real frames from the capture, one per data type. from/to name the devices; node numbers are CANopen node ids.
+  // Each frame: the raw candump line, the data type, and how the data bytes split up.
+  // segs: [byte count, what it means, colour class]. The COB-ID and [n] parts are decoded automatically.
   const FRAMES = [
-    { key: "hb-master", type: "Heartbeat (master)", id: "700", data: "05", from: "Rozum board, node 0", to: "All drives (broadcast)",
-      meaning: "The master is alive and in the operational state. Sent every 250 ms." },
-    { key: "tick", type: "Master tick", id: "27F", data: "8A 0A 74 1F", from: "Rozum board", to: "All drives (broadcast)",
-      meaning: "The master's clock: little-endian microseconds, here 527.699 s, wrapping every 600 s. Sent every 50 ms." },
-    { key: "hb-drive", type: "Heartbeat (drive)", id: "703", data: "05", from: "Drive board, node 3", to: "Rozum board (broadcast)",
-      meaning: "Drive 3 is alive and operational (05). 7F is pre-operational, 00 is boot-up. Sent every 900 ms." },
-    { key: "status-req", type: "Motor status: request", id: "603", data: "40 14 20 01 00 00 00 00", from: "Rozum board", to: "Drive board, node 3",
-      meaning: "SDO read of object 2014 sub-index 01, the 16-byte status block. About 56 of these a second per drive." },
-    { key: "status-rep", type: "Motor status: reply", id: "583", data: "41 14 20 01 10 00 00 00", from: "Drive board, node 3", to: "Rozum board",
-      meaning: "Drive 3 answers: 16 bytes (10 hex) to follow in three segments of 7, 7 and 2. The block is position, velocity, current and temperature as four floats." },
-    { key: "status-seg", type: "Motor status: segment", id: "583", data: "10 3C 00 00 00 80 AC 16", from: "Drive board, node 3", to: "Rozum board",
-      meaning: "Second segment of the status block: 7 data bytes after the 10 command byte (toggle bit set). The temperature float straddles this and the last segment." },
-    { key: "pvt-init", type: "PVT point: write request", id: "601", data: "21 00 22 02 0C 00 00 00", from: "Rozum board", to: "Drive board, node 1",
-      meaning: "Start a 12-byte (0C hex) write to object 2200 sub-index 02, the trajectory buffer. One point = float position, float velocity, 32-bit time (20 ms)." },
-    { key: "pvt-seg", type: "PVT point: data segment", id: "601", data: "00 2A 09 02 42 39 16 CE", from: "Rozum board", to: "Drive board, node 1",
-      meaning: "First 7 bytes of the point after the 00 command byte: position 32.51 and the first 3 bytes of velocity 103.04. The drive acknowledges each segment on 581." },
-    { key: "buffer", type: "Buffer poll: reply", id: "586", data: "43 02 22 03 00 01 00 00", from: "Drive board, node 6", to: "Rozum board",
-      meaning: "Object 2202 sub-index 03 = 256: all 256 trajectory slots free, the buffer is empty." },
-    { key: "config", type: "Configuration write", id: "601", data: "23 01 43 05 00 00 AA 42", from: "Rozum board", to: "Drive board, node 1",
-      meaning: "Expedited SDO write of 4 bytes to object 4301 sub-index 05: the float 85.0. Written once per drive at the 19:05 restart." },
-    { key: "nmt", type: "NMT command", id: "000", data: "80 05", from: "Rozum board", to: "Drive board, node 5",
-      meaning: "Network management: command 80 = enter pre-operational, addressed to node 05. 01 would be start, 81 reset." },
-    { key: "emcy", type: "Emergency (error)", id: "081", data: "30 81 10 1B 00 A0 BB 44", from: "Drive board, node 1", to: "Rozum board (broadcast)",
-      meaning: "Error code 8130, heartbeat lost, register 10 (communication), then manufacturer bytes: the float 1501 = 1.5 s without the master heartbeat." },
-    { key: "emcy-reset", type: "Emergency: error reset", id: "081", data: "00 00 00 1B 00 00 00 00", from: "Drive board, node 1", to: "Rozum board (broadcast)",
-      meaning: "Error code 0000: the previous error has cleared. This is the Error Reset or No Error :: N/A line in Elastic." },
-    { key: "errframe", type: "Error frame", id: "none", data: "07", from: "Bus (any node)", to: "Every node",
-      meaning: "Not a data frame: a node signalling that a frame was corrupted. The 07 is the monitor error class (transmit timeout, lost arbitration, controller). 56,696 of these during the 18:32 power dip." },
+    { key: "status-seg1", type: "Motor status: segment 1 of 3", raw: "can0  581   [8]  00 00 F0 51 3D FF 1F 51",
+      segs: [[1, "command <b>00</b>: data segment, toggle 0, 7 bytes, more to follow", "cmd"], [4, "position = <b>0.0513</b> (float32, little-endian)", "val"], [3, "velocity, first 3 of 4 bytes (rest in segment 2)", "val"]] },
+    { key: "status-seg2", type: "Motor status: segment 2 of 3", raw: "can0  581   [8]  10 3C 00 00 00 80 AC 16",
+      segs: [[1, "command <b>10</b>: data segment, toggle 1, 7 bytes, more to follow", "cmd"], [1, "velocity, last byte", "val"], [4, "current = <b>-0.0 A</b> (float32)", "val"], [2, "temperature, first 2 of 4 bytes", "val"]] },
+    { key: "status-seg3", type: "Motor status: segment 3 of 3", raw: "can0  581   [8]  0B F1 41 00 00 00 00 00",
+      segs: [[1, "command <b>0B</b>: last segment, toggle 0, 2 bytes valid", "cmd"], [2, "temperature, last 2 bytes: AC 16 F1 41 = <b>30.1 C</b>", "val"], [5, "padding, ignored", "raw"]] },
+    { key: "status-req", type: "Motor status: read request", raw: "can0  601   [8]  40 14 20 01 00 00 00 00",
+      segs: [[1, "command <b>40</b>: read (SDO upload) request", "cmd"], [2, "object <b>2014</b> (bytes swapped: 14 20)", "obj"], [1, "sub-index <b>01</b>: the 16-byte status block", "obj"], [4, "unused", "raw"]] },
+    { key: "status-rep", type: "Motor status: read reply", raw: "can0  581   [8]  41 14 20 01 10 00 00 00",
+      segs: [[1, "command <b>41</b>: segmented reply, size follows", "cmd"], [2, "object <b>2014</b>", "obj"], [1, "sub-index <b>01</b>", "obj"], [4, "size = <b>16 bytes</b> (10 hex, little-endian)", "val"]] },
+    { key: "hb-master", type: "Heartbeat (master)", raw: "can0  700   [1]  05",
+      segs: [[1, "NMT state <b>05</b> = operational", "val"]] },
+    { key: "tick", type: "Master tick", raw: "can0  27F   [4]  8A 0A 74 1F",
+      segs: [[4, "microsecond counter = <b>527.699 s</b> (uint32 little-endian, wraps at 600 s)", "val"]] },
+    { key: "hb-drive", type: "Heartbeat (drive)", raw: "can0  703   [1]  7F",
+      segs: [[1, "NMT state <b>7F</b> = pre-operational (05 operational, 00 boot-up)", "val"]] },
+    { key: "pvt-init", type: "PVT point: write request", raw: "can0  601   [8]  21 00 22 02 0C 00 00 00",
+      segs: [[1, "command <b>21</b>: segmented write (SDO download), size follows", "cmd"], [2, "object <b>2200</b>", "obj"], [1, "sub-index <b>02</b>: trajectory buffer", "obj"], [4, "size = <b>12 bytes</b> (0C hex)", "val"]] },
+    { key: "pvt-seg1", type: "PVT point: data segment 1 of 2", raw: "can0  601   [8]  00 2A 09 02 42 39 16 CE",
+      segs: [[1, "command <b>00</b>: data segment, toggle 0, 7 bytes", "cmd"], [4, "position = <b>32.51</b> (float32)", "val"], [3, "velocity, first 3 of 4 bytes", "val"]] },
+    { key: "pvt-seg2", type: "PVT point: data segment 2 of 2", raw: "can0  601   [8]  15 42 14 00 00 00 00 00",
+      segs: [[1, "command <b>15</b>: last segment, toggle 1, 5 bytes valid", "cmd"], [1, "velocity, last byte: 39 16 CE 42 = <b>103.04</b>", "val"], [4, "time = <b>20 ms</b> (uint32)", "val"], [2, "padding, ignored", "raw"]] },
+    { key: "pvt-ack", type: "PVT point: acknowledge", raw: "can0  581   [8]  60 00 00 00 00 00 00 00",
+      segs: [[1, "command <b>60</b>: segment accepted, toggle 0", "cmd"], [7, "unused", "raw"]] },
+    { key: "buffer", type: "Buffer poll: reply", raw: "can0  586   [8]  43 02 22 03 00 01 00 00",
+      segs: [[1, "command <b>43</b>: expedited reply, 4 bytes valid", "cmd"], [2, "object <b>2202</b>", "obj"], [1, "sub-index <b>03</b>: free slots", "obj"], [4, "value = <b>256</b>: buffer empty", "val"]] },
+    { key: "config", type: "Configuration write", raw: "can0  601   [8]  23 01 43 05 00 00 AA 42",
+      segs: [[1, "command <b>23</b>: expedited write, 4 bytes", "cmd"], [2, "object <b>4301</b>", "obj"], [1, "sub-index <b>05</b>", "obj"], [4, "value = <b>85.0</b> (float32)", "val"]] },
+    { key: "nmt", type: "NMT command", raw: "can0  000   [2]  80 05",
+      segs: [[1, "command <b>80</b> = enter pre-operational (01 start, 02 stop, 81 reset)", "cmd"], [1, "target node <b>05</b> (00 would mean every node)", "obj"]] },
+    { key: "emcy", type: "Emergency (error)", raw: "can0  081   [8]  30 81 10 1B 00 A0 BB 44",
+      segs: [[2, "error code <b>8130</b>: heartbeat lost (bytes swapped)", "val"], [1, "error register <b>10</b>: communication", "val"], [1, "manufacturer byte 1B", "raw"], [4, "manufacturer value = <b>1501</b> (float32): 1.5 s without the master heartbeat", "val"]] },
+    { key: "emcy-reset", type: "Emergency: error reset", raw: "can0  081   [8]  00 00 00 1B 00 00 00 00",
+      segs: [[2, "error code <b>0000</b>: error reset / no error (the N/A line in Elastic)", "val"], [1, "error register <b>00</b>: no error", "val"], [1, "manufacturer byte 1B", "raw"], [4, "manufacturer value 0", "raw"]] },
+    { key: "errframe", type: "Error frame", raw: "can0  1FFFFFFF   [1]  07",
+      segs: [[1, "monitor error class <b>07</b>: transmit timeout + lost arbitration + controller problem", "val"]] },
   ];
+
+  const NODE_NAME = n => n === 0 ? "Rozum board, node 0" : "Drive board, node " + n;
+  // Decode the COB-ID into data type family, from and to.
+  function decodeId(hex) {
+    if (hex === "1FFFFFFF") return { kind: "error frame (no COB-ID)", from: "Bus (any node)", to: "Every node" };
+    const v = parseInt(hex, 16);
+    if (v === 0x000) return { kind: "NMT command", from: "Rozum board", to: "the node named in byte 2" };
+    if (v === 0x080) return { kind: "SYNC", from: "Rozum board", to: "All drives (broadcast)" };
+    if (v === 0x100) return { kind: "SYNC", from: "Rozum board", to: "All drives (broadcast)" };
+    if (v === 0x27F) return { kind: "master tick (PDO 27F)", from: "Rozum board", to: "All drives (broadcast)" };
+    if (v >= 0x081 && v <= 0x0FF) return { kind: "emergency (080 + node " + (v - 0x80) + ")", from: NODE_NAME(v - 0x80), to: "Rozum board (broadcast)" };
+    if (v >= 0x581 && v <= 0x5FF) return { kind: "SDO reply (580 + node " + (v - 0x580) + ")", from: NODE_NAME(v - 0x580), to: "Rozum board" };
+    if (v >= 0x601 && v <= 0x67F) return { kind: "SDO request (600 + node " + (v - 0x600) + ")", from: "Rozum board", to: NODE_NAME(v - 0x600) };
+    if (v === 0x700) return { kind: "heartbeat (700 + node 0)", from: "Rozum board, node 0", to: "All drives (broadcast)" };
+    if (v >= 0x701 && v <= 0x77F) return { kind: "heartbeat (700 + node " + (v - 0x700) + ")", from: NODE_NAME(v - 0x700), to: "Rozum board (broadcast)" };
+    return { kind: "COB-ID 0x" + hex, from: "?", to: "?" };
+  }
+  const C = { iface: "var(--t-iface)", id: "var(--t-id)", dlc: "var(--t-dlc)", cmd: "var(--t-cmd)", obj: "var(--t-obj)", val: "var(--t-val)", raw: "var(--t-raw)" };
   const byId = id => document.getElementById(id);
+  const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
   function showFrame(f) {
-    const bytes = f.id === "none" ? 0 : f.data.split(" ").length;
+    const m = f.raw.match(/^(\S+)\s+(\S+)\s+\[(\d+)\]\s*(.*)$/);
+    const iface = m[1], id = m[2], dlc = parseInt(m[3], 10), bytes = m[4] ? m[4].split(/\s+/) : [];
+    const info = decodeId(id);
     byId("f-type").textContent = f.type;
-    byId("f-bytes").textContent = f.id === "none" ? "0 (no data field)" : bytes + (bytes === 1 ? " byte" : " bytes") + " of 8";
-    byId("f-from").textContent = f.from;
-    byId("f-to").textContent = f.to;
-    byId("f-id").textContent = f.id === "none" ? "error frame" : "0x" + f.id;
-    byId("f-data").textContent = f.data;
-    byId("f-meaning").textContent = f.meaning;
+    byId("f-bytes").textContent = dlc + (dlc === 1 ? " byte" : " bytes") + " of data" + (id === "1FFFFFFF" ? " (monitor class byte, not a data field)" : "");
+    byId("f-from").textContent = info.from;
+    byId("f-to").textContent = info.to;
+    // raw line with coloured underlines; the spacing is the monitor's own
+    let raw = '<span class="tok" style="--c:' + C.iface + '">' + esc(iface) + '</span>  ' +
+              '<span class="tok" style="--c:' + C.id + '">' + esc(id) + '</span>   ' +
+              '<span class="tok" style="--c:' + C.dlc + '">[' + dlc + ']</span>  ';
+    let i = 0;
+    const groups = [];
+    for (const [n, what, cls] of f.segs) { groups.push({ hex: bytes.slice(i, i + n).join(" "), what, cls }); i += n; }
+    raw += groups.map(g => '<span class="tok" style="--c:' + C[g.cls] + '">' + esc(g.hex) + '</span>').join("  ");
+    byId("f-raw").innerHTML = raw;
+    // segments underneath
+    const segs = [
+      { hex: iface, what: "CAN interface on the monitor", cls: "iface" },
+      { hex: id, what: "COB-ID: <b>" + esc(info.kind) + "</b> · from " + esc(info.from) + " · to " + esc(info.to), cls: "id" },
+      { hex: "[" + dlc + "]", what: "<b>" + dlc + "</b> data byte" + (dlc === 1 ? "" : "s") + " follow (8 is the most a frame carries)", cls: "dlc" },
+      ...groups,
+    ];
+    byId("f-segs").innerHTML = segs.map(g => '<div class="seg" style="--c:' + C[g.cls] + '"><div class="hex">' + esc(g.hex) + '</div><div class="what">' + g.what + '</div></div>').join("");
     document.querySelectorAll("#examples button").forEach(b => b.classList.toggle("on", b.dataset.key === f.key));
   }
   const ex = byId("examples");
