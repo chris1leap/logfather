@@ -40,35 +40,28 @@
   .estop-btn { fill: var(--estop); stroke: #7a1f16; stroke-width: 1.4; }
   .route { fill: none; stroke: none; }  /* invisible paths the messages will travel along */
   /* Current CAN frame panel */
+  :root { --t-iface: #8a959b; --t-id: #2e5eaa; --t-dlc: #c98a00; --t-cmd: #6e4db8; --t-obj: #2c8c7c; --t-val: #2e8b3a; --t-raw: #9aa3a0; }
+  @media (prefers-color-scheme: dark) { :root { --t-id: #7fa6e8; --t-dlc: #e8b04a; --t-cmd: #a78bea; --t-obj: #5fc2b0; --t-val: #6fcf7a; --t-raw: #6f7b82; } }
   .frame { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
-  .frame h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
-  .frame .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 18px; margin-bottom: 14px; }
-  .frame .field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .frame .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  .frame .v { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
-  .frame .v.c-id { color: var(--t-id); } .frame .v.c-dlc { color: var(--t-dlc); } .frame .v.c-type { color: var(--t-cmd); }
-  :root { --t-iface: #8a959b; --t-id: #2e5eaa; --t-dlc: #c98a00; --t-cmd: #6e4db8; --t-obj: #2c8c7c; --t-val: #2e8b3a; --t-raw: #5c6870; }
-  @media (prefers-color-scheme: dark) { :root { --t-iface: #8a959b; --t-id: #7fa6e8; --t-dlc: #e8b04a; --t-cmd: #a78bea; --t-obj: #5fc2b0; --t-val: #6fcf7a; --t-raw: #a3aeb3; } }
-  .raw { font-family: Consolas, "Courier New", monospace; font-size: 18px; letter-spacing: .02em; white-space: pre; overflow-x: auto; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
-  .raw .tok { border-bottom: 3px solid var(--c); padding-bottom: 2px; }
-  .segments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: stretch; }
-  .seg { flex: 1 1 150px; min-width: 130px; border-top: 3px solid var(--c); background: color-mix(in srgb, var(--c) 9%, var(--panel)); border-radius: 0 0 4px 4px; padding: 6px 8px 8px; }
-  .seg .hex { font-family: Consolas, "Courier New", monospace; font-size: 15px; font-weight: 600; color: var(--c); white-space: nowrap; }
-  .seg .what { font-size: 12px; color: var(--ink); margin-top: 3px; line-height: 1.35; }
-  .seg .what b { color: var(--c); }
-  .key { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12px; color: var(--muted); }
-  .key span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c); margin-right: 6px; vertical-align: -1px; }
-  .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-  .examples button { font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: pointer; }
-  .examples button:hover, .examples button.on { border-color: var(--eth); }
-  .examples button.on { background: color-mix(in srgb, var(--eth) 14%, var(--bg)); }
-  .examples .note { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+  .frame .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 10px; }
+  .frame h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  .frame select { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; margin-left: auto; }
+  .summary { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
+  .summary .dim { color: var(--muted); font-weight: 400; }
+  .raw { font-family: Consolas, "Courier New", monospace; font-size: 20px; letter-spacing: .02em; white-space: pre; overflow-x: auto; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+  .raw .tok { border-bottom: 3px solid var(--c); padding-bottom: 3px; cursor: help; position: relative; }
+  .raw .tok:hover, .raw .tok:focus { background: color-mix(in srgb, var(--c) 18%, transparent); outline: none; }
+  .tip { position: fixed; z-index: 10; max-width: 340px; background: var(--ink); color: var(--bg); font-family: var(--font); font-size: 13px; line-height: 1.4; padding: 8px 10px; border-radius: 5px; pointer-events: none; white-space: normal; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+  .tip b { color: inherit; }
+  .tip[hidden] { display: none; }
+  /* hover detail on diagram parts */
+  svg [data-tip] { cursor: help; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>PikPak CAN bus</h1>
-  <p class="sub">The devices between the RCU and the motors, and the cables the CAN messages travel over. Drawn for PikPak 007: five Rozum drive boards on CANopen nodes 1, 2, 3, 5 and 6.</p>
+  <p class="sub">PikPak 007. Hover anything for detail.</p>
 
   <figure>
     <svg viewBox="0 0 1400 520" role="img" aria-label="Left to right: the RCU containing the AGX computer and, over an Ethernet link, the Rozum board; the E-Stop sits outside the RCU below the AGX; a CAN high and CAN low pair into the robot, and inside the robot five Rozum drive boards in series, nodes 1, 2, 3, 5 and 6, each with a motor beneath it.">
@@ -85,14 +78,14 @@
       <!-- RCU enclosure -->
       <rect class="enclosure" x="30" y="80" width="500" height="160" rx="8"/>
       <text class="label encl" x="46" y="104">RCU</text>
-      <g id="agx">
+      <g id="agx" data-tip="The RCU's computer. It runs the actuator controller, which decides every CAN message and reads every reply. Its logs go to Elastic; its telemetry goes to Grafana.">
         <rect class="box" x="60" y="130" width="180" height="80" rx="6"/>
         <text class="label title" x="150" y="166" text-anchor="middle">AGX computer</text>
         <text class="label small" x="150" y="188" text-anchor="middle">runs the actuator controller</text>
       </g>
       <!-- E-Stop below the AGX -->
       <line class="stub" x1="150" y1="210" x2="150" y2="306"/>
-      <g id="estop">
+      <g id="estop" data-tip="The emergency stop. Wired to the AGX; pressing it stops the robot through the controller, not over the CAN bus.">
         <circle class="estop-ring" cx="150" cy="340" r="34"/>
         <circle class="estop-btn" cx="150" cy="340" r="22"/>
         <text class="label title" x="150" y="400" text-anchor="middle">E-Stop</text>
@@ -101,10 +94,10 @@
       <!-- Ethernet link -->
       <line class="eth" x1="240" y1="170" x2="340" y2="170" marker-end="url(#arrow)"/>
       <text class="label small" x="290" y="150" text-anchor="middle">Ethernet</text>
-      <text class="label small" x="290" y="200" text-anchor="middle">CAN messages</text>
+      <text class="label small" x="290" y="200" text-anchor="middle" data-tip="The AGX sends each CAN frame to the Rozum board over Ethernet and receives every frame the board hears on the bus.">CAN messages</text>
 
       <!-- Rozum board -->
-      <g id="rozum-board">
+      <g id="rozum-board" data-tip="The CAN master. Takes the AGX's messages over Ethernet and puts them on the bus; sends its own heartbeat (700) every 250 ms and clock tick (27F) every 50 ms. Node 0 by its heartbeat; 127 if the tick is read as a standard PDO.">
         <rect class="box" x="340" y="130" width="160" height="80" rx="6"/>
         <text class="label title" x="420" y="166" text-anchor="middle">Rozum board</text>
         <text class="label small" x="420" y="188" text-anchor="middle">CAN master, node 0 / 127?</text>
@@ -115,7 +108,7 @@
       <line class="canl" x1="500" y1="177" x2="620" y2="177"/>
       <text class="label small" x="560" y="150" text-anchor="middle">CAN high</text>
       <text class="label small" x="560" y="200" text-anchor="middle">CAN low</text>
-      <text class="label small" x="560" y="220" text-anchor="middle">1 Mbit/s</text>
+      <text class="label small" x="560" y="220" text-anchor="middle" data-tip="Twisted pair, 1 Mbit/s. Every frame from any device is seen by every other device; the COB-ID says who it is for. Carries about 3,600 frames a second while the robot works, roughly half the bus capacity.">1 Mbit/s</text>
 
       <!-- Robot enclosure -->
       <rect class="enclosure" x="580" y="80" width="790" height="400" rx="8"/>
@@ -132,31 +125,31 @@
       <line class="canl" x1="1180" y1="177" x2="1220" y2="177"/>
 
       <!-- Drive boards -->
-      <g id="drive-1">
+      <g id="drive-1" data-tip="Rozum servo drive, CANopen node 1. Answers SDO reads on 581, takes requests on 601, heartbeats on 701, emergencies on 081. Holds a 256-point trajectory buffer.">
         <rect class="box" x="620" y="130" width="110" height="80" rx="6"/>
         <text class="label title" x="675" y="160" text-anchor="middle">Rozum</text>
         <text class="label" x="675" y="178" text-anchor="middle">drive board</text>
         <text class="label small" x="675" y="198" text-anchor="middle">node 1</text>
       </g>
-      <g id="drive-2">
+      <g id="drive-2" data-tip="Rozum servo drive, CANopen node 2. Replies on 582, requests on 602, heartbeat 702, emergency 082.">
         <rect class="box" x="770" y="130" width="110" height="80" rx="6"/>
         <text class="label title" x="825" y="160" text-anchor="middle">Rozum</text>
         <text class="label" x="825" y="178" text-anchor="middle">drive board</text>
         <text class="label small" x="825" y="198" text-anchor="middle">node 2</text>
       </g>
-      <g id="drive-3">
+      <g id="drive-3" data-tip="Rozum servo drive, CANopen node 3. Replies on 583, requests on 603, heartbeat 703, emergency 083.">
         <rect class="box" x="920" y="130" width="110" height="80" rx="6"/>
         <text class="label title" x="975" y="160" text-anchor="middle">Rozum</text>
         <text class="label" x="975" y="178" text-anchor="middle">drive board</text>
         <text class="label small" x="975" y="198" text-anchor="middle">node 3</text>
       </g>
-      <g id="drive-5">
+      <g id="drive-5" data-tip="Rozum servo drive, CANopen node 5. Replies on 585, requests on 605, heartbeat 705, emergency 085. Node 4 is not fitted.">
         <rect class="box" x="1070" y="130" width="110" height="80" rx="6"/>
         <text class="label title" x="1125" y="160" text-anchor="middle">Rozum</text>
         <text class="label" x="1125" y="178" text-anchor="middle">drive board</text>
         <text class="label small" x="1125" y="198" text-anchor="middle">node 5</text>
       </g>
-      <g id="drive-6">
+      <g id="drive-6" data-tip="Rozum servo drive, CANopen node 6. Replies on 586, requests on 606, heartbeat 706, emergency 086.">
         <rect class="box" x="1220" y="130" width="110" height="80" rx="6"/>
         <text class="label title" x="1275" y="160" text-anchor="middle">Rozum</text>
         <text class="label" x="1275" y="178" text-anchor="middle">drive board</text>
@@ -169,16 +162,16 @@
       <line class="stub" x1="975" y1="210" x2="975" y2="270"/>
       <line class="stub" x1="1125" y1="210" x2="1125" y2="270"/>
       <line class="stub" x1="1275" y1="210" x2="1275" y2="270"/>
-      <g id="motor-1"><circle class="motor" cx="675" cy="302" r="32"/><text class="label title" x="675" y="308" text-anchor="middle">M1</text><text class="label small" x="675" y="358" text-anchor="middle">Motor 1</text></g>
-      <g id="motor-2"><circle class="motor" cx="825" cy="302" r="32"/><text class="label title" x="825" y="308" text-anchor="middle">M2</text><text class="label small" x="825" y="358" text-anchor="middle">Motor 2</text></g>
-      <g id="motor-3"><circle class="motor" cx="975" cy="302" r="32"/><text class="label title" x="975" y="308" text-anchor="middle">M3</text><text class="label small" x="975" y="358" text-anchor="middle">Motor 3</text></g>
-      <g id="motor-5"><circle class="motor" cx="1125" cy="302" r="32"/><text class="label title" x="1125" y="308" text-anchor="middle">M5</text><text class="label small" x="1125" y="358" text-anchor="middle">Motor 5</text></g>
-      <g id="motor-6"><circle class="motor" cx="1275" cy="302" r="32"/><text class="label title" x="1275" y="308" text-anchor="middle">M6</text><text class="label small" x="1275" y="358" text-anchor="middle">Motor 6</text></g>
+      <g id="motor-1" data-tip="Motor 1. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 1 about 56 times a second."><circle class="motor" cx="675" cy="302" r="32"/><text class="label title" x="675" y="308" text-anchor="middle">M1</text><text class="label small" x="675" y="358" text-anchor="middle">Motor 1</text></g>
+      <g id="motor-2" data-tip="Motor 2. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 2 about 56 times a second."><circle class="motor" cx="825" cy="302" r="32"/><text class="label title" x="825" y="308" text-anchor="middle">M2</text><text class="label small" x="825" y="358" text-anchor="middle">Motor 2</text></g>
+      <g id="motor-3" data-tip="Motor 3. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 3 about 56 times a second."><circle class="motor" cx="975" cy="302" r="32"/><text class="label title" x="975" y="308" text-anchor="middle">M3</text><text class="label small" x="975" y="358" text-anchor="middle">Motor 3</text></g>
+      <g id="motor-5" data-tip="Motor 5. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 5 about 56 times a second."><circle class="motor" cx="1125" cy="302" r="32"/><text class="label title" x="1125" y="308" text-anchor="middle">M5</text><text class="label small" x="1125" y="358" text-anchor="middle">Motor 5</text></g>
+      <g id="motor-6" data-tip="Motor 6. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 6 about 56 times a second."><circle class="motor" cx="1275" cy="302" r="32"/><text class="label title" x="1275" y="308" text-anchor="middle">M6</text><text class="label small" x="1275" y="358" text-anchor="middle">Motor 6</text></g>
 
       <!-- Messages will be drawn here -->
       <g id="messages"></g>
     </svg>
-    <figcaption>Inside the RCU the AGX computer sends CAN messages over Ethernet to the Rozum board, which puts them on the CAN high / CAN low pair. The pair runs into the robot and through the five Rozum drive boards in series; each board drives the motor beneath it. The E-Stop is outside the RCU, wired to the AGX.</figcaption>
+
   </figure>
 
   <div class="legend">
@@ -188,120 +181,110 @@
   </div>
 
   <section class="frame" id="frame">
-    <h2>Current CAN frame</h2>
-    <div class="fields">
-      <div class="field"><span class="k">Data type</span><span class="v c-type" id="f-type"></span></div>
-      <div class="field"><span class="k">Total bytes of data</span><span class="v c-dlc" id="f-bytes"></span></div>
-      <div class="field"><span class="k">From</span><span class="v c-id" id="f-from"></span></div>
-      <div class="field"><span class="k">To</span><span class="v c-id" id="f-to"></span></div>
+    <div class="head">
+      <h2>Current CAN frame</h2>
+      <select id="examples" aria-label="Example frame"></select>
     </div>
+    <p class="summary" id="f-summary"></p>
     <div class="raw" id="f-raw"></div>
-    <div class="segments" id="f-segs"></div>
-    <div class="key">
-      <span style="--c: var(--t-iface)">interface</span>
-      <span style="--c: var(--t-id)">COB-ID: data type, from and to</span>
-      <span style="--c: var(--t-dlc)">data length</span>
-      <span style="--c: var(--t-cmd)">command byte</span>
-      <span style="--c: var(--t-obj)">object address</span>
-      <span style="--c: var(--t-val)">value bytes</span>
-    </div>
-    <div class="examples" id="examples">
-      <span class="note">Real frames from the 8 September capture of PikPak 007, exactly as the monitor wrote them. Pick one; the moving messages will drive this panel later.</span>
-    </div>
   </section>
+  <div class="tip" id="tip" hidden></div>
 </div>
 <script>
-  // Each frame: the raw candump line, the data type, and how the data bytes split up.
-  // segs: [byte count, what it means, colour class]. The COB-ID and [n] parts are decoded automatically.
+  // Real frames from the capture. segs: [byte count, meaning, colour class]; the COB-ID and [n] are decoded automatically.
   const FRAMES = [
-    { key: "status-seg1", type: "Motor status: segment 1 of 3", raw: "can0  581   [8]  00 00 F0 51 3D FF 1F 51",
-      segs: [[1, "command <b>00</b>: data segment, toggle 0, 7 bytes, more to follow", "cmd"], [4, "position = <b>0.0513</b> (float32, little-endian)", "val"], [3, "velocity, first 3 of 4 bytes (rest in segment 2)", "val"]] },
-    { key: "status-seg2", type: "Motor status: segment 2 of 3", raw: "can0  581   [8]  10 3C 00 00 00 80 AC 16",
-      segs: [[1, "command <b>10</b>: data segment, toggle 1, 7 bytes, more to follow", "cmd"], [1, "velocity, last byte", "val"], [4, "current = <b>-0.0 A</b> (float32)", "val"], [2, "temperature, first 2 of 4 bytes", "val"]] },
-    { key: "status-seg3", type: "Motor status: segment 3 of 3", raw: "can0  581   [8]  0B F1 41 00 00 00 00 00",
-      segs: [[1, "command <b>0B</b>: last segment, toggle 0, 2 bytes valid", "cmd"], [2, "temperature, last 2 bytes: AC 16 F1 41 = <b>30.1 C</b>", "val"], [5, "padding, ignored", "raw"]] },
-    { key: "status-req", type: "Motor status: read request", raw: "can0  601   [8]  40 14 20 01 00 00 00 00",
-      segs: [[1, "command <b>40</b>: read (SDO upload) request", "cmd"], [2, "object <b>2014</b> (bytes swapped: 14 20)", "obj"], [1, "sub-index <b>01</b>: the 16-byte status block", "obj"], [4, "unused", "raw"]] },
-    { key: "status-rep", type: "Motor status: read reply", raw: "can0  581   [8]  41 14 20 01 10 00 00 00",
-      segs: [[1, "command <b>41</b>: segmented reply, size follows", "cmd"], [2, "object <b>2014</b>", "obj"], [1, "sub-index <b>01</b>", "obj"], [4, "size = <b>16 bytes</b> (10 hex, little-endian)", "val"]] },
-    { key: "hb-master", type: "Heartbeat (master)", raw: "can0  700   [1]  05",
-      segs: [[1, "NMT state <b>05</b> = operational", "val"]] },
-    { key: "tick", type: "Master tick", raw: "can0  27F   [4]  8A 0A 74 1F",
-      segs: [[4, "microsecond counter = <b>527.699 s</b> (uint32 little-endian, wraps at 600 s)", "val"]] },
-    { key: "hb-drive", type: "Heartbeat (drive)", raw: "can0  703   [1]  7F",
-      segs: [[1, "NMT state <b>7F</b> = pre-operational (05 operational, 00 boot-up)", "val"]] },
-    { key: "pvt-init", type: "PVT point: write request", raw: "can0  601   [8]  21 00 22 02 0C 00 00 00",
-      segs: [[1, "command <b>21</b>: segmented write (SDO download), size follows", "cmd"], [2, "object <b>2200</b>", "obj"], [1, "sub-index <b>02</b>: trajectory buffer", "obj"], [4, "size = <b>12 bytes</b> (0C hex)", "val"]] },
-    { key: "pvt-seg1", type: "PVT point: data segment 1 of 2", raw: "can0  601   [8]  00 2A 09 02 42 39 16 CE",
-      segs: [[1, "command <b>00</b>: data segment, toggle 0, 7 bytes", "cmd"], [4, "position = <b>32.51</b> (float32)", "val"], [3, "velocity, first 3 of 4 bytes", "val"]] },
-    { key: "pvt-seg2", type: "PVT point: data segment 2 of 2", raw: "can0  601   [8]  15 42 14 00 00 00 00 00",
-      segs: [[1, "command <b>15</b>: last segment, toggle 1, 5 bytes valid", "cmd"], [1, "velocity, last byte: 39 16 CE 42 = <b>103.04</b>", "val"], [4, "time = <b>20 ms</b> (uint32)", "val"], [2, "padding, ignored", "raw"]] },
-    { key: "pvt-ack", type: "PVT point: acknowledge", raw: "can0  581   [8]  60 00 00 00 00 00 00 00",
-      segs: [[1, "command <b>60</b>: segment accepted, toggle 0", "cmd"], [7, "unused", "raw"]] },
-    { key: "buffer", type: "Buffer poll: reply", raw: "can0  586   [8]  43 02 22 03 00 01 00 00",
-      segs: [[1, "command <b>43</b>: expedited reply, 4 bytes valid", "cmd"], [2, "object <b>2202</b>", "obj"], [1, "sub-index <b>03</b>: free slots", "obj"], [4, "value = <b>256</b>: buffer empty", "val"]] },
-    { key: "config", type: "Configuration write", raw: "can0  601   [8]  23 01 43 05 00 00 AA 42",
-      segs: [[1, "command <b>23</b>: expedited write, 4 bytes", "cmd"], [2, "object <b>4301</b>", "obj"], [1, "sub-index <b>05</b>", "obj"], [4, "value = <b>85.0</b> (float32)", "val"]] },
-    { key: "nmt", type: "NMT command", raw: "can0  000   [2]  80 05",
-      segs: [[1, "command <b>80</b> = enter pre-operational (01 start, 02 stop, 81 reset)", "cmd"], [1, "target node <b>05</b> (00 would mean every node)", "obj"]] },
-    { key: "emcy", type: "Emergency (error)", raw: "can0  081   [8]  30 81 10 1B 00 A0 BB 44",
-      segs: [[2, "error code <b>8130</b>: heartbeat lost (bytes swapped)", "val"], [1, "error register <b>10</b>: communication", "val"], [1, "manufacturer byte 1B", "raw"], [4, "manufacturer value = <b>1501</b> (float32): 1.5 s without the master heartbeat", "val"]] },
-    { key: "emcy-reset", type: "Emergency: error reset", raw: "can0  081   [8]  00 00 00 1B 00 00 00 00",
-      segs: [[2, "error code <b>0000</b>: error reset / no error (the N/A line in Elastic)", "val"], [1, "error register <b>00</b>: no error", "val"], [1, "manufacturer byte 1B", "raw"], [4, "manufacturer value 0", "raw"]] },
-    { key: "errframe", type: "Error frame", raw: "can0  1FFFFFFF   [1]  07",
-      segs: [[1, "monitor error class <b>07</b>: transmit timeout + lost arbitration + controller problem", "val"]] },
+    { key: "status-seg1", type: "Motor status", sub: "segment 1 of 3", raw: "can0  581   [8]  00 00 F0 51 3D FF 1F 51",
+      segs: [[1, "Command byte <b>00</b>: a data segment, toggle bit 0, 7 bytes, more to follow.", "cmd"], [4, "Position = <b>0.0513</b>. A float32, little-endian: bytes 1 to 4 of the 16-byte status block.", "val"], [3, "Velocity, first 3 of its 4 bytes. The last byte comes in segment 2.", "val"]] },
+    { key: "status-seg2", type: "Motor status", sub: "segment 2 of 3", raw: "can0  581   [8]  10 3C 00 00 00 80 AC 16",
+      segs: [[1, "Command byte <b>10</b>: a data segment, toggle bit 1, 7 bytes, more to follow.", "cmd"], [1, "Velocity, last byte. With FF 1F 51 from segment 1 that is 0.0128.", "val"], [4, "Current = <b>-0.0 A</b> (float32).", "val"], [2, "Temperature, first 2 of its 4 bytes.", "val"]] },
+    { key: "status-seg3", type: "Motor status", sub: "segment 3 of 3", raw: "can0  581   [8]  0B F1 41 00 00 00 00 00",
+      segs: [[1, "Command byte <b>0B</b>: the last segment, toggle bit 0, only 2 bytes valid.", "cmd"], [2, "Temperature, last 2 bytes. AC 16 F1 41 together = <b>30.1 C</b>.", "val"], [5, "Padding. Not part of the value.", "raw"]] },
+    { key: "status-req", type: "Motor status", sub: "read request", raw: "can0  601   [8]  40 14 20 01 00 00 00 00",
+      segs: [[1, "Command byte <b>40</b>: read request (SDO upload).", "cmd"], [2, "Object <b>2014</b>, written low byte first (14 20).", "obj"], [1, "Sub-index <b>01</b>: the 16-byte status block (position, velocity, current, temperature).", "obj"], [4, "Unused in a read request.", "raw"]] },
+    { key: "status-rep", type: "Motor status", sub: "read reply", raw: "can0  581   [8]  41 14 20 01 10 00 00 00",
+      segs: [[1, "Command byte <b>41</b>: a segmented reply, the size follows.", "cmd"], [2, "Object <b>2014</b>.", "obj"], [1, "Sub-index <b>01</b>.", "obj"], [4, "Size = <b>16 bytes</b> (10 hex). They arrive in three segments of 7, 7 and 2.", "val"]] },
+    { key: "hb-master", type: "Heartbeat", sub: "from the master", raw: "can0  700   [1]  05",
+      segs: [[1, "NMT state <b>05</b> = operational. Sent every 250 ms; the drives raise an error if it stops for 1.5 s.", "val"]] },
+    { key: "tick", type: "Master tick", sub: "", raw: "can0  27F   [4]  8A 0A 74 1F",
+      segs: [[4, "The master's clock: a microsecond counter, little-endian. Here <b>527.699 s</b>; it wraps every 600 s. Sent every 50 ms.", "val"]] },
+    { key: "hb-drive", type: "Heartbeat", sub: "from a drive", raw: "can0  703   [1]  7F",
+      segs: [[1, "NMT state <b>7F</b> = pre-operational. 05 is operational, 00 is boot-up. Each drive sends one every 900 ms.", "val"]] },
+    { key: "pvt-init", type: "PVT point", sub: "write request", raw: "can0  601   [8]  21 00 22 02 0C 00 00 00",
+      segs: [[1, "Command byte <b>21</b>: start a segmented write (SDO download), the size follows.", "cmd"], [2, "Object <b>2200</b>.", "obj"], [1, "Sub-index <b>02</b>: the trajectory buffer.", "obj"], [4, "Size = <b>12 bytes</b> (0C hex): float position, float velocity, 32-bit time.", "val"]] },
+    { key: "pvt-seg1", type: "PVT point", sub: "data segment 1 of 2", raw: "can0  601   [8]  00 2A 09 02 42 39 16 CE",
+      segs: [[1, "Command byte <b>00</b>: a data segment, toggle bit 0, 7 bytes.", "cmd"], [4, "Position = <b>32.51</b> (float32).", "val"], [3, "Velocity, first 3 of its 4 bytes.", "val"]] },
+    { key: "pvt-seg2", type: "PVT point", sub: "data segment 2 of 2", raw: "can0  601   [8]  15 42 14 00 00 00 00 00",
+      segs: [[1, "Command byte <b>15</b>: the last segment, toggle bit 1, 5 bytes valid.", "cmd"], [1, "Velocity, last byte. 39 16 CE 42 together = <b>103.04</b>.", "val"], [4, "Time = <b>20 ms</b> (uint32). Every point in the capture says 20.", "val"], [2, "Padding.", "raw"]] },
+    { key: "pvt-ack", type: "PVT point", sub: "acknowledge", raw: "can0  581   [8]  60 00 00 00 00 00 00 00",
+      segs: [[1, "Command byte <b>60</b>: segment accepted, toggle bit 0. The drive sends one of these after every segment.", "cmd"], [7, "Unused.", "raw"]] },
+    { key: "buffer", type: "Buffer poll", sub: "reply", raw: "can0  586   [8]  43 02 22 03 00 01 00 00",
+      segs: [[1, "Command byte <b>43</b>: an expedited reply, 4 bytes valid.", "cmd"], [2, "Object <b>2202</b>: the trajectory buffer status.", "obj"], [1, "Sub-index <b>03</b>: free slots.", "obj"], [4, "Value = <b>256</b> (00 01 00 00, little-endian): all 256 slots free, the buffer is empty.", "val"]] },
+    { key: "config", type: "Configuration write", sub: "", raw: "can0  601   [8]  23 01 43 05 00 00 AA 42",
+      segs: [[1, "Command byte <b>23</b>: an expedited write of 4 bytes.", "cmd"], [2, "Object <b>4301</b>.", "obj"], [1, "Sub-index <b>05</b>.", "obj"], [4, "Value = <b>85.0</b> (float32). Written once per drive at the 19:05 restart.", "val"]] },
+    { key: "nmt", type: "NMT command", sub: "", raw: "can0  000   [2]  80 05",
+      segs: [[1, "Command <b>80</b> = enter pre-operational. 01 is start, 02 stop, 81 reset.", "cmd"], [1, "Target node <b>05</b>. 00 here would address every node.", "obj"]] },
+    { key: "emcy", type: "Emergency", sub: "error", raw: "can0  081   [8]  30 81 10 1B 00 A0 BB 44",
+      segs: [[2, "Error code <b>8130</b> (30 81 swapped): heartbeat lost.", "val"], [1, "Error register <b>10</b>: a communication error.", "val"], [1, "Manufacturer byte.", "raw"], [4, "Manufacturer value = <b>1501</b> (float32): 1.5 s without the master heartbeat.", "val"]] },
+    { key: "emcy-reset", type: "Emergency", sub: "error reset", raw: "can0  081   [8]  00 00 00 1B 00 00 00 00",
+      segs: [[2, "Error code <b>0000</b>: the previous error has cleared. This is the Error Reset or No Error :: N/A line in Elastic.", "val"], [1, "Error register <b>00</b>: no error.", "val"], [1, "Manufacturer byte.", "raw"], [4, "Manufacturer value 0.", "raw"]] },
+    { key: "errframe", type: "Error frame", sub: "", raw: "can0  1FFFFFFF   [1]  07",
+      segs: [[1, "The monitor's error class <b>07</b>: transmit timeout, lost arbitration and controller problem. Not a data frame; a node signalling a corrupted frame.", "val"]] },
   ];
 
-  const NODE_NAME = n => n === 0 ? "Rozum board, node 0" : "Drive board, node " + n;
-  // Decode the COB-ID into data type family, from and to.
+  const NODE = n => n === 0 ? "Rozum board" : "drive " + n;
   function decodeId(hex) {
-    if (hex === "1FFFFFFF") return { kind: "error frame (no COB-ID)", from: "Bus (any node)", to: "Every node" };
     const v = parseInt(hex, 16);
-    if (v === 0x000) return { kind: "NMT command", from: "Rozum board", to: "the node named in byte 2" };
-    if (v === 0x080) return { kind: "SYNC", from: "Rozum board", to: "All drives (broadcast)" };
-    if (v === 0x100) return { kind: "SYNC", from: "Rozum board", to: "All drives (broadcast)" };
-    if (v === 0x27F) return { kind: "master tick (PDO 27F)", from: "Rozum board", to: "All drives (broadcast)" };
-    if (v >= 0x081 && v <= 0x0FF) return { kind: "emergency (080 + node " + (v - 0x80) + ")", from: NODE_NAME(v - 0x80), to: "Rozum board (broadcast)" };
-    if (v >= 0x581 && v <= 0x5FF) return { kind: "SDO reply (580 + node " + (v - 0x580) + ")", from: NODE_NAME(v - 0x580), to: "Rozum board" };
-    if (v >= 0x601 && v <= 0x67F) return { kind: "SDO request (600 + node " + (v - 0x600) + ")", from: "Rozum board", to: NODE_NAME(v - 0x600) };
-    if (v === 0x700) return { kind: "heartbeat (700 + node 0)", from: "Rozum board, node 0", to: "All drives (broadcast)" };
-    if (v >= 0x701 && v <= 0x77F) return { kind: "heartbeat (700 + node " + (v - 0x700) + ")", from: NODE_NAME(v - 0x700), to: "Rozum board (broadcast)" };
-    return { kind: "COB-ID 0x" + hex, from: "?", to: "?" };
+    if (hex === "1FFFFFFF") return { kind: "Error frame: no COB-ID.", from: "any node", to: "every node" };
+    if (v === 0x000) return { kind: "COB-ID <b>000</b>: NMT command.", from: "Rozum board", to: "the node in byte 2" };
+    if (v === 0x080 || v === 0x100) return { kind: "COB-ID <b>" + hex + "</b>: SYNC.", from: "Rozum board", to: "all drives" };
+    if (v === 0x27F) return { kind: "COB-ID <b>27F</b>: the master's tick, a broadcast.", from: "Rozum board", to: "all drives" };
+    if (v >= 0x081 && v <= 0x0FF) return { kind: "COB-ID <b>" + hex + "</b> = 080 + node " + (v - 0x80) + ": emergency.", from: NODE(v - 0x80), to: "Rozum board" };
+    if (v >= 0x581 && v <= 0x5FF) return { kind: "COB-ID <b>" + hex + "</b> = 580 + node " + (v - 0x580) + ": SDO reply.", from: NODE(v - 0x580), to: "Rozum board" };
+    if (v >= 0x601 && v <= 0x67F) return { kind: "COB-ID <b>" + hex + "</b> = 600 + node " + (v - 0x600) + ": SDO request.", from: "Rozum board", to: NODE(v - 0x600) };
+    if (v === 0x700) return { kind: "COB-ID <b>700</b> = 700 + node 0: the master's heartbeat.", from: "Rozum board", to: "all drives" };
+    if (v >= 0x701 && v <= 0x77F) return { kind: "COB-ID <b>" + hex + "</b> = 700 + node " + (v - 0x700) + ": heartbeat.", from: NODE(v - 0x700), to: "Rozum board" };
+    return { kind: "COB-ID " + hex, from: "?", to: "?" };
   }
   const C = { iface: "var(--t-iface)", id: "var(--t-id)", dlc: "var(--t-dlc)", cmd: "var(--t-cmd)", obj: "var(--t-obj)", val: "var(--t-val)", raw: "var(--t-raw)" };
   const byId = id => document.getElementById(id);
   const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const tok = (text, cls, tip) => '<span class="tok" tabindex="0" style="--c:' + C[cls] + '" data-tip="' + esc(tip).replace(/"/g, "&quot;") + '">' + esc(text) + '</span>';
 
   function showFrame(f) {
     const m = f.raw.match(/^(\S+)\s+(\S+)\s+\[(\d+)\]\s*(.*)$/);
     const iface = m[1], id = m[2], dlc = parseInt(m[3], 10), bytes = m[4] ? m[4].split(/\s+/) : [];
     const info = decodeId(id);
-    byId("f-type").textContent = f.type;
-    byId("f-bytes").textContent = dlc + (dlc === 1 ? " byte" : " bytes") + " of data" + (id === "1FFFFFFF" ? " (monitor class byte, not a data field)" : "");
-    byId("f-from").textContent = info.from;
-    byId("f-to").textContent = info.to;
-    // raw line with coloured underlines; the spacing is the monitor's own
-    let raw = '<span class="tok" style="--c:' + C.iface + '">' + esc(iface) + '</span>  ' +
-              '<span class="tok" style="--c:' + C.id + '">' + esc(id) + '</span>   ' +
-              '<span class="tok" style="--c:' + C.dlc + '">[' + dlc + ']</span>  ';
-    let i = 0;
-    const groups = [];
-    for (const [n, what, cls] of f.segs) { groups.push({ hex: bytes.slice(i, i + n).join(" "), what, cls }); i += n; }
-    raw += groups.map(g => '<span class="tok" style="--c:' + C[g.cls] + '">' + esc(g.hex) + '</span>').join("  ");
-    byId("f-raw").innerHTML = raw;
-    // segments underneath
-    const segs = [
-      { hex: iface, what: "CAN interface on the monitor", cls: "iface" },
-      { hex: id, what: "COB-ID: <b>" + esc(info.kind) + "</b> · from " + esc(info.from) + " · to " + esc(info.to), cls: "id" },
-      { hex: "[" + dlc + "]", what: "<b>" + dlc + "</b> data byte" + (dlc === 1 ? "" : "s") + " follow (8 is the most a frame carries)", cls: "dlc" },
-      ...groups,
-    ];
-    byId("f-segs").innerHTML = segs.map(g => '<div class="seg" style="--c:' + C[g.cls] + '"><div class="hex">' + esc(g.hex) + '</div><div class="what">' + g.what + '</div></div>').join("");
-    document.querySelectorAll("#examples button").forEach(b => b.classList.toggle("on", b.dataset.key === f.key));
+    byId("f-summary").innerHTML = esc(f.type) + (f.sub ? ' <span class="dim">' + esc(f.sub) + "</span>" : "") +
+      ' <span class="dim">·</span> ' + dlc + (dlc === 1 ? " byte" : " bytes") +
+      ' <span class="dim">·</span> ' + esc(info.from) + ' <span class="dim">→</span> ' + esc(info.to);
+    let raw = tok(iface, "iface", "The CAN interface the monitor listened on.") + "  " +
+              tok(id, "id", info.kind + " From " + info.from + " to " + info.to + ".") + "   " +
+              tok("[" + dlc + "]", "dlc", dlc + " data byte" + (dlc === 1 ? "" : "s") + " follow. A CAN frame carries at most 8.") + "  ";
+    let i = 0; const parts = [];
+    for (const [n, what, cls] of f.segs) { parts.push(tok(bytes.slice(i, i + n).join(" "), cls, what)); i += n; }
+    byId("f-raw").innerHTML = raw + parts.join("  ");
   }
-  const ex = byId("examples");
-  FRAMES.forEach(f => { const b = document.createElement("button"); b.textContent = f.type; b.dataset.key = f.key; b.addEventListener("click", () => showFrame(f)); ex.appendChild(b); });
+
+  // example picker
+  const sel = byId("examples");
+  FRAMES.forEach((f, i) => { const o = document.createElement("option"); o.value = i; o.textContent = f.type + (f.sub ? ": " + f.sub : ""); sel.appendChild(o); });
+  sel.addEventListener("change", () => showFrame(FRAMES[+sel.value]));
   showFrame(FRAMES[0]);
+
+  // one tooltip for everything with data-tip (frame tokens and diagram parts)
+  const tip = byId("tip");
+  function placeTip(el) {
+    tip.innerHTML = el.dataset.tip; tip.hidden = false;
+    const r = el.getBoundingClientRect(); const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2, y = r.top - h - 8;
+    if (y < 6) y = r.bottom + 8;
+    x = Math.max(6, Math.min(x, window.innerWidth - w - 6));
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  document.addEventListener("mouseover", e => { const el = e.target.closest("[data-tip]"); if (el) placeTip(el); });
+  document.addEventListener("mouseout", e => { if (e.target.closest("[data-tip]")) tip.hidden = true; });
+  document.addEventListener("focusin", e => { const el = e.target.closest("[data-tip]"); if (el) placeTip(el); });
+  document.addEventListener("focusout", () => { tip.hidden = true; });
 </script>
 </body>
 </html>
