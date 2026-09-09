@@ -16,13 +16,13 @@
             --enclosure: #8a9891; --canh: #e8b04a; --canl: #5fc2a0; --eth: #7fa6e8; --estop: #e5675a; --motor: #2a333a; }
   }
   body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.45; }
-  .wrap { max-width: 1440px; margin: 0 auto; padding: 20px 20px 40px; }
-  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 600; }
-  .sub { color: var(--muted); margin: 0 0 16px; }
-  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
-  svg { display: block; width: 100%; height: auto; }
+  .wrap { max-width: 1440px; margin: 0 auto; padding: 14px 20px 30px; }
+  h1 { font-size: 20px; margin: 0 0 2px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 10px; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+  svg { display: block; width: 100%; height: auto; max-height: 260px; }
   figcaption { color: var(--muted); font-size: 13px; padding: 10px 4px 0; }
-  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 8px; color: var(--muted); font-size: 12px; }
   .legend span::before { content: ""; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--c); margin-right: 8px; vertical-align: middle; }
   /* SVG classes */
   .box { fill: var(--panel); stroke: var(--ink); stroke-width: 1.6; }
@@ -64,110 +64,86 @@
   <p class="sub">PikPak 007. Hover anything for detail.</p>
 
   <figure>
-    <svg viewBox="0 0 1400 520" role="img" aria-label="Left to right: the RCU containing the AGX computer and, over an Ethernet link, the Rozum board; the E-Stop sits outside the RCU below the AGX; a CAN high and CAN low pair into the robot, and inside the robot five Rozum drive boards in series, nodes 1, 2, 3, 5 and 6, each with a motor beneath it.">
+    <svg viewBox="0 0 1400 250" role="img" aria-label="Left to right: the RCU containing the AGX computer and, over an Ethernet link, the Rozum board; the E-Stop sits outside the RCU below the AGX; a CAN high and CAN low pair into the robot, and inside the robot five Rozum drive boards in series, nodes 1, 2, 3, 5 and 6, each with a motor beneath it.">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="var(--eth)"/>
         </marker>
       </defs>
-
       <!-- Routes for animated messages (invisible). ids are stable: use them later. -->
-      <path id="route-eth" class="route" d="M240,170 L340,170"/>
-      <path id="route-bus" class="route" d="M500,170 L1275,170"/>
-
-      <!-- RCU enclosure -->
-      <rect class="enclosure" x="30" y="80" width="500" height="160" rx="8"/>
-      <text class="label encl" x="46" y="104">RCU</text>
+      <path id="route-eth" class="route" d="M240,80 L340,80"/>
+      <path id="route-bus" class="route" d="M500,80 L1275,80"/>
+      <rect class="enclosure" x="30" y="14" width="500" height="118" rx="8"/>
+      <text class="label encl" x="46" y="36">RCU</text>
       <g id="agx" data-tip="The RCU's computer. It runs the actuator controller, which decides every CAN message and reads every reply. Its logs go to Elastic; its telemetry goes to Grafana.">
-        <rect class="box" x="60" y="130" width="180" height="80" rx="6"/>
-        <text class="label title" x="150" y="166" text-anchor="middle">AGX computer</text>
-        <text class="label small" x="150" y="188" text-anchor="middle">runs the actuator controller</text>
+        <rect class="box" x="60" y="50" width="180" height="60" rx="6"/>
+        <text class="label title" x="150" y="76" text-anchor="middle">AGX computer</text>
+        <text class="label small" x="150" y="96" text-anchor="middle">runs the actuator controller</text>
       </g>
-      <!-- E-Stop below the AGX -->
-      <line class="stub" x1="150" y1="210" x2="150" y2="306"/>
+      <line class="stub" x1="150" y1="110" x2="150" y2="152"/>
       <g id="estop" data-tip="The emergency stop. Wired to the AGX; pressing it stops the robot through the controller, not over the CAN bus.">
-        <circle class="estop-ring" cx="150" cy="340" r="34"/>
-        <circle class="estop-btn" cx="150" cy="340" r="22"/>
-        <text class="label title" x="150" y="400" text-anchor="middle">E-Stop</text>
+        <circle class="estop-ring" cx="150" cy="178" r="26"/>
+        <circle class="estop-btn" cx="150" cy="178" r="17"/>
+        <text class="label title" x="150" y="226" text-anchor="middle">E-Stop</text>
       </g>
-
-      <!-- Ethernet link -->
-      <line class="eth" x1="240" y1="170" x2="340" y2="170" marker-end="url(#arrow)"/>
-      <text class="label small" x="290" y="150" text-anchor="middle">Ethernet</text>
-      <text class="label small" x="290" y="200" text-anchor="middle" data-tip="The AGX sends each CAN frame to the Rozum board over Ethernet and receives every frame the board hears on the bus.">CAN messages</text>
-
-      <!-- Rozum board -->
+      <line class="eth" x1="240" y1="80" x2="340" y2="80" marker-end="url(#arrow)"/>
+      <text class="label small" x="290" y="66" text-anchor="middle">Ethernet</text>
+      <text class="label small" x="290" y="102" text-anchor="middle" data-tip="The AGX sends each CAN frame to the Rozum board over Ethernet and receives every frame the board hears on the bus.">CAN messages</text>
       <g id="rozum-board" data-tip="The CAN master. Takes the AGX's messages over Ethernet and puts them on the bus; sends its own heartbeat (700) every 250 ms and clock tick (27F) every 50 ms. Node 0 by its heartbeat; 127 if the tick is read as a standard PDO.">
-        <rect class="box" x="340" y="130" width="160" height="80" rx="6"/>
-        <text class="label title" x="420" y="166" text-anchor="middle">Rozum board</text>
-        <text class="label small" x="420" y="188" text-anchor="middle">CAN master, node 0 / 127?</text>
+        <rect class="box" x="340" y="50" width="160" height="60" rx="6"/>
+        <text class="label title" x="420" y="76" text-anchor="middle">Rozum board</text>
+        <text class="label small" x="420" y="96" text-anchor="middle">CAN master, node 0 / 127?</text>
       </g>
-
-      <!-- CAN pair from the Rozum board into the robot -->
-      <line class="canh" x1="500" y1="163" x2="620" y2="163"/>
-      <line class="canl" x1="500" y1="177" x2="620" y2="177"/>
-      <text class="label small" x="560" y="150" text-anchor="middle">CAN high</text>
-      <text class="label small" x="560" y="200" text-anchor="middle">CAN low</text>
-      <text class="label small" x="560" y="220" text-anchor="middle" data-tip="Twisted pair, 1 Mbit/s. Every frame from any device is seen by every other device; the COB-ID says who it is for. Carries about 3,600 frames a second while the robot works, roughly half the bus capacity.">1 Mbit/s</text>
-
-      <!-- Robot enclosure -->
-      <rect class="enclosure" x="580" y="80" width="790" height="400" rx="8"/>
-      <text class="label encl" x="596" y="104">ROBOT</text>
-
-      <!-- CAN pair between boards, in series -->
-      <line class="canh" x1="730" y1="163" x2="770" y2="163"/>
-      <line class="canl" x1="730" y1="177" x2="770" y2="177"/>
-      <line class="canh" x1="880" y1="163" x2="920" y2="163"/>
-      <line class="canl" x1="880" y1="177" x2="920" y2="177"/>
-      <line class="canh" x1="1030" y1="163" x2="1070" y2="163"/>
-      <line class="canl" x1="1030" y1="177" x2="1070" y2="177"/>
-      <line class="canh" x1="1180" y1="163" x2="1220" y2="163"/>
-      <line class="canl" x1="1180" y1="177" x2="1220" y2="177"/>
-
-      <!-- Drive boards -->
+      <line class="canh" x1="500" y1="73" x2="620" y2="73"/>
+      <line class="canl" x1="500" y1="87" x2="620" y2="87"/>
+      <text class="label small" x="560" y="62" text-anchor="middle">CAN high</text>
+      <text class="label small" x="560" y="106" text-anchor="middle">CAN low</text>
+      <text class="label small" x="560" y="124" text-anchor="middle" data-tip="Twisted pair, 1 Mbit/s. Every frame from any device is seen by every other device; the COB-ID says who it is for. Carries about 3,600 frames a second while the robot works, roughly half the bus capacity.">1 Mbit/s</text>
+      <rect class="enclosure" x="580" y="14" width="790" height="226" rx="8"/>
+      <text class="label encl" x="596" y="36">ROBOT</text>
+      <line class="canh" x1="730" y1="73" x2="770" y2="73"/>
+      <line class="canl" x1="730" y1="87" x2="770" y2="87"/>
+      <line class="canh" x1="880" y1="73" x2="920" y2="73"/>
+      <line class="canl" x1="880" y1="87" x2="920" y2="87"/>
+      <line class="canh" x1="1030" y1="73" x2="1070" y2="73"/>
+      <line class="canl" x1="1030" y1="87" x2="1070" y2="87"/>
+      <line class="canh" x1="1180" y1="73" x2="1220" y2="73"/>
+      <line class="canl" x1="1180" y1="87" x2="1220" y2="87"/>
       <g id="drive-1" data-tip="Rozum servo drive, CANopen node 1. Answers SDO reads on 581, takes requests on 601, heartbeats on 701, emergencies on 081. Holds a 256-point trajectory buffer.">
-        <rect class="box" x="620" y="130" width="110" height="80" rx="6"/>
-        <text class="label title" x="675" y="160" text-anchor="middle">Rozum</text>
-        <text class="label" x="675" y="178" text-anchor="middle">drive board</text>
-        <text class="label small" x="675" y="198" text-anchor="middle">node 1</text>
+        <rect class="box" x="620" y="50" width="110" height="60" rx="6"/>
+        <text class="label title" x="675" y="74" text-anchor="middle">Rozum drive</text>
+        <text class="label small" x="675" y="95" text-anchor="middle">node 1</text>
       </g>
       <g id="drive-2" data-tip="Rozum servo drive, CANopen node 2. Replies on 582, requests on 602, heartbeat 702, emergency 082.">
-        <rect class="box" x="770" y="130" width="110" height="80" rx="6"/>
-        <text class="label title" x="825" y="160" text-anchor="middle">Rozum</text>
-        <text class="label" x="825" y="178" text-anchor="middle">drive board</text>
-        <text class="label small" x="825" y="198" text-anchor="middle">node 2</text>
+        <rect class="box" x="770" y="50" width="110" height="60" rx="6"/>
+        <text class="label title" x="825" y="74" text-anchor="middle">Rozum drive</text>
+        <text class="label small" x="825" y="95" text-anchor="middle">node 2</text>
       </g>
       <g id="drive-3" data-tip="Rozum servo drive, CANopen node 3. Replies on 583, requests on 603, heartbeat 703, emergency 083.">
-        <rect class="box" x="920" y="130" width="110" height="80" rx="6"/>
-        <text class="label title" x="975" y="160" text-anchor="middle">Rozum</text>
-        <text class="label" x="975" y="178" text-anchor="middle">drive board</text>
-        <text class="label small" x="975" y="198" text-anchor="middle">node 3</text>
+        <rect class="box" x="920" y="50" width="110" height="60" rx="6"/>
+        <text class="label title" x="975" y="74" text-anchor="middle">Rozum drive</text>
+        <text class="label small" x="975" y="95" text-anchor="middle">node 3</text>
       </g>
       <g id="drive-5" data-tip="Rozum servo drive, CANopen node 5. Replies on 585, requests on 605, heartbeat 705, emergency 085. Node 4 is not fitted.">
-        <rect class="box" x="1070" y="130" width="110" height="80" rx="6"/>
-        <text class="label title" x="1125" y="160" text-anchor="middle">Rozum</text>
-        <text class="label" x="1125" y="178" text-anchor="middle">drive board</text>
-        <text class="label small" x="1125" y="198" text-anchor="middle">node 5</text>
+        <rect class="box" x="1070" y="50" width="110" height="60" rx="6"/>
+        <text class="label title" x="1125" y="74" text-anchor="middle">Rozum drive</text>
+        <text class="label small" x="1125" y="95" text-anchor="middle">node 5</text>
       </g>
       <g id="drive-6" data-tip="Rozum servo drive, CANopen node 6. Replies on 586, requests on 606, heartbeat 706, emergency 086.">
-        <rect class="box" x="1220" y="130" width="110" height="80" rx="6"/>
-        <text class="label title" x="1275" y="160" text-anchor="middle">Rozum</text>
-        <text class="label" x="1275" y="178" text-anchor="middle">drive board</text>
-        <text class="label small" x="1275" y="198" text-anchor="middle">node 6</text>
+        <rect class="box" x="1220" y="50" width="110" height="60" rx="6"/>
+        <text class="label title" x="1275" y="74" text-anchor="middle">Rozum drive</text>
+        <text class="label small" x="1275" y="95" text-anchor="middle">node 6</text>
       </g>
-
-      <!-- Motors beneath each board -->
-      <line class="stub" x1="675" y1="210" x2="675" y2="270"/>
-      <line class="stub" x1="825" y1="210" x2="825" y2="270"/>
-      <line class="stub" x1="975" y1="210" x2="975" y2="270"/>
-      <line class="stub" x1="1125" y1="210" x2="1125" y2="270"/>
-      <line class="stub" x1="1275" y1="210" x2="1275" y2="270"/>
-      <g id="motor-1" data-tip="Motor 1. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 1 about 56 times a second."><circle class="motor" cx="675" cy="302" r="32"/><text class="label title" x="675" y="308" text-anchor="middle">M1</text><text class="label small" x="675" y="358" text-anchor="middle">Motor 1</text></g>
-      <g id="motor-2" data-tip="Motor 2. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 2 about 56 times a second."><circle class="motor" cx="825" cy="302" r="32"/><text class="label title" x="825" y="308" text-anchor="middle">M2</text><text class="label small" x="825" y="358" text-anchor="middle">Motor 2</text></g>
-      <g id="motor-3" data-tip="Motor 3. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 3 about 56 times a second."><circle class="motor" cx="975" cy="302" r="32"/><text class="label title" x="975" y="308" text-anchor="middle">M3</text><text class="label small" x="975" y="358" text-anchor="middle">Motor 3</text></g>
-      <g id="motor-5" data-tip="Motor 5. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 5 about 56 times a second."><circle class="motor" cx="1125" cy="302" r="32"/><text class="label title" x="1125" y="308" text-anchor="middle">M5</text><text class="label small" x="1125" y="358" text-anchor="middle">Motor 5</text></g>
-      <g id="motor-6" data-tip="Motor 6. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 6 about 56 times a second."><circle class="motor" cx="1275" cy="302" r="32"/><text class="label title" x="1275" y="308" text-anchor="middle">M6</text><text class="label small" x="1275" y="358" text-anchor="middle">Motor 6</text></g>
-
+      <line class="stub" x1="675" y1="110" x2="675" y2="154"/>
+      <g id="motor-1" data-tip="Motor 1. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 1 about 56 times a second."><circle class="motor" cx="675" cy="178" r="24"/><text class="label title" x="675" y="184" text-anchor="middle">M1</text><text class="label small" x="675" y="222" text-anchor="middle">Motor 1</text></g>
+      <line class="stub" x1="825" y1="110" x2="825" y2="154"/>
+      <g id="motor-2" data-tip="Motor 2. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 2 about 56 times a second."><circle class="motor" cx="825" cy="178" r="24"/><text class="label title" x="825" y="184" text-anchor="middle">M2</text><text class="label small" x="825" y="222" text-anchor="middle">Motor 2</text></g>
+      <line class="stub" x1="975" y1="110" x2="975" y2="154"/>
+      <g id="motor-3" data-tip="Motor 3. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 3 about 56 times a second."><circle class="motor" cx="975" cy="178" r="24"/><text class="label title" x="975" y="184" text-anchor="middle">M3</text><text class="label small" x="975" y="222" text-anchor="middle">Motor 3</text></g>
+      <line class="stub" x1="1125" y1="110" x2="1125" y2="154"/>
+      <g id="motor-5" data-tip="Motor 5. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 5 about 56 times a second."><circle class="motor" cx="1125" cy="178" r="24"/><text class="label title" x="1125" y="184" text-anchor="middle">M5</text><text class="label small" x="1125" y="222" text-anchor="middle">Motor 5</text></g>
+      <line class="stub" x1="1275" y1="110" x2="1275" y2="154"/>
+      <g id="motor-6" data-tip="Motor 6. Its position, velocity, current and temperature come back in the 16-byte status block the master reads from drive 6 about 56 times a second."><circle class="motor" cx="1275" cy="178" r="24"/><text class="label title" x="1275" y="184" text-anchor="middle">M6</text><text class="label small" x="1275" y="222" text-anchor="middle">Motor 6</text></g>
       <!-- Messages will be drawn here -->
       <g id="messages"></g>
     </svg>
