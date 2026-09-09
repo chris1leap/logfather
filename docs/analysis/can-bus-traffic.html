@@ -101,6 +101,7 @@
   .hb h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
   .hb input[type=number] { font: inherit; font-size: 13px; width: 4.5ch; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
   .hb .count { font-weight: 600; }
+  .hb .source { color: var(--muted); }
   .hb .note { color: var(--muted); flex-basis: 100%; }
   .hb ol { margin: 8px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 12px; max-height: 210px; overflow: auto; }
   .hb li button { font: inherit; font-size: 13px; width: 100%; text-align: left; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: pointer; }
@@ -275,6 +276,7 @@
   <section class="hb">
     <div class="head">
       <h2>Missed heartbeats</h2>
+      <span class="source" id="hb-source"></span>
       <label>at least <input type="number" id="hb-n" min="1" max="50" value="4"> in a row</label>
       <span class="count" id="hb-count"></span>
       <span class="note"><span id="hb-periods"></span> A gap is counted from the last heartbeat seen to the next, in multiples of that spacing; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
@@ -443,6 +445,7 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
   async function install(cap, sourceName) {
     // cap: { ids, T (Float64Array), ID (Uint16Array), OFF (Uint32Array N+1), BYTES (Uint8Array), start_clock, totals, start_index }
     stopReplay(); setBusy(true);
+    byId("hb-list").innerHTML = ""; byId("hb-count").textContent = "…"; byId("marks").innerHTML = ""; byId("hb-source").textContent = "";
     try {
       IDS = cap.ids; IDV = IDS.map(x => parseInt(x, 16)); T = cap.T; ID = cap.ID; OFF = cap.OFF; BYTES = cap.BYTES; N = T.length; T0 = T[0]; startClock = cap.start_clock; TOTALS = cap.totals || null;
       FAM = new Uint8Array(N); FROM = new Int8Array(N); TO = new Int8Array(N);
@@ -452,7 +455,8 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
       for (let i = 0; i < N; i++) { byFamily[FAM[i]].push(i); if (FAM[i] === F["Heartbeat (master)"] || FAM[i] === F["Heartbeat (drive)"]) (hbIndex[IDV[ID[i]]] = hbIndex[IDV[ID[i]]] || []).push(i); }
       byId("source").textContent = sourceName + ": " + fmt(N, 0) + " frames, " + fmt((T[N - 1] - T0) / 1e6, 1) + " s, from " + startClock.substr(0, 12);
       byId("seek").max = N - 1; byId("seek-start").textContent = clock(0); byId("seek-end").textContent = clock(T[N - 1] - T0);
-      measurePeriods(); findHeartbeatGaps();
+      byId("hb-source").textContent = "in " + sourceName;
+      try { measurePeriods(); findHeartbeatGaps(); } catch (ex) { byId("hb-count").textContent = "could not be worked out: " + ex.message; }
       show(cap.start_index || 0);
     } finally { setBusy(false); progress(""); }
   }
@@ -516,8 +520,9 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
     return { ids, T: T_, ID: ID_, OFF: OFF_, BYTES: B, start_clock: clock0, totals: Object.keys(totals).length ? totals : null, start_index: 0 };
   }
   byId("capture-file").addEventListener("change", async e => {
-    const file = e.target.files[0]; if (!file || loading) return;
+    const file = e.target.files[0]; if (!file) return;
     const err = byId("load-error"); err.hidden = true;
+    if (loading) { err.textContent = "Still loading the previous file; try again when the progress line has gone."; err.hidden = false; e.target.value = ""; return; }
     try { setBusy(true); progress("Reading " + file.name + " (" + fmt(file.size / 1e6, 1) + " MB)…"); await yieldToUI(); await install(await parseFile(file), file.name); }
     catch (ex) { err.textContent = ex.message; err.hidden = false; }
     finally { setBusy(false); progress(""); e.target.value = ""; }
