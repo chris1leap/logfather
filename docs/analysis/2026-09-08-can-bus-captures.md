@@ -50,9 +50,8 @@ reset explains the "Actuators re-connected" and "Error Reset or No Error ::
 N/A" lines that follow each wave (see capture 2 for what N/A is).
 
 Not decoded: the 0xFF80 emergencies carry manufacturer bytes 26 / 46 / 47 /
-48 that need the drive manual; the SDO objects 0x2014:01 (16-byte segmented
-read from every drive roughly every 10 ms) and 0x2202:02 are also
-manufacturer-specific.
+48 that need the drive manual. (0x2014:01 and 0x2202 are decoded in their
+own sections below.)
 
 The monitor's own tagging agrees: every frame up to 18:33:57 is NEAR_POWER,
 everything after is OTHER.
@@ -134,6 +133,31 @@ Also at 19:05:45 the master wrote configuration to every drive after the
 reset: 0x2300:03 as a float of 3876 on drives 1 to 3 and 4560 on drives 5
 and 6, and 0x4301:05 as 85 on drives 1 to 3 and 100 on drives 5 and 6.
 Probably per-axis limits; the drive manual is needed to name them.
+
+## Motor temperature and current: the 0x2014:01 status block
+
+There is no separate temperature or current message on the bus. Both ride
+in the 16-byte status block the master reads from every drive through SDO
+object 0x2014 sub-index 1. The block is four little-endian float32 values:
+
+| Bytes | Field | Confirmed by |
+|---|---|---|
+| 0 to 3 | position, PVT units | tracks the PVT positions sent (drive 3: 0 to 102 on both) |
+| 4 to 7 | velocity, PVT units/s | swings to about +/-250 only while moving, near 0 at rest |
+| 8 to 11 | motor current, A | same range as Grafana `actuators_motor_current`; larger while moving (drive 1: 4.1 A moving, 0.5 A still, peak 10.7 A) |
+| 12 to 15 | motor temperature, C | matches Grafana `actuators_motor_temperature` to within 0.02 C, correlation 1.00 on every drive |
+
+The temperature match also confirms the captures came from PikPak 007
+(35-2300-007).
+
+How often: the master reads the block in bursts of four back-to-back reads
+(about 1.7 ms apart) followed by a 35 to 55 ms pause, so roughly 65 reads a
+second per drive while it is working, one read every 3 ms across the five
+drives. It does not read while the bus is idle (577 pauses over half a
+second for drive 1), so the master had the block about 12,400 times per
+drive in the 14-minute capture. Each read costs 8 frames, so this is the
+largest single load on the bus. Grafana keeps one sample every 30 s of what
+the master sees.
 
 ## PVT point format (object 0x2200:02)
 
