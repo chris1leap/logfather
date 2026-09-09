@@ -20,6 +20,24 @@ Chris's Downloads. Interactive timeline for the first capture:
 | PVT | Position Velocity Time | The trajectory points streamed into the drives' buffer (object 0x2202). |
 | RPDO / TPDO | Receive / Transmit PDO | PDO seen from the node's side: it receives an RPDO, transmits a TPDO. 0x27F is RPDO1 for node 127, the master's alive tick. |
 
+## Read this first: the monitor keeps about a third of the frames
+
+The monitor writes a comment line every second with the number of frames it
+saw (`total`) and the number of lines it wrote (`raw_lines_kept`). Over the
+18:59 capture it saw 2,999,573 frames and wrote 807,796, about 27%. The kept
+lines cluster in a window around each second boundary, so each second in the
+file shows a burst of traffic then 0.5 to 0.7 s of apparent silence that is
+not real. Every 10 to 11 s the tool keeps almost nothing for 2 to 4 s
+(75 such runs in 14 minutes). These two artefacts were first read as bus
+silences and as the master stalling; they are not. Corrected figures are in
+the sections below; the timeline pages show the frames the tool kept.
+
+What survives the correction: the 18:32 power dip and error storm (the 27F
+counter proves the master's queue was frozen for 40 s), the drives'
+heartbeat-loss emergency at 19:05:38 (the drives themselves reported it,
+and the tool was keeping a third of frames through that stretch), and every
+decoded format.
+
 ## Capture 1: 18:32:52 to 18:35:58 (`18h.txt`)
 
 155,741 frames in 3 minutes 6 seconds. Records a full power dip on the drives
@@ -68,8 +86,9 @@ its own clock inside. Two things in the stream:
   the next one had only moved 1.1 s: that frame sat in the controller's
   transmit queue while the bus was down and everything behind it was
   dropped.
-- After recovery (from 18:34:25) the tick pauses for 2 to 6 s roughly every
-  10 s while drive SDO traffic continues. Capture 2 shows this is permanent.
+- After recovery the tick appears to pause for 2 to 6 s roughly every 10 s,
+  with its counter advancing normally across each pause: the frames were
+  sent but not kept by the monitor (see "Read this first").
 
 ## Capture 2: 18:59:49 to 19:13:42 (`19h.txt`)
 
@@ -80,14 +99,16 @@ Interactive timeline for 19:04:30 to 19:07:30 (the stop/start in the middle):
 frames in the whole capture. This is the healthy running pattern plus one
 deliberate stop/start of the drives.
 
-**Traffic pattern.** About 1,000 frames/s of SDO traffic: reads of
-0x2014:01 (status block) and 0x2202:02/03, and 42,901 segmented writes to
-0x2200:02, which is the trajectory (PVT) streaming. The bus is silent for
-0.5 to 1.0 s about 56 times every minute; 586 s of the 832 s are silence. The
-master's heartbeat (250 ms nominal) and the 27F tick both stall for 3.5 to
-4.5 s roughly every 10 s, 100 times in the capture, while SDO traffic keeps
-flowing. So the master's CANopen housekeeping thread stalls regularly even
-though its SDO work does not.
+**Traffic pattern.** The monitor's own totals show 3,500 to 4,300 frames
+every second, continuously, while the system works: status reads of
+0x2014:01 (about 56 reads a second per drive), PVT points into 0x2200:02
+(about 40 a second per drive while moving), buffer polls of 0x2202:02, the
+27F tick and the heartbeats. The kept lines show 1,000 to 1,500 of those
+frames per second in a burst around each second boundary, which is why the
+file looks bursty. Between 19:05:47 and 19:06:10, with the drives stopped,
+the bus really is quiet: 29 to 31 frames a second, which is exactly the 27F
+tick at 20/s, the master heartbeat at 4/s and five drive heartbeats at
+about 1.1/s each.
 
 **The 19:05 stop/start.**
 
@@ -150,14 +171,12 @@ object 0x2014 sub-index 1. The block is four little-endian float32 values:
 The temperature match also confirms the captures came from PikPak 007
 (35-2300-007).
 
-How often: the master reads the block in bursts of four back-to-back reads
-(about 1.7 ms apart) followed by a 35 to 55 ms pause, so roughly 65 reads a
-second per drive while it is working, one read every 3 ms across the five
-drives. It does not read while the bus is idle (577 pauses over half a
-second for drive 1), so the master had the block about 12,400 times per
-drive in the 14-minute capture. Each read costs 8 frames, so this is the
-largest single load on the bus. Grafana keeps one sample every 30 s of what
-the master sees.
+How often: about 56 reads a second per drive, continuously while the
+system works, one read of some drive every 3.5 ms on the bus (from the
+monitor's totals and the 61% share of status frames; the kept lines alone
+show bursts of four reads then a gap, which is the monitor's sampling, not
+the master's). Each read costs 8 frames, so this is the largest single load
+on the bus. Grafana keeps one sample every 30 s of what the master sees.
 
 ## PVT point format (object 0x2200:02)
 
@@ -178,59 +197,52 @@ prints the same triple when a drive rejects a point ("PVT 43.430946 0.000000
 Cost on the wire: 6 frames per point (write initiate, ack, 7-byte segment,
 ack, 5-byte segment, ack), about 0.72 ms measured on the 1 Mbit/s bus, so
 12 useful bytes occupy roughly 800 bits: a payload efficiency near 15%. The
-capture holds about 8,600 points per drive over 14 minutes (10 a second on
-average, 50 a second while an axis moves), and PVT streaming is about a third
-of all frames on the bus; the 0x2014:01 status read is most of the rest.
+kept lines hold about 8,600 points per drive; scaled by the monitor's keep
+rate the master streams about 40 points a second per drive while an axis
+moves, and PVT streaming is about a third of all frames on the bus; the
+0x2014:01 status read is most of the rest.
 
 If bus load ever matters: a point fits in two PDOs with no acknowledgements,
 or in one 8-byte frame as 16-bit scaled position and velocity with the time
 implied, which is how most CANopen motion profiles do it.
 
-## The master's 10-second stalls and what they do to a move
+## The "10-second stalls": a capture artefact
 
-Measured in the 18:59 capture (14 minutes of normal running):
+An earlier version of this note read the 2 to 4 s gaps every 10 s in the
+kept lines as the master stalling and the drives running out of trajectory
+points mid-move. The monitor's per-second totals show the bus carrying
+3,500 to 4,000 frames through every one of those gaps, and the 27F counter
+advances normally across them, so the master did not stall and the drives
+were fed. The buffer-underrun analysis built on those gaps is withdrawn.
 
-- The master's alive tick (27F) and heartbeat (700) stop for 2 to 4.5 s
-  about every 10 s: 78 stalls over 1.5 s in the capture. Inside every stall
-  the whole bus is silent for about a second; status polling then resumes,
-  but no trajectory points are sent until the stall ends.
-- 40 of the 78 stalls began with at least one drive mid-move (last point
-  sent at 20 units/s or more, points still queued); in 57 drive-cases a
-  buffer was actively draining when the stall hit.
-- While moving, a drive holds 180 to 840 ms of points (median 420 ms), far
-  less than a stall. Example at +17.2 s: drive 6 had 26 points queued at
-  162 units/s, the master sent nothing for 3.7 s, and the next point after
-  the stall restarted the move from rest at the original start position.
-  Another stall drained drive 1 from 23 points to 0 with nothing arriving.
-- No emergency was raised during any of these stalls, so the drives hold
-  position when they run out of points rather than faulting. The cost is
-  the arm freezing for 2 to 4 s mid-pick and the move being restarted; in
-  the Elastic logs this appears as "Non-timestamped PVTs received but
-  motors already stopped" and the bad_start_time state.
+Two things in that stretch are real: the master's heartbeat did stop for
+5.9 s from 19:05:36 while it was reconfiguring the drives (all five drives
+raised 0x8130, and the tool was keeping a third of frames through those
+seconds), and after a drive runs out of points it holds position rather
+than faulting, which the restart at 19:06:05 shows.
 
-So a lost frame is harmless (CAN retransmits it within microseconds and a
-half-written PVT point is rejected, never half-applied). The thing to design
-against is the master stopping for longer than the drives' reserve: find the
-10-second periodic job on the CCU that stalls the CAN thread (log flushing
-and metrics pushing are the obvious candidates), keep the CAN streaming on a
-thread that housekeeping cannot block, and preload more of the 256-point
-buffer before a move so the reserve covers a stall.
+The genuine risk is unchanged in kind but not demonstrated here: a moving
+drive holds 180 to 840 ms of points, so anything that stops the master
+feeding it for longer than that stops the arm mid-move. A capture from a
+monitor that keeps every frame is needed before saying whether that ever
+happens in normal running.
 
 ## Bus utilisation
 
-The bit rate is 1 Mbit/s: the busiest 10 ms of the second capture holds 59
-eight-byte frames, about 77% of a 1 Mbit/s bus, which no slower rate could
-carry. Frame sizes assume standard 11-bit IDs, worst-case bit stuffing on the
-stuffable part, and about 20 bits per error frame.
+The bit rate is 1 Mbit/s: seconds with 4,286 frames of mostly 8-byte data,
+about 56% of a 1 Mbit/s bus, could not exist at any slower rate. Figures use
+the monitor's per-second frame totals (not the kept lines) and the mean
+frame length from the kept mix, about 130 bits with worst-case stuffing.
 
 | | 18:32 capture | 18:59 capture |
 |---|---|---|
-| Averaged over the whole capture | 7.5% | 12.6% |
-| Median second | 1.0% | 15.9% |
-| Busiest second | 43.1% | 38.1% |
-| While the bus is active (silences over 0.3 s excluded) | 28.6% | 42.5% |
-| Busiest 10 ms | error storm, saturated | 76.7% |
+| Sustained, whole capture | error storm, not meaningful | 47% |
+| Typical second | | 49% |
+| Busiest second | | 56% |
+| Drives stopped (19:05:47 to 19:06:10) | | under 1% |
 
-So the bus is lightly loaded on average but the traffic is bursty: SDO
-polling runs at 40 to 45% for a few hundred milliseconds, then the bus goes
-quiet for most of a second.
+So the bus runs at about half its capacity all the time the system is
+working, at the top of the range normally accepted for a control bus. Status
+reads of 0x2014:01 are about 61% of frames and PVT streaming about 32%;
+either moving to PDOs would roughly halve the load.
+
