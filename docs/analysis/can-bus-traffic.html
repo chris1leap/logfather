@@ -95,6 +95,21 @@
   .traffic .meter.warn i { background: var(--canh); } .traffic .meter.hot i { background: var(--estop); }
   .traffic .meter b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--muted); opacity: .5; }
   .traffic .detail { grid-column: 1 / -1; color: var(--muted); }
+  /* heartbeat gaps */
+  .hb { margin-top: 14px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+  .hb .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .hb h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  .hb input[type=number] { font: inherit; font-size: 13px; width: 4.5ch; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
+  .hb .count { font-weight: 600; }
+  .hb .note { color: var(--muted); flex-basis: 100%; }
+  .hb ol { margin: 8px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 12px; max-height: 210px; overflow: auto; }
+  .hb li button { font: inherit; font-size: 13px; width: 100%; text-align: left; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: pointer; }
+  .hb li button:hover { border-color: var(--estop); }
+  .hb li button b { color: var(--estop); }
+  .hb li button small { color: var(--muted); }
+  .seek { position: relative; }
+  .seek .marks { position: absolute; left: 0; right: 0; top: -6px; height: 5px; pointer-events: none; }
+  .seek .marks i { position: absolute; top: 0; width: 2px; height: 5px; background: var(--estop); }
   /* sender / receiver highlight and the moving dots */
   :root { --send: #2e5eaa; --recv: #2e8b3a; --send-soft: rgba(46,94,170,.16); --recv-soft: rgba(46,139,58,.16); }
   @media (prefers-color-scheme: dark) { :root { --send: #7fa6e8; --recv: #6fcf7a; --send-soft: rgba(127,166,232,.22); --recv-soft: rgba(111,207,122,.22); } }
@@ -129,8 +144,9 @@
       <text class="label encl" x="46" y="36">RCU</text>
       <g id="agx" data-tip="The RCU's computer. It runs the actuator controller, which decides every CAN message and reads every reply. Its logs go to Elastic; its telemetry goes to Grafana.">
         <rect class="box" x="60" y="50" width="180" height="60" rx="6"/>
-        <text class="label title" x="150" y="76" text-anchor="middle">AGX computer</text>
-        <text class="label small" x="150" y="96" text-anchor="middle">runs the actuator controller</text>
+        <text class="label title" x="150" y="71" text-anchor="middle">AGX computer</text>
+        <text class="label small" x="150" y="88" text-anchor="middle">runs the actuator controller</text>
+        <text class="label small" x="150" y="103" text-anchor="middle">(CAN monitor installed)</text>
       </g>
       <line class="stub" x1="150" y1="110" x2="150" y2="152"/>
       <g id="estop" data-tip="The emergency stop. Wired to the AGX; pressing it stops the robot through the controller, not over the CAN bus.">
@@ -227,7 +243,7 @@
       </select>
     </label>
     <label>Go to time <input type="text" id="goto" placeholder="19:05:38.000" size="12" spellcheck="false" aria-label="Wall-clock time to jump to"><button id="goto-btn">Go</button></label>
-    <div class="seek"><span class="clock" id="seek-start"></span><input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Position in the capture"><span class="clock" id="seek-end"></span><span id="seek-label">frame 1</span></div>
+    <div class="seek"><span class="clock" id="seek-start"></span><span style="flex:1;position:relative;display:flex"><span class="marks" id="marks"></span><input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Position in the capture" style="width:100%"></span><span class="clock" id="seek-end"></span><span id="seek-label">frame 1</span></div>
     <span class="err" id="load-error" hidden></span>
     <span class="source" id="progress" hidden></span>
   </div>
@@ -256,6 +272,15 @@
     <div class="meter" id="tr-meter" data-tip="Estimated bus load over the second before the current frame: frames × about 130 bits each (a full 8-byte frame with worst-case stuffing) against 1,000,000 bits a second. Marks at 30% and 50%, the usual comfort and ceiling figures for a control bus."><i id="tr-bar"></i><b style="left:30%"></b><b style="left:50%"></b></div>
     <div class="detail" id="tr-detail"></div>
   </section>
+  <section class="hb">
+    <div class="head">
+      <h2>Missed heartbeats</h2>
+      <label>at least <input type="number" id="hb-n" min="1" max="50" value="4"> in a row</label>
+      <span class="count" id="hb-count"></span>
+      <span class="note">Master heartbeat every 250 ms on 700, each drive every 900 ms on 701 to 706. A gap is counted from the last heartbeat seen to the next; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
+    </div>
+    <ol id="hb-list"></ol>
+  </section>
   <div class="tip" id="tip" hidden></div>
 </div>
 <script>
@@ -263,81 +288,94 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
 </script>
 <script>
 (function () {
-  const NODE = n => n === 0 ? "Rozum board" : "drive " + n;
   const C = { iface: "var(--t-iface)", id: "var(--t-id)", dlc: "var(--t-dlc)", cmd: "var(--t-cmd)", obj: "var(--t-obj)", val: "var(--t-val)", raw: "var(--t-raw)" };
   const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const hex2 = b => b.toString(16).toUpperCase().padStart(2, "0");
-  const f32 = bs => { const dv = new DataView(new ArrayBuffer(4)); bs.forEach((b, i) => dv.setUint8(i, b)); return dv.getFloat32(0, true); };
-  const u32 = bs => (bs[0] | bs[1] << 8 | bs[2] << 16 | (bs[3] << 24 >>> 0)) >>> 0;
+  const f32 = bs => { const dv = new DataView(new ArrayBuffer(4)); for (let i = 0; i < 4; i++) dv.setUint8(i, bs[i] || 0); return dv.getFloat32(0, true); };
+  const u32 = bs => ((bs[0] || 0) | (bs[1] || 0) << 8 | (bs[2] || 0) << 16 | ((bs[3] || 0) << 24 >>> 0)) >>> 0;
   const fmt = (x, d) => Number(x).toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
   const byId = id => document.getElementById(id);
-  const bytesOf = hex => { const b = []; for (let k = 0; k < hex.length; k += 2) b.push(parseInt(hex.substr(k, 2), 16)); return b; };
   const yieldToUI = () => new Promise(r => setTimeout(r, 0));
 
-  // ---- the loaded capture
-  // FAM: family index per frame; FROM/TO: node number (0 = Rozum board, -1 = none/all); CTX: for SDO segments only,
-  // the object, size, offset and bytes so far, so the fields can be named when the frame is shown.
+  // ---- the loaded capture, as typed arrays so an hour-long file fits in memory
   const FAMILIES = ["Other", "Error frame", "Heartbeat (master)", "Heartbeat (drive)", "Master tick", "NMT command", "SYNC", "Emergency", "PDO",
     "Motor status", "Buffer poll", "Buffer clear", "PVT point", "Configuration write", "SDO read", "SDO write", "SDO abort"];
   const F = Object.fromEntries(FAMILIES.map((n, i) => [n, i]));
-  let IDS, T, I, D, N, T0, startClock, TOTALS, FAM, FROM, TO, CTX, byFamily, cur = 0, loading = false;
+  let IDS, IDV, ID, T, OFF, BYTES, N, T0, startClock, TOTALS, FAM, FROM, TO, byFamily, hbIndex, cur = 0, loading = false;
+  const bytesAt = i => BYTES.subarray(OFF[i], OFF[i + 1]);
+  const dlcAt = i => OFF[i + 1] - OFF[i];
+  const hexAt = i => Array.from(bytesAt(i), hex2);
   const clock = us => { const [h, m, sec] = startClock.split(":"); const base = (+h) * 3600e6 + (+m) * 60e6 + parseFloat(sec) * 1e6 + us;
     const hh = Math.floor(base / 3600e6) % 24, mm = Math.floor(base % 3600e6 / 60e6), ss = (base % 60e6) / 1e6;
     return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0") + ":" + ss.toFixed(3).padStart(6, "0"); };
 
-  // ---- pass 1: classify every frame in order (cheap; keeps per-node SDO context)
-  const familyOf = (obj, sub) => obj === "2014" ? F["Motor status"] : obj === "2202" ? (sub === 1 ? F["Buffer clear"] : F["Buffer poll"]) : obj === "2200" ? F["PVT point"] : F["Configuration write"];
-  function classify(i, up, down) {
-    const id = IDS[I[i]], v = parseInt(id, 16), hex = D[i];
-    const b0 = parseInt(hex.substr(0, 2), 16) || 0, b1 = parseInt(hex.substr(2, 2), 16) || 0, b2 = parseInt(hex.substr(4, 2), 16) || 0, b3 = parseInt(hex.substr(6, 2), 16) || 0;
-    let fam = F.Other, from = -1, to = -1, ctx = null;
-    if (id === "1FFFFFFF" || v >= 0x20000000) fam = F["Error frame"];
-    else if (v >= 0x700 && v <= 0x77F) { const n = v - 0x700; fam = n ? F["Heartbeat (drive)"] : F["Heartbeat (master)"]; from = n; to = n ? 0 : -1; }
-    else if (v === 0x27F) { fam = F["Master tick"]; from = 0; }
-    else if (v === 0x000) { fam = F["NMT command"]; from = 0; to = b1 || -1; }
-    else if (v === 0x080 || v === 0x100) { fam = F.SYNC; from = 0; }
-    else if (v >= 0x081 && v <= 0x0FF) { fam = F.Emergency; from = v - 0x80; to = 0; }
-    else if ((v >= 0x181 && v <= 0x1FF) || (v >= 0x281 && v <= 0x2FF) || (v >= 0x381 && v <= 0x3FF) || (v >= 0x481 && v <= 0x4FF)) { fam = F.PDO; from = v & 0x7F; to = 0; }
-    else {
-      const isReq = v >= 0x601 && v <= 0x67F, isRep = v >= 0x581 && v <= 0x5FF;
-      if (isReq || isRep) {
-        const n = v - (isReq ? 0x600 : 0x580), cs = b0, obj = hex2(b2) + hex2(b1), sub = b3;
-        from = isReq ? 0 : n; to = isReq ? n : 0;
-        const size = () => u32(bytesOf(hex.substr(8, 8)).concat([0, 0, 0, 0]).slice(0, 4));
-        if (isReq) {
-          if (cs === 0x40) { up[n] = { obj, sub, size: 0, buf: "" }; fam = familyOf(obj, sub); }
-          else if (cs === 0x21) { down[n] = { obj, sub, size: size(), buf: "" }; fam = familyOf(obj, sub); }
-          else if ((cs & 0xE3) === 0x23) fam = familyOf(obj, sub);
-          else if ((cs & 0xE0) === 0x00) {   // download data segment
-            const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1, c = down[n], off = c ? c.buf.length / 2 : 0;
-            const ok = c && ((off / 7) & 1) === t && (last ? off + k === c.size : off + k < c.size);
-            if (ok) { c.buf += hex.substr(2, 2 * k); ctx = { obj: c.obj, sub: c.sub, size: c.size, off, buf: c.buf }; fam = familyOf(c.obj, c.sub); if (last) delete down[n]; }
-            else { delete down[n]; fam = F["PVT point"]; }
+  // ---- classification, one cheap sequential pass keeping per-node SDO state without buffers
+  const familyOf = (obj, sub) => obj === 0x2014 ? F["Motor status"] : obj === 0x2202 ? (sub === 1 ? F["Buffer clear"] : F["Buffer poll"]) : obj === 0x2200 ? F["PVT point"] : F["Configuration write"];
+  function classifyAll() {
+    const up = {}, down = {};
+    for (let i = 0; i < N; i++) {
+      const v = IDV[ID[i]], b = bytesAt(i), b0 = b[0] || 0, b1 = b[1] || 0, b2 = b[2] || 0, b3 = b[3] || 0;
+      let fam = F.Other, from = -1, to = -1;
+      if (v >= 0x20000000 || IDS[ID[i]] === "1FFFFFFF") fam = F["Error frame"];
+      else if (v >= 0x700 && v <= 0x77F) { const n = v - 0x700; fam = n ? F["Heartbeat (drive)"] : F["Heartbeat (master)"]; from = n; to = n ? 0 : -1; }
+      else if (v === 0x27F) { fam = F["Master tick"]; from = 0; }
+      else if (v === 0x000) { fam = F["NMT command"]; from = 0; to = b1 || -1; }
+      else if (v === 0x080 || v === 0x100) { fam = F.SYNC; from = 0; }
+      else if (v >= 0x081 && v <= 0x0FF) { fam = F.Emergency; from = v - 0x80; to = 0; }
+      else if ((v >= 0x181 && v <= 0x1FF) || (v >= 0x281 && v <= 0x2FF) || (v >= 0x381 && v <= 0x3FF) || (v >= 0x481 && v <= 0x4FF)) { fam = F.PDO; from = v & 0x7F; to = 0; }
+      else {
+        const isReq = v >= 0x601 && v <= 0x67F, isRep = v >= 0x581 && v <= 0x5FF;
+        if (isReq || isRep) {
+          const n = v - (isReq ? 0x600 : 0x580), cs = b0, obj = b2 << 8 | b1, sub = b3, size = u32([b[4], b[5], b[6], b[7]]);
+          from = isReq ? 0 : n; to = isReq ? n : 0;
+          const seg = (tbl, fallback) => { const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1, c = tbl[n];
+            const ok = c && ((c.off / 7) & 1) === t && (last ? c.off + k === c.size : c.off + k < c.size);
+            if (ok) { c.off += k; const f = familyOf(c.obj, c.sub); if (last) delete tbl[n]; return f; } delete tbl[n]; return fallback; };
+          if (isReq) {
+            if (cs === 0x40) { up[n] = { obj, sub, size: 0, off: 0 }; fam = familyOf(obj, sub); }
+            else if (cs === 0x21) { down[n] = { obj, sub, size, off: 0 }; fam = familyOf(obj, sub); }
+            else if ((cs & 0xE3) === 0x23) fam = familyOf(obj, sub);
+            else if ((cs & 0xE0) === 0x00) fam = seg(down, F["PVT point"]);
+            else if ((cs & 0xE0) === 0x60) { const c = up[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO read"]; }
+            else fam = F["SDO read"];
+          } else {
+            if (cs === 0x41) { up[n] = { obj, sub, size, off: 0 }; fam = familyOf(obj, sub); }
+            else if ((cs & 0xE3) === 0x43) fam = familyOf(obj, sub);
+            else if (cs === 0x60 || (cs & 0xE0) === 0x20) { const c = down[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO write"]; }
+            else if ((cs & 0xE0) === 0x00) fam = seg(up, F["Motor status"]);
+            else if (cs === 0x80) fam = F["SDO abort"];
+            else fam = F["SDO write"];
           }
-          else if ((cs & 0xE0) === 0x60) { const c = up[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO read"]; }
-          else fam = F["SDO read"];
-        } else {
-          if (cs === 0x41) { up[n] = { obj, sub, size: size(), buf: "" }; fam = familyOf(obj, sub); }
-          else if ((cs & 0xE3) === 0x43) fam = familyOf(obj, sub);
-          else if (cs === 0x60) { const c = down[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO write"]; }
-          else if ((cs & 0xE0) === 0x20) { const c = down[n]; fam = c ? familyOf(c.obj, c.sub) : F["SDO write"]; }
-          else if ((cs & 0xE0) === 0x00) {   // upload data segment
-            const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1, c = up[n], off = c ? c.buf.length / 2 : 0;
-            const ok = c && ((off / 7) & 1) === t && (last ? off + k === c.size : off + k < c.size);
-            if (ok) { c.buf += hex.substr(2, 2 * k); ctx = { obj: c.obj, sub: c.sub, size: c.size, off, buf: c.buf }; fam = familyOf(c.obj, c.sub); if (last) delete up[n]; }
-            else { delete up[n]; fam = F["Motor status"]; }
-          }
-          else if (cs === 0x80) fam = F["SDO abort"];
-          else fam = F["SDO write"];
         }
       }
+      FAM[i] = fam; FROM[i] = from; TO[i] = to;
     }
-    FAM[i] = fam; FROM[i] = from; TO[i] = to; if (ctx) CTX[i] = ctx;
+  }
+  // For a data segment: walk back to the transfer's first frame and rebuild the bytes so far. Returns null when the
+  // sequence is broken (the monitor dropped a frame) so nothing is mislabelled.
+  function contextFor(i) {
+    const v = IDV[ID[i]], isReq = v >= 0x601 && v <= 0x67F; const idv = v, initCmd = isReq ? 0x21 : 0x41;
+    const segs = [];
+    for (let j = i, steps = 0; j >= 0 && steps < 2000; j--, steps++) {
+      if (IDV[ID[j]] !== idv) continue;
+      const b = bytesAt(j), cs = b[0];
+      if ((cs & 0xE0) === 0x00) { segs.push(j); continue; }
+      if (cs === initCmd) { const obj = b[2] << 8 | b[1], sub = b[3], size = u32([b[4], b[5], b[6], b[7]]);
+        segs.reverse(); const buf = []; let off = 0;
+        for (const k of segs) { const sb = bytesAt(k), c = sb[0], n = 7 - ((c >> 1) & 7), last = c & 1, t = (c >> 4) & 1;
+          if (((off / 7) & 1) !== t || (last ? off + n !== size : off + n >= size)) return null;
+          const before = off; for (let q = 1; q <= n; q++) buf.push(sb[q] || 0); off += n;
+          if (k === i) return { obj, sub, size, off: before, buf }; }
+        return null; }
+      return null;   // some other command in between: the transfer was interrupted
+    }
+    return null;
   }
 
-  // ---- pass 2, on demand: the full description of one frame
+  // ---- description of one frame, built when it is shown
   const STATUS = ["position", "velocity", "current", "temperature"], PVT = ["position", "velocity", "time"];
-  const objName = (obj, sub) => obj === "2014" && sub === 1 ? "the 16-byte status block" : obj === "2202" ? (sub === 1 ? "buffer clear" : sub === 2 ? "buffer fill level" : sub === 3 ? "buffer free slots" : "buffer object") : obj === "2200" ? "the trajectory buffer" : "object " + obj + ":" + hex2(sub);
+  const objName = (obj, sub) => obj === 0x2014 && sub === 1 ? "the 16-byte status block" : obj === 0x2202 ? (sub === 1 ? "buffer clear" : sub === 2 ? "buffer fill level" : sub === 3 ? "buffer free slots" : "buffer object") : obj === 0x2200 ? "the trajectory buffer" : "object " + obj.toString(16).toUpperCase().padStart(4, "0") + ":" + hex2(sub);
+  const objHex = obj => obj.toString(16).toUpperCase().padStart(4, "0");
   const runsOver = (names, unit, offset, n, buf, isFloat) => {
     const segs = []; let o = offset;
     while (o < offset + n) {
@@ -352,15 +390,15 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
     return segs;
   };
   function describe(i) {
-    const id = IDS[I[i]], v = parseInt(id, 16), b = bytesOf(D[i]), fam = FAMILIES[FAM[i]];
+    const id = IDS[ID[i]], v = IDV[ID[i]], b = Array.from(bytesAt(i)), fam = FAMILIES[FAM[i]];
     const nm = n => n === 0 ? "Rozum board" : n > 0 ? "drive " + n : "all drives";
     const r = { family: fam, sub: "", from: FROM[i] >= 0 ? nm(FROM[i]) : "any node", to: TO[i] >= 0 ? nm(TO[i]) : (fam === "Error frame" ? "every node" : "all drives"), kind: "COB-ID " + id, segs: [] };
     if (fam === "Error frame") { r.kind = "Error frame: no COB-ID."; r.segs = [[b.length, "Error frame data: class or controller state bytes. Not a data frame; a node signalling a corrupted frame.", "val"]]; return r; }
-    if (fam.startsWith("Heartbeat")) { const n = v - 0x700; const st = { 0: "boot-up", 4: "stopped", 5: "operational", 0x7F: "pre-operational", 2: "state 02 (not a standard state)" }[b[0]] || "state " + hex2(b[0]);
-      r.kind = "COB-ID <b>" + id + "</b> = 700 + node " + n + ": heartbeat."; r.segs = [[1, "NMT state <b>" + hex2(b[0]) + "</b> = " + st + ".", "val"]]; return r; }
+    if (fam.startsWith("Heartbeat")) { const n = v - 0x700; const st = { 0: "boot-up", 4: "stopped", 5: "operational", 0x7F: "pre-operational", 2: "state 02 (not a standard state)" }[b[0]] || "state " + hex2(b[0] || 0);
+      r.kind = "COB-ID <b>" + id + "</b> = 700 + node " + n + ": heartbeat."; r.segs = [[1, "NMT state <b>" + hex2(b[0] || 0) + "</b> = " + st + ".", "val"]]; return r; }
     if (fam === "Master tick") { r.kind = "COB-ID <b>27F</b>: the master's clock tick, a broadcast."; r.segs = [[4, "Microsecond counter = <b>" + fmt(u32(b) / 1e6, 3) + " s</b> (little-endian, wraps every 600 s).", "val"]]; return r; }
-    if (fam === "NMT command") { const cmd = { 1: "start", 2: "stop", 0x80: "enter pre-operational", 0x81: "reset node", 0x82: "reset communication" }[b[0]] || "command " + hex2(b[0]);
-      r.sub = cmd; r.kind = "COB-ID <b>000</b>: network management command."; r.segs = [[1, "Command <b>" + hex2(b[0]) + "</b> = " + cmd + ".", "cmd"], [1, "Target node <b>" + hex2(b[1] || 0) + "</b>" + (b[1] ? "" : " = every node") + ".", "obj"]]; return r; }
+    if (fam === "NMT command") { const cmd = { 1: "start", 2: "stop", 0x80: "enter pre-operational", 0x81: "reset node", 0x82: "reset communication" }[b[0]] || "command " + hex2(b[0] || 0);
+      r.sub = cmd; r.kind = "COB-ID <b>000</b>: network management command."; r.segs = [[1, "Command <b>" + hex2(b[0] || 0) + "</b> = " + cmd + ".", "cmd"], [1, "Target node <b>" + hex2(b[1] || 0) + "</b>" + (b[1] ? "" : " = every node") + ".", "obj"]]; return r; }
     if (fam === "SYNC") { r.kind = "COB-ID <b>" + id + "</b>: SYNC."; r.segs = b.length ? [[b.length, "SYNC payload.", "raw"]] : []; return r; }
     if (fam === "Emergency") { const n = v - 0x80, code = (b[1] || 0) << 8 | (b[0] || 0); const name = { 0: "error reset / no error", 0x3120: "input voltage too low", 0x8130: "heartbeat lost", 0xFF80: "manufacturer-specific FF80", 0xFF00: "manufacturer-specific FF00" }[code] || "code " + code.toString(16).toUpperCase();
       r.sub = name; r.kind = "COB-ID <b>" + id + "</b> = 080 + node " + n + ": emergency.";
@@ -369,103 +407,146 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
       r.sub = t; r.kind = "COB-ID <b>" + id + "</b> = " + t + " of node " + n + ": process data, sent by the drive."; r.segs = [[b.length, "Process data, " + b.length + " bytes.", "val"]]; return r; }
     const isReq = v >= 0x601 && v <= 0x67F, isRep = v >= 0x581 && v <= 0x5FF;
     if (!isReq && !isRep) { r.segs = [[b.length, "Data.", "raw"]]; return r; }
-    const n = v - (isReq ? 0x600 : 0x580), cs = b[0], obj = hex2(b[2] || 0) + hex2(b[1] || 0), sub = b[3] || 0, ctx = CTX[i];
+    const n = v - (isReq ? 0x600 : 0x580), cs = b[0] || 0, obj = (b[2] || 0) << 8 | (b[1] || 0), sub = b[3] || 0;
     r.kind = "COB-ID <b>" + id + "</b> = " + (isReq ? "600" : "580") + " + node " + n + ": SDO " + (isReq ? "request" : "reply") + ".";
-    const objSegs = () => [[2, "Object <b>" + obj + "</b> (low byte first).", "obj"], [1, "Sub-index <b>" + hex2(sub) + "</b>: " + objName(obj, sub) + ".", "obj"]];
-    const sizeVal = u32(b.slice(4, 8).concat([0, 0, 0, 0]).slice(0, 4));
+    const objSegs = () => [[2, "Object <b>" + objHex(obj) + "</b> (low byte first).", "obj"], [1, "Sub-index <b>" + hex2(sub) + "</b>: " + objName(obj, sub) + ".", "obj"]];
+    const sizeVal = u32(b.slice(4, 8));
+    const segment = (names, unit, isFloat, wantObj, fallbackText) => {
+      const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1, ctx = contextFor(i);
+      r.sub = ctx ? "segment " + (Math.floor(ctx.off / 7) + 1) + " of " + Math.ceil(ctx.size / 7) : (last ? "last segment" : "segment") + " (earlier frames not kept by the monitor)";
+      r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: data segment, toggle bit " + t + ", " + k + " bytes valid" + (last ? ", the last segment" : ", more to follow") + ".", "cmd"]];
+      r.segs.push(...(ctx && ctx.obj === wantObj ? runsOver(names, unit, ctx.off, k, ctx.buf, isFloat) : [[k, k + " " + fallbackText, "val"]]));
+      if (k < 7) r.segs.push([7 - k, "Padding.", "raw"]);
+    };
     if (isReq) {
       if (cs === 0x40) { r.sub = "read request"; r.segs = [[1, "Command byte <b>40</b>: read request (SDO upload).", "cmd"], ...objSegs(), [4, "Unused in a read request.", "raw"]]; return r; }
-      if (cs === 0x21) { r.sub = "write request"; r.segs = [[1, "Command byte <b>21</b>: start a segmented write (SDO download); the size follows.", "cmd"], ...objSegs(), [4, "Size = <b>" + sizeVal + " bytes</b>" + (obj === "2200" ? ": float position, float velocity, 32-bit time" : "") + ".", "val"]]; return r; }
+      if (cs === 0x21) { r.sub = "write request"; r.segs = [[1, "Command byte <b>21</b>: start a segmented write (SDO download); the size follows.", "cmd"], ...objSegs(), [4, "Size = <b>" + sizeVal + " bytes</b>" + (obj === 0x2200 ? ": float position, float velocity, 32-bit time" : "") + ".", "val"]]; return r; }
       if ((cs & 0xE3) === 0x23) { const k = 4 - ((cs >> 2) & 3), val = b.slice(4, 4 + k); r.sub = "write";
-        r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: expedited write of " + k + " byte" + (k > 1 ? "s" : "") + ".", "cmd"], ...objSegs(), [k, "Value = <b>" + (k === 4 ? u32(val) + "</b> as an integer, <b>" + fmt(f32(val), 3) + "</b> as a float" : u32(val.concat([0, 0, 0])) + "</b>") + ".", "val"]]; if (k < 4) r.segs.push([4 - k, "Unused.", "raw"]); return r; }
-      if ((cs & 0xE0) === 0x00) { const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1;
-        r.sub = ctx ? "data segment " + (Math.floor(ctx.off / 7) + 1) + " of " + Math.ceil(ctx.size / 7) : (last ? "last segment" : "segment") + " (earlier frames not kept by the monitor)";
-        r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: data segment, toggle bit " + t + ", " + k + " bytes valid" + (last ? ", the last segment" : ", more to follow") + ".", "cmd"]];
-        r.segs.push(...(ctx && ctx.obj === "2200" ? runsOver(PVT, f => (f === 2 ? "ms" : ""), ctx.off, k, bytesOf(ctx.buf), f => f < 2) : [[k, k + " data bytes of a trajectory point whose first frame the monitor did not keep.", "val"]]));
-        if (k < 7) r.segs.push([7 - k, "Padding.", "raw"]); return r; }
+        r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: expedited write of " + k + " byte" + (k > 1 ? "s" : "") + ".", "cmd"], ...objSegs(), [k, "Value = <b>" + (k === 4 ? u32(val) + "</b> as an integer, <b>" + fmt(f32(val), 3) + "</b> as a float" : u32(val) + "</b>") + ".", "val"]]; if (k < 4) r.segs.push([4 - k, "Unused.", "raw"]); return r; }
+      if ((cs & 0xE0) === 0x00) { segment(PVT, f => (f === 2 ? "ms" : ""), f => f < 2, 0x2200, "data bytes of a trajectory point whose first frame the monitor did not keep."); return r; }
       if ((cs & 0xE0) === 0x60) { r.sub = "next segment"; r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: send the next segment (toggle bit " + ((cs >> 4) & 1) + ").", "cmd"], [7, "Unused.", "raw"]]; return r; }
       r.sub = "command " + hex2(cs); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>.", "cmd"], [b.length - 1, "Data.", "raw"]]; return r;
     }
     if (cs === 0x41) { r.sub = "read reply"; r.segs = [[1, "Command byte <b>41</b>: segmented reply; the size follows.", "cmd"], ...objSegs(), [4, "Size = <b>" + sizeVal + " bytes</b>, coming in segments of up to 7.", "val"]]; return r; }
     if ((cs & 0xE3) === 0x43) { const k = 4 - ((cs >> 2) & 3), val = b.slice(4, 4 + k); r.sub = "reply";
-      r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: expedited reply, " + k + " byte" + (k > 1 ? "s" : "") + " valid.", "cmd"], ...objSegs(), [k, "Value = <b>" + u32(val.concat([0, 0, 0, 0]).slice(0, 4)) + "</b>" + (obj === "2202" ? (sub === 2 ? " points waiting in the buffer" : sub === 3 ? " free slots of 256" : "") : "") + ".", "val"]]; if (k < 4) r.segs.push([4 - k, "Unused.", "raw"]); return r; }
+      r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: expedited reply, " + k + " byte" + (k > 1 ? "s" : "") + " valid.", "cmd"], ...objSegs(), [k, "Value = <b>" + u32(val) + "</b>" + (obj === 0x2202 ? (sub === 2 ? " points waiting in the buffer" : sub === 3 ? " free slots of 256" : "") : "") + ".", "val"]]; if (k < 4) r.segs.push([4 - k, "Unused.", "raw"]); return r; }
     if (cs === 0x60) { r.sub = "accepted"; r.segs = [[1, "Command byte <b>60</b>: write accepted.", "cmd"], ...(b.length > 1 ? objSegs() : []), [4, "Unused.", "raw"]]; return r; }
     if ((cs & 0xE0) === 0x20) { r.sub = "segment acknowledged"; r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: segment accepted (toggle bit " + ((cs >> 4) & 1) + ").", "cmd"], [7, "Unused.", "raw"]]; return r; }
-    if ((cs & 0xE0) === 0x00) { const k = 7 - ((cs >> 1) & 7), last = cs & 1, t = (cs >> 4) & 1;
-      r.sub = ctx ? "segment " + (Math.floor(ctx.off / 7) + 1) + " of " + Math.ceil(ctx.size / 7) : (last ? "last segment" : "segment") + " (earlier frames not kept by the monitor)";
-      r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>: data segment, toggle bit " + t + ", " + k + " bytes valid" + (last ? ", the last segment" : ", more to follow") + ".", "cmd"]];
-      r.segs.push(...(ctx && ctx.obj === "2014" ? runsOver(STATUS, f => ["", "", "A", "°C"][f], ctx.off, k, bytesOf(ctx.buf), () => true) : [[k, k + " data bytes of a status block whose earlier segments the monitor did not keep, so the fields cannot be named.", "val"]]));
-      if (k < 7) r.segs.push([7 - k, "Padding.", "raw"]); return r; }
+    if ((cs & 0xE0) === 0x00) { segment(STATUS, f => ["", "", "A", "°C"][f], () => true, 0x2014, "data bytes of a status block whose earlier segments the monitor did not keep, so the fields cannot be named."); return r; }
     if (cs === 0x80) { r.sub = "abort"; r.segs = [[1, "Command byte <b>80</b>: abort.", "cmd"], ...objSegs(), [4, "Abort code.", "val"]]; return r; }
     r.sub = "command " + hex2(cs); r.segs = [[1, "Command byte <b>" + hex2(cs) + "</b>.", "cmd"], [b.length - 1, "Data.", "raw"]]; return r;
   }
 
-  // ---- loading, in chunks so the page stays responsive and shows progress
-  const progress = (msg) => { const el = byId("progress"); el.hidden = !msg; el.textContent = msg || ""; };
-  async function load(raw, sourceName) {
-    stopReplay(); loading = true; byId("frame").closest(".nav").classList.add("busy"); document.querySelector(".toolbar").classList.add("busy");
+  // ---- loading
+  const progress = msg => { const el = byId("progress"); el.hidden = !msg; el.textContent = msg || ""; };
+  const setBusy = on => { loading = on; document.querySelector(".toolbar").classList.toggle("busy", on); byId("frame").closest(".nav").classList.toggle("busy", on); };
+  async function install(cap, sourceName) {
+    // cap: { ids, T (Float64Array), ID (Uint16Array), OFF (Uint32Array N+1), BYTES (Uint8Array), start_clock, totals, start_index }
+    stopReplay(); setBusy(true);
     try {
-      IDS = raw.ids; T = raw.T; I = raw.I; D = raw.D; N = T.length; T0 = T[0]; startClock = raw.start_clock; TOTALS = raw.totals || null;
-      FAM = new Uint8Array(N); FROM = new Int8Array(N); TO = new Int8Array(N); CTX = {};
-      const up = {}, down = {}; const CH = 20000;
-      for (let i = 0; i < N; i++) { classify(i, up, down); if (i % CH === CH - 1) { progress("Decoding " + fmt(i + 1, 0) + " of " + fmt(N, 0) + " frames…"); await yieldToUI(); } }
-      byFamily = FAMILIES.map(() => []); for (let i = 0; i < N; i++) byFamily[FAM[i]].push(i);
+      IDS = cap.ids; IDV = IDS.map(x => parseInt(x, 16)); T = cap.T; ID = cap.ID; OFF = cap.OFF; BYTES = cap.BYTES; N = T.length; T0 = T[0]; startClock = cap.start_clock; TOTALS = cap.totals || null;
+      FAM = new Uint8Array(N); FROM = new Int8Array(N); TO = new Int8Array(N);
+      progress("Classifying " + fmt(N, 0) + " frames…"); await yieldToUI();
+      classifyAll();
+      byFamily = FAMILIES.map(() => []); hbIndex = {};
+      for (let i = 0; i < N; i++) { byFamily[FAM[i]].push(i); if (FAM[i] === F["Heartbeat (master)"] || FAM[i] === F["Heartbeat (drive)"]) (hbIndex[IDV[ID[i]]] = hbIndex[IDV[ID[i]]] || []).push(i); }
       byId("source").textContent = sourceName + ": " + fmt(N, 0) + " frames, " + fmt((T[N - 1] - T0) / 1e6, 1) + " s, from " + startClock.substr(0, 12);
       byId("seek").max = N - 1; byId("seek-start").textContent = clock(0); byId("seek-end").textContent = clock(T[N - 1] - T0);
-      show(raw.start_index || 0);
-    } finally { loading = false; progress(""); byId("frame").closest(".nav").classList.remove("busy"); document.querySelector(".toolbar").classList.remove("busy"); }
+      findHeartbeatGaps();
+      show(cap.start_index || 0);
+    } finally { setBusy(false); progress(""); }
+  }
+  // the built-in capture comes as plain arrays
+  function fromRaw(raw) {
+    const n = raw.T.length; const T_ = new Float64Array(raw.T), ID_ = new Uint16Array(raw.I), OFF_ = new Uint32Array(n + 1);
+    let total = 0; for (let i = 0; i < n; i++) { OFF_[i] = total; total += raw.D[i].length / 2; } OFF_[n] = total;
+    const B = new Uint8Array(total); for (let i = 0; i < n; i++) { const h = raw.D[i]; for (let k = 0, o = OFF_[i]; k < h.length; k += 2) B[o++] = parseInt(h.substr(k, 2), 16); }
+    return { ids: raw.ids, T: T_, ID: ID_, OFF: OFF_, BYTES: B, start_clock: raw.start_clock, totals: raw.totals || null, start_index: raw.start_index || 0 };
   }
 
-  // ---- parse a capture file: the monitor's format, or plain candump with or without timestamps
-  async function parseCapture(text) {
-    const monitor = /^(?:\S+\t)?(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?)\t\(([\d.]+)\)\s+\S+\s+([0-9A-Fa-f]+)\s+\[(\d+)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)$/;
-    const dumpT = /^\(([\d.]+)\)\s+\S+\s+([0-9A-Fa-f]+)\s*(?:#|\[(\d+)\]\s*)((?:[0-9A-Fa-f]{2}\s*)*)$/;
-    const dumpPlain = /^\s*\S+\s+([0-9A-Fa-f]+)\s+\[(\d+)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)$/;
-    const Tt = [], Ii = [], Dd = [], ids = [], idx = {}; let last = 0, clock0 = null, clockAt = -1, n = 0;
-    const totals = {}; const totalRx = /^# (\d\d:\d\d:\d\d) total: (\d+)/;   // the monitor's per-second count of frames it saw
+  // ---- streaming parser: reads the file piece by piece, never holding the whole text
+  const monitorRx = /^(?:\S+\t)?(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?)\t\(([\d.]+)\)\s+\S+\s+([0-9A-Fa-f]+)\s+\[(\d+)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)$/;
+  const dumpTRx = /^\(([\d.]+)\)\s+\S+\s+([0-9A-Fa-f]+)\s*(?:#|\[(\d+)\]\s*)((?:[0-9A-Fa-f]{2}\s*)*)$/;
+  const plainRx = /^\s*\S+\s+([0-9A-Fa-f]+)\s+\[(\d+)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)$/;
+  const totalRx = /^# (\d\d:\d\d:\d\d) total: (\d+)/;
+  class Growable { constructor(Type, cap) { this.Type = Type; this.a = new Type(cap); this.n = 0; }
+    push(v) { if (this.n === this.a.length) { const b = new this.Type(Math.ceil(this.a.length * 1.6) + 1024); b.set(this.a); this.a = b; } this.a[this.n++] = v; }
+    done() { return this.a.subarray(0, this.n); } }
+  async function parseFile(file) {
+    const est = Math.max(1024, Math.ceil(file.size / 95));
+    const Tt = new Growable(Float64Array, est), Ii = new Growable(Uint16Array, est), Oo = new Growable(Uint32Array, est + 1), Bb = new Growable(Uint8Array, est * 8);
+    const ids = [], idx = {}; const totals = {}; let last = 0, clock0 = null, clockAt = -1, n = 0, read = 0, carry = "", nbytes = 0;
     const idOf = c => { c = c.toUpperCase(); if (!(c in idx)) { idx[c] = ids.length; ids.push(c); } return idx[c]; };
-    let pos = 0, lineNo = 0; const total = text.length;
-    while (pos < total) {
-      let nl = text.indexOf("\n", pos); if (nl < 0) nl = total;
-      const line = text.substring(pos, nl).replace(/\r$/, ""); pos = nl + 1; lineNo++;
-      if (line && line[0] === "#") { const c = totalRx.exec(line); if (c) totals[c[1]] = +c[2]; }
-      else if (line) {
-        let m;
-        if ((m = monitor.exec(line))) { last = Math.round(parseFloat(m[2]) * 1e6); Tt.push(last); Ii.push(idOf(m[3])); Dd.push(m[5].replace(/\s+/g, "").toUpperCase()); if (clockAt < 0) { clockAt = n; clock0 = m[1].substr(11); } n++; }
-        else if ((m = dumpT.exec(line))) { last = Math.round(parseFloat(m[1]) * 1e6); Tt.push(last); Ii.push(idOf(m[2])); Dd.push(m[4].replace(/\s+/g, "").toUpperCase()); n++; }
-        else if ((m = dumpPlain.exec(line))) { last += 1000; Tt.push(last); Ii.push(idOf(m[1])); Dd.push(m[3].replace(/\s+/g, "").toUpperCase()); n++; }
-      }
-      if (lineNo % 50000 === 0) { progress("Reading " + Math.round(100 * pos / total) + "% (" + fmt(n, 0) + " frames so far)…"); await yieldToUI(); }
+    const pushFrame = (t, cid, hex) => { Tt.push(t); Ii.push(idOf(cid)); Oo.push(nbytes); for (let k = 0; k + 1 < hex.length; k += 2) { Bb.push(parseInt(hex.substr(k, 2), 16)); nbytes++; } n++; };
+    const handle = line => {
+      if (!line) return;
+      if (line.charCodeAt(0) === 35) { const c = totalRx.exec(line); if (c) totals[c[1]] = +c[2]; return; }
+      let m;
+      if ((m = monitorRx.exec(line))) { last = Math.round(parseFloat(m[2]) * 1e6); if (clockAt < 0) { clockAt = n; clock0 = m[1].substr(11); } pushFrame(last, m[3], m[5].replace(/\s+/g, "")); }
+      else if ((m = dumpTRx.exec(line))) { last = Math.round(parseFloat(m[1]) * 1e6); pushFrame(last, m[2], m[4].replace(/\s+/g, "")); }
+      else if ((m = plainRx.exec(line))) { last += 1000; pushFrame(last, m[1], m[3].replace(/\s+/g, "")); }
+    };
+    const reader = file.stream().pipeThrough(new TextDecoderStream()).getReader();
+    let chunkNo = 0;
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      read += value.length; const text = carry + value; let pos = 0;
+      while (true) { const nl = text.indexOf("\n", pos); if (nl < 0) break; let line = text.substring(pos, nl); if (line.endsWith("\r")) line = line.slice(0, -1); handle(line); pos = nl + 1; }
+      carry = text.substring(pos);
+      if (++chunkNo % 4 === 0) { progress("Reading " + Math.min(100, Math.round(100 * read / file.size)) + "% (" + fmt(n, 0) + " frames so far)…"); await yieldToUI(); }
     }
+    if (carry) handle(carry.replace(/\r$/, ""));
     if (!n) throw new Error("No CAN frames found. Expected lines like: can0  581   [8]  00 00 F0 51 3D FF 1F 51, with or without a timestamp in front.");
-    // keep frame order by time (files are almost always already in order)
-    let sorted = true; for (let i = 1; i < n; i++) if (Tt[i] < Tt[i - 1]) { sorted = false; break; }
-    let order = null; if (!sorted) { order = Array.from({ length: n }, (_, i) => i).sort((a, b) => Tt[a] - Tt[b]); }
-    const pick = arr => order ? order.map(i => arr[i]) : arr;
-    const Ts = pick(Tt), Is = pick(Ii), Ds = pick(Dd);
-    if (clock0 !== null) { const at = order ? order.indexOf(clockAt) : clockAt; const off = Ts[at] - Ts[0]; const [h, mi, sec] = clock0.split(":"); const us = ((+h) * 3600e6 + (+mi) * 60e6 + parseFloat(sec) * 1e6 - off + 86400e6) % 86400e6;
+    Oo.push(nbytes);
+    let T_ = Tt.done(), ID_ = Ii.done(), OFF_ = Oo.done(), B = Bb.done();
+    let sorted = true; for (let i = 1; i < n; i++) if (T_[i] < T_[i - 1]) { sorted = false; break; }
+    if (!sorted) {   // the monitor writes in bursts and a few lines land out of order: put them back in time order
+      progress("Sorting " + fmt(n, 0) + " frames by time…"); await yieldToUI();
+      const order = new Uint32Array(n); for (let i = 0; i < n; i++) order[i] = i;
+      order.sort((a, b) => T_[a] - T_[b] || a - b);
+      const T2 = new Float64Array(n), ID2 = new Uint16Array(n), OFF2 = new Uint32Array(n + 1), B2 = new Uint8Array(B.length); let o = 0;
+      for (let k = 0; k < n; k++) { const i = order[k]; T2[k] = T_[i]; ID2[k] = ID_[i]; OFF2[k] = o; B2.set(B.subarray(OFF_[i], OFF_[i + 1]), o); o += OFF_[i + 1] - OFF_[i]; }
+      OFF2[n] = o; if (clockAt >= 0) clockAt = order.indexOf(clockAt);
+      T_ = T2; ID_ = ID2; OFF_ = OFF2; B = B2;
+    }
+    if (clock0 !== null) { const off = T_[clockAt] - T_[0]; const [h, mi, sec] = clock0.split(":"); const us = ((+h) * 3600e6 + (+mi) * 60e6 + parseFloat(sec) * 1e6 - off + 86400e6) % 86400e6;
       clock0 = String(Math.floor(us / 3600e6)).padStart(2, "0") + ":" + String(Math.floor(us % 3600e6 / 60e6)).padStart(2, "0") + ":" + ((us % 60e6) / 1e6).toFixed(6).padStart(9, "0"); }
-    else if (Ts[0] > 1e15) { const d = new Date(Ts[0] / 1000); clock0 = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + (d.getSeconds() + (Ts[0] % 1e6) / 1e6).toFixed(6).padStart(9, "0"); }
+    else if (T_[0] > 1e15) { const d = new Date(T_[0] / 1000); clock0 = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + (d.getSeconds() + (T_[0] % 1e6) / 1e6).toFixed(6).padStart(9, "0"); }
     else clock0 = "00:00:00.000000";
-    // ids were numbered in order of first appearance; renumber them sorted so the page is deterministic
-    const sortedIds = ids.slice().sort(), remap = ids.map(c => sortedIds.indexOf(c));
-    return { ids: sortedIds, start_clock: clock0, start_index: 0, T: Ts, I: Is.map(i => remap[i]), D: Ds, totals: Object.keys(totals).length ? totals : null };
+    return { ids, T: T_, ID: ID_, OFF: OFF_, BYTES: B, start_clock: clock0, totals: Object.keys(totals).length ? totals : null, start_index: 0 };
   }
   byId("capture-file").addEventListener("change", async e => {
     const file = e.target.files[0]; if (!file || loading) return;
     const err = byId("load-error"); err.hidden = true;
-    try { progress("Reading " + file.name + " (" + fmt(file.size / 1e6, 1) + " MB)…"); document.querySelector(".toolbar").classList.add("busy"); await yieldToUI();
-      const text = await file.text(); await load(await parseCapture(text), file.name); }
-    catch (ex) { err.textContent = ex.message; err.hidden = false; progress(""); document.querySelector(".toolbar").classList.remove("busy"); }
-    e.target.value = "";
+    try { setBusy(true); progress("Reading " + file.name + " (" + fmt(file.size / 1e6, 1) + " MB)…"); await yieldToUI(); await install(await parseFile(file), file.name); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; }
+    finally { setBusy(false); progress(""); e.target.value = ""; }
   });
+
+  // ---- heartbeat gaps
+  const HB_PERIOD = v => v === 0x700 ? 250000 : 900000;   // µs
+  let gaps = [];
+  function findHeartbeatGaps() {
+    const need = Math.max(1, parseInt(byId("hb-n").value, 10) || 4); gaps = [];
+    for (const key in hbIndex) { const v = +key, P = HB_PERIOD(v), list = hbIndex[key];
+      for (let k = 1; k < list.length; k++) { const gap = T[list[k]] - T[list[k - 1]]; const missed = Math.round(gap / P) - 1;
+        if (missed >= need) gaps.push({ i: list[k - 1], j: list[k], node: v - 0x700, gap, missed }); } }
+    gaps.sort((a, b) => a.i - b.i);
+    byId("hb-count").textContent = gaps.length ? fmt(gaps.length, 0) + " gap" + (gaps.length > 1 ? "s" : "") : "none";
+    const seen = i => { if (!TOTALS) return ""; const key = clock(T[i] - T0).substr(0, 8); return key in TOTALS ? ", monitor saw " + fmt(TOTALS[key], 0) + " frames/s there" : ""; };
+    byId("hb-list").innerHTML = gaps.slice(0, 300).map((g, k) => '<li><button data-k="' + k + '"><b>' + (g.node ? "drive " + g.node : "master") + "</b> missed " + g.missed + " · " + clock(T[g.i] - T0) + " → " + clock(T[g.j] - T0) + " <small>(" + fmt(g.gap / 1e6, 2) + " s" + seen(g.i) + ")</small></button></li>").join("") + (gaps.length > 300 ? "<li><small>… " + fmt(gaps.length - 300, 0) + " more</small></li>" : "");
+    const span = T[N - 1] - T0 || 1;
+    byId("marks").innerHTML = gaps.slice(0, 2000).map(g => '<i style="left:' + (100 * (T[g.i] - T0) / span).toFixed(2) + '%"></i>').join("");
+  }
+  byId("hb-n").addEventListener("change", () => { if (!loading) findHeartbeatGaps(); });
+  byId("hb-list").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { stopReplay(); show(gaps[+b.dataset.k].i); } });
 
   // ---- rendering
   const tok = (text, cls, tip) => '<span class="tok" tabindex="0" style="--c:' + C[cls] + '" data-tip="' + esc(tip).replace(/"/g, "&quot;") + '">' + esc(text) + '</span>';
-  const dtText = (from, to) => { const us = T[to] - T[from]; const a = Math.abs(us); const s = a < 1000 ? a + " µs" : a < 1e6 ? fmt(a / 1000, a < 10000 ? 2 : 1) + " ms" : fmt(a / 1e6, 2) + " s"; return (us < 0 ? "−" : "+") + s; };
+  const dtText = (from, to) => { const us = T[to] - T[from]; const a = Math.abs(us); const s = a < 1000 ? Math.round(a) + " µs" : a < 1e6 ? fmt(a / 1000, a < 10000 ? 2 : 1) + " ms" : fmt(a / 1e6, 2) + " s"; return (us < 0 ? "−" : "+") + s; };
   function show(i) {
     cur = Math.max(0, Math.min(N - 1, i));
-    const d = describe(cur), id = IDS[I[cur]], bytes = D[cur].match(/../g) || [], dlc = bytes.length;
+    const d = describe(cur), id = IDS[ID[cur]], bytes = hexAt(cur), dlc = bytes.length;
     byId("f-when").textContent = fmt((T[cur] - T0) / 1000, 3) + " ms from start · " + clock(T[cur] - T0) + " · frame " + fmt(cur + 1, 0) + " of " + fmt(N, 0);
     byId("f-summary").innerHTML = esc(d.family) + (d.sub ? ' <span class="dim">' + esc(d.sub) + "</span>" : "") + ' <span class="dim">·</span> ' + dlc + (dlc === 1 ? " byte" : " bytes") + ' <span class="dim">·</span> ' + esc(d.from) + ' <span class="dim">→</span> ' + esc(d.to);
     let raw = tok("can0", "iface", "The CAN interface the monitor listened on.") + "  " + tok(id, "id", d.kind + " From " + d.from + " to " + d.to + ".") + "   " + tok("[" + dlc + "]", "dlc", dlc + " data byte" + (dlc === 1 ? "" : "s") + " follow. A CAN frame carries at most 8.") + "  ";
@@ -487,13 +568,12 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
     animate(d);
   }
   // ---- bus traffic over the second before the current frame
-  const bitsOf = hex => { const dlc = hex.length / 2; return 47 + 8 * dlc + Math.floor((34 + 8 * dlc) / 5); };   // data frame with worst-case stuffing
+  const bitsOf = dlc => 47 + 8 * dlc + Math.floor((34 + 8 * dlc) / 5);
   function traffic() {
     const tEnd = T[cur], tStart = tEnd - 1e6;
     let lo = 0, hi = cur; while (lo < hi) { const m = (lo + hi) >> 1; if (T[m] < tStart) lo = m + 1; else hi = m; }
-    const kept = cur - lo + 1; let bits = 0; for (let i = lo; i <= cur; i++) bits += IDS[I[i]] === "1FFFFFFF" ? 20 : bitsOf(D[i]);
+    const kept = cur - lo + 1; let bits = 0; for (let i = lo; i <= cur; i++) bits += FAM[i] === F["Error frame"] ? 20 : bitsOf(dlcAt(i));
     const meanBits = kept ? bits / kept : 130;
-    // the monitor's own count for the second the frame sits in, when the file carried one
     let seen = null; if (TOTALS) { const key = clock(tEnd - T0).substr(0, 8); if (key in TOTALS) seen = TOTALS[key]; }
     const frames = seen !== null ? seen : kept, load = frames * meanBits / 1e6;
     byId("tr-load").textContent = Math.round(load * 100) + "%";
@@ -520,8 +600,8 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
     const [h0, m0, s0] = startClock.split(":"); const startUs = (+h0) * 3600e6 + (+m0) * 60e6 + parseFloat(s0) * 1e6;
     const hh = m[1] !== undefined ? +m[1] : +h0, frac = m[4] ? parseInt((m[4] + "000000").substr(0, 6), 10) : 0;
     let target = hh * 3600e6 + (+m[2]) * 60e6 + (+m[3]) * 1e6 + frac - startUs;
-    if (target < -1e6 && m[1] === undefined) target += 3600e6;          // MM:SS given: assume the next hour if it is behind the start
-    if (target < 0 && target > -86400e6 && hh < +h0) target += 86400e6; // past midnight
+    if (target < -1e6 && m[1] === undefined) target += 3600e6;
+    if (target < 0 && target > -86400e6 && hh < +h0) target += 86400e6;
     let lo = 0, hi = N; while (lo < hi) { const mid = (lo + hi) >> 1; if (T[mid] - T0 < target) lo = mid + 1; else hi = mid; }
     stopReplay(); show(Math.min(lo, N - 1));
   }
@@ -598,7 +678,7 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
   document.addEventListener("focusin", e => { const el = e.target.closest("[data-tip]"); if (el) placeTip(el); });
   document.addEventListener("focusout", () => { tip.hidden = true; });
 
-  load(RAW, "Built-in capture, PikPak 007, 8 September 2026");
+  install(fromRaw(RAW), "Built-in capture, PikPak 007, 8 September 2026");
 })();
 </script>
 </body>
