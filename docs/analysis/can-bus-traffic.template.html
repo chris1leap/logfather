@@ -277,7 +277,7 @@
       <h2>Missed heartbeats</h2>
       <label>at least <input type="number" id="hb-n" min="1" max="50" value="4"> in a row</label>
       <span class="count" id="hb-count"></span>
-      <span class="note">Master heartbeat every 250 ms on 700, each drive every 900 ms on 701 to 706. A gap is counted from the last heartbeat seen to the next; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
+      <span class="note"><span id="hb-periods"></span> A gap is counted from the last heartbeat seen to the next, in multiples of that spacing; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
     </div>
     <ol id="hb-list"></ol>
   </section>
@@ -452,7 +452,7 @@
       for (let i = 0; i < N; i++) { byFamily[FAM[i]].push(i); if (FAM[i] === F["Heartbeat (master)"] || FAM[i] === F["Heartbeat (drive)"]) (hbIndex[IDV[ID[i]]] = hbIndex[IDV[ID[i]]] || []).push(i); }
       byId("source").textContent = sourceName + ": " + fmt(N, 0) + " frames, " + fmt((T[N - 1] - T0) / 1e6, 1) + " s, from " + startClock.substr(0, 12);
       byId("seek").max = N - 1; byId("seek-start").textContent = clock(0); byId("seek-end").textContent = clock(T[N - 1] - T0);
-      findHeartbeatGaps();
+      measurePeriods(); findHeartbeatGaps();
       show(cap.start_index || 0);
     } finally { setBusy(false); progress(""); }
   }
@@ -524,11 +524,21 @@
   });
 
   // ---- heartbeat gaps
-  const HB_PERIOD = v => v === 0x700 ? 250000 : 900000;   // µs
+  // The heartbeat period is measured from the file itself (the median spacing of consecutive heartbeats under 2 s),
+  // because it differs between captures: 250 ms for the master on 8 September, about 1 ms on 9 September.
+  const HB_PERIOD = {};
+  function measurePeriods() {
+    for (const key in hbIndex) { const list = hbIndex[key], iv = [];
+      for (let k = 1; k < list.length; k++) { const g = T[list[k]] - T[list[k - 1]]; if (g > 0 && g < 2e6) iv.push(g); }
+      // the 10th percentile, not the median: dropped frames stretch most intervals but the shortest ones are the true spacing
+      iv.sort((a, b) => a - b); HB_PERIOD[key] = iv.length ? iv[Math.floor(iv.length * 0.1)] : (+key === 0x700 ? 250000 : 900000); }
+    const parts = Object.keys(HB_PERIOD).sort().map(k => (+k === 0x700 ? "master" : "drive " + (+k - 0x700)) + " " + fmt(HB_PERIOD[k] / 1000, HB_PERIOD[k] < 10000 ? 1 : 0) + " ms");
+    byId("hb-periods").textContent = parts.length ? "Measured heartbeat spacing in this file: " + parts.join(", ") + "." : "";
+  }
   let gaps = [];
   function findHeartbeatGaps() {
     const need = Math.max(1, parseInt(byId("hb-n").value, 10) || 4); gaps = [];
-    for (const key in hbIndex) { const v = +key, P = HB_PERIOD(v), list = hbIndex[key];
+    for (const key in hbIndex) { const v = +key, P = HB_PERIOD[key] || 250000, list = hbIndex[key];
       for (let k = 1; k < list.length; k++) { const gap = T[list[k]] - T[list[k - 1]]; const missed = Math.round(gap / P) - 1;
         if (missed >= need) gaps.push({ i: list[k - 1], j: list[k], node: v - 0x700, gap, missed }); } }
     gaps.sort((a, b) => a.i - b.i);
