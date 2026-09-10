@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Time scale always in view (Chris, 2026-09-10): on System Replay the hour
+  ticks and labels stay at the top of the timeline view, over a dark band,
+  while the reading strips scroll underneath; the cursor time marker moves
+  with them.
 - Errors & Stops per-system view (Chris, 2026-09-10): over 14 days the day
   heading above each cluster is just the day number, and the row under the
   chart shows each day's total instead of repeating the date.

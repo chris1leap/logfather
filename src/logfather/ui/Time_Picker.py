@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
     QGraphicsScene, QGraphicsView, QGraphicsRectItem, QGraphicsItem,
-    QGraphicsPolygonItem, QGraphicsLineItem, QGroupBox, QGridLayout, QCheckBox
+    QGraphicsPolygonItem, QGraphicsLineItem, QGroupBox, QGridLayout, QCheckBox, QGraphicsItemGroup
 )
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 
@@ -180,6 +180,12 @@ class TimePicker(QWidget):
         self.view.viewport().installEventFilter(self)
         self.scene.selectionChanged.connect(self._emit_selection_from_timeline)
         self.view.horizontalScrollBar().valueChanged.connect(lambda _v: self._reposition_track_labels())
+        # The time scale stays in view while the strips scroll (Chris,
+        # 2026-09-10): the ticks and hour labels sit in a group that is
+        # shifted down by the vertical scroll, over a dark band.
+        self._scale_group: Optional[QGraphicsItemGroup] = None
+        self._scale_shift = 0.0
+        self.view.verticalScrollBar().valueChanged.connect(lambda _v: self._on_vertical_scroll())
 
         # The Data and Additional data boxes, as on the Overview (Chris,
         # 2026-09-08): the ticked readings are drawn as strips under the
@@ -361,19 +367,27 @@ class TimePicker(QWidget):
             label_every_min = 60  # hourly labels at low zoom
         minor_height = 6
         major_height = 12
+        scale_group = QGraphicsItemGroup()
+        scale_group.setZValue(4)
+        scale_group.setHandlesChildEvents(False)
+        band = self.scene.addRect(-60, scale_y - 18, total_minutes * ppm + 120, 32, QPen(Qt.NoPen), QBrush(QColor(20, 20, 20, 235)))
+        scale_group.addToGroup(band)
         for minute in range(0, total_minutes + 1, step_min):
             x = minute * ppm
             is_major = (minute % label_every_min) == 0
             height_tick = major_height if is_major else minor_height
             pen = QPen(QColor("#666666") if is_major else QColor("#4d4d4d"))
             tick_item = self.scene.addLine(x, scale_y, x, scale_y + height_tick, pen)
-            tick_item.setZValue(1)
+            scale_group.addToGroup(tick_item)
             if is_major:
                 hour = minute // 60
                 label = self.scene.addText(f"{hour:02d}:{minute % 60:02d}")
                 label.setDefaultTextColor(QColor("#cccccc"))
                 label.setPos(x + 2, scale_y - 14)
-                label.setZValue(2)
+                scale_group.addToGroup(label)
+        self.scene.addItem(scale_group)
+        self._scale_group = scale_group
+        self._on_vertical_scroll()
 
         # Track stacking: keep video at baseline; stack other tracks below, tighter spacing.
         kinds = []
@@ -1278,12 +1292,12 @@ class TimePicker(QWidget):
         if self._cursor_label is None:
             self._cursor_label = self.scene.addText(label_text)
             self._cursor_label.setDefaultTextColor(QColor("#ffddaa"))
-            self._cursor_label.setZValue(4)
+            self._cursor_label.setZValue(7)
         else:
             self._cursor_label.setPlainText(label_text)
-        self._cursor_label.setPos(x + 4, self._scale_y - 26)
+        self._cursor_label.setPos(x + 4, self._scale_y + self._scale_shift - 26)
 
-        marker_center_y = self._scale_y - 2
+        marker_center_y = self._scale_y + self._scale_shift - 2
         outer_radius = 6
         inner_radius = 3
         outer_rect = QRectF(
@@ -1304,7 +1318,7 @@ class TimePicker(QWidget):
                 QPen(QColor("#000000")),
                 QBrush(QColor("#000000")),
             )
-            self._cursor_marker_outer.setZValue(5)
+            self._cursor_marker_outer.setZValue(8)
         else:
             self._cursor_marker_outer.setRect(outer_rect)
         if self._cursor_marker_inner is None:
@@ -1313,7 +1327,7 @@ class TimePicker(QWidget):
                 QPen(QColor("#ffffff")),
                 QBrush(QColor("#ffffff")),
             )
-            self._cursor_marker_inner.setZValue(6)
+            self._cursor_marker_inner.setZValue(9)
         else:
             self._cursor_marker_inner.setRect(inner_rect)
         self._last_cursor_x = x
@@ -1391,6 +1405,29 @@ class TimePicker(QWidget):
             self._playhead_line.setZValue(3)
         else:
             self._playhead_line.setLine(x, self._scale_y, x, self._line_bottom())
+
+    def _on_vertical_scroll(self) -> None:
+        """Keep the time scale at the top of the view whatever the vertical
+        scroll, and move the cursor marker with it."""
+        vbar = self.view.verticalScrollBar()
+        self._scale_shift = float(max(0, vbar.value() - vbar.minimum()))
+        if self._scale_group is not None:
+            try:
+                self._scale_group.setPos(0, self._scale_shift)
+            except RuntimeError:
+                self._scale_group = None
+        for item, dy in ((self._cursor_label, -26), (self._cursor_marker_outer, None), (self._cursor_marker_inner, None)):
+            if item is None:
+                continue
+            try:
+                if dy is not None:
+                    item.setPos(item.pos().x(), self._scale_y + self._scale_shift + dy)
+                else:
+                    r = item.rect()
+                    centre = self._scale_y + self._scale_shift - 2
+                    item.setRect(r.x(), centre - r.height() / 2, r.width(), r.height())
+            except RuntimeError:
+                pass
 
     def _reposition_track_labels(self, cursor_x: Optional[float] = None):
         if not self._track_positions:
