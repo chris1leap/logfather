@@ -24,6 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Timeline scrolling and zoom (Chris, 2026-09-10): the mouse wheel over the
+  System Replay timeline scrolls it left and right, Shift+wheel scrolls the
+  reading strips, Ctrl+wheel zooms about the cursor (between the whole day
+  and one second per pixel). The view's minimum height dropped from 260 to
+  110 px so the horizontal scrollbar is no longer clipped when the timeline
+  is collapsed.
 - Info text toggle (Chris, 2026-09-10): an "Info text" button on the
   playback bar, next to Overlays, hides or shows the green pick-rate / SKU /
   tray / tool text drawn over the CCTV image (main view and pop-out). On by

@@ -156,7 +156,10 @@ class TimePicker(QWidget):
 
         self.scene = QGraphicsScene(self)
         self.view = QGraphicsView(self.scene)
-        self.view.setMinimumHeight(260)
+        # Small enough to fit the collapsed timeline (165 px in the main
+        # window); at 260 the view overflowed and its horizontal scrollbar
+        # was clipped off the bottom (Chris, 2026-09-10).
+        self.view.setMinimumHeight(110)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setMouseTracking(True)
@@ -975,11 +978,49 @@ class TimePicker(QWidget):
 
     def eventFilter(self, obj, event):
         if obj is self.view.viewport():
+            if event.type() == QEvent.Wheel and self._handle_wheel(event):
+                return True
             if self._signals.handle_resize(event):
                 return True
             if event.type() == QEvent.MouseMove:
                 self._update_cursor_indicator(event)
         return super().eventFilter(obj, event)
+
+    # ---- wheel: scroll along the day, Ctrl to zoom (Chris, 2026-09-10) ----
+    def _handle_wheel(self, event) -> bool:
+        """Plain wheel scrolls left and right along the day, Shift+wheel
+        scrolls the strips up and down, Ctrl+wheel zooms about the cursor."""
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        if not delta:
+            return False
+        mods = event.modifiers()
+        if mods & Qt.ControlModifier:
+            pos = self._event_viewport_pos(event)
+            self._zoom_about(1.25 if delta > 0 else 1 / 1.25, pos)
+            return True
+        bar = self.view.verticalScrollBar() if mods & Qt.ShiftModifier else self.view.horizontalScrollBar()
+        if bar.maximum() <= bar.minimum():
+            return False
+        bar.setValue(bar.value() - int(delta / 120 * max(40, self.view.viewport().width() // 8)))
+        return True
+
+    def _zoom_about(self, factor: float, viewport_pos) -> None:
+        """Change the pixels-per-minute scale, keeping the moment under the
+        cursor where it is. Zoomed out no further than the whole day fitting
+        the view; zoomed in no further than one second per pixel."""
+        if not self._items or not self._current_date:
+            return
+        vp_width = max(1, self.view.viewport().width())
+        min_ppm = max(1.0, vp_width / (24 * 60))
+        new_ppm = max(min_ppm, min(60.0, self._ppm * factor))
+        if abs(new_ppm - self._ppm) < 1e-6:
+            return
+        hbar = self.view.horizontalScrollBar()
+        anchor_view_x = float(viewport_pos.x()) if viewport_pos is not None else vp_width / 2.0
+        anchor_minute = (hbar.value() + anchor_view_x) / self._ppm
+        self._ppm = new_ppm
+        self._redraw_timeline()
+        hbar.setValue(int(round(anchor_minute * new_ppm - anchor_view_x)))
 
     # ---- reading strips: the owner interface for SignalChannel -------------
     def _line_bottom(self) -> float:
