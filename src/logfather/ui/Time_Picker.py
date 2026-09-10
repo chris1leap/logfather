@@ -902,20 +902,23 @@ class TimePicker(QWidget):
         day_start = local_day_start_utc(self._current_date)
         first = min(self._items, key=lambda i: i.start)
         last = max(self._items, key=lambda i: i.end)
-        start_min = max(0.0, (first.start - day_start).total_seconds() / 60.0)
-        end_min = max(start_min + 0.1, (last.end - day_start).total_seconds() / 60.0)
+        # Everything for the day, with half an hour of lead-in before the
+        # first item so the start is clearly visible (Chris, 2026-09-10).
+        start_min = max(0.0, (first.start - day_start).total_seconds() / 60.0 - 30.0)
+        end_min = min(24 * 60.0, max(start_min + 0.1, (last.end - day_start).total_seconds() / 60.0))
         span_minutes = max(5.0, end_min - start_min)
 
         view_width = max(300, self.view.viewport().width() or 600)
-        ppm = max(1, int(view_width / span_minutes))
+        # Fractional scale, so a long day fits exactly rather than rounding
+        # down to a whole pixel per minute and overflowing the view.
+        ppm = max(view_width / (24 * 60.0), (view_width - 8) / span_minutes)
         self._ppm = ppm
         self._redraw_timeline()
 
-        # Center the view on the middle of the span
-        mid_min = (start_min + end_min) / 2.0
+        # Scroll so the span starts at the left edge of the view
         scene_width = self.scene.sceneRect().width()
         vp_width = self.view.viewport().width() or view_width
-        target = mid_min * self._ppm - vp_width / 2.0
+        target = start_min * self._ppm
         target = max(0.0, min(scene_width - vp_width, target))
         hbar = self.view.horizontalScrollBar()
         hbar.setValue(int(target))

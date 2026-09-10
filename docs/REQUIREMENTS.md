@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Timeline default view (Chris, 2026-09-10): Fit, and the automatic fit
+  on load and resize, shows every item of the day from half an hour before
+  the first to the end of the last, scrolled to the start; the scale is
+  fractional so a long day fits the view exactly.
 - Timeline scrolling and zoom (Chris, 2026-09-10): the mouse wheel over the
   System Replay timeline scrolls it left and right, Shift+wheel scrolls the
   reading strips, Ctrl+wheel zooms about the cursor (between the whole day
