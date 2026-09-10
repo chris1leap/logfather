@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Eject crate is normal operation (Chris, 2026-09-10): it is ticked in the
+  Data box, under the readings, with the day's total, not in the Errors box;
+  its row shows by default whenever the day has any.
 - Errors box (Chris, 2026-09-10): on System Replay, a box in the right
   column lists every timeline condition with the day's total and a tick to
   show or hide its row. A row is shown by default only when the day has more

@@ -69,6 +69,10 @@ def _timeline_perf_log(message: str) -> None:
 # tick colour; the row carries one combined label and count.
 SHARED_ROW_NAMES = ("start", "operator stop", "estop", "e-stop")
 SHARED_ROW_LABEL = "Start / Op stop / E-stop"
+# Conditions that are normal operation, not errors (Chris, 2026-09-10): they
+# are ticked in the Data box rather than the Errors box, and their row is
+# shown by default whenever the day has any.
+NORMAL_CONDITION_NAMES = ("eject crate",)
 TRACK_SPACING = 20
 
 
@@ -199,6 +203,7 @@ class TimePicker(QWidget):
         self._errors_grid.setHorizontalSpacing(8)
         self._errors_grid.setVerticalSpacing(2)
         self._error_checks: Dict[str, QCheckBox] = {}
+        self._normal_rows_layout: Optional[QVBoxLayout] = None
         self._errors_box_updating = False
         self._last_condition_rows: list = []
         # The moment under the pointer at the last press on the timeline, so
@@ -1103,6 +1108,14 @@ class TimePicker(QWidget):
         column.setSpacing(4)
         column.addWidget(self._errors_box)
         column.addLayout(self._signals.row_layout())
+        # Normal-operation conditions (eject crate) sit under the readings in
+        # the Data box, each with a tick and the day's total.
+        self._normal_rows_layout = QVBoxLayout()
+        self._normal_rows_layout.setContentsMargins(0, 2, 0, 0)
+        self._normal_rows_layout.setSpacing(2)
+        box_layout = self._signals.data_box.layout()
+        if box_layout is not None:
+            box_layout.addLayout(self._normal_rows_layout)
         column.addWidget(self.status_label)
         return holder
 
@@ -1125,6 +1138,8 @@ class TimePicker(QWidget):
         key = name.strip().lower()
         if key in self._row_overrides:
             return self._row_overrides[key]
+        if key in NORMAL_CONDITION_NAMES:
+            return count > 0
         return count > 1
 
     def _refresh_errors_box(self, label_map: Dict[str, str], color_map: Dict[str, QColor], counts: Dict[str, int]) -> None:
@@ -1147,6 +1162,8 @@ class TimePicker(QWidget):
         if rows == self._last_condition_rows:
             return
         self._last_condition_rows = rows
+        normal_rows = [r for r in rows if r[1].strip().lower() in NORMAL_CONDITION_NAMES]
+        rows = [r for r in rows if r[1].strip().lower() not in NORMAL_CONDITION_NAMES]
         self._errors_box_updating = True
         try:
             while self._errors_grid.count():
@@ -1154,6 +1171,32 @@ class TimePicker(QWidget):
                 if w is not None:
                     w.deleteLater()
             self._error_checks = {}
+            if self._normal_rows_layout is not None:
+                while self._normal_rows_layout.count():
+                    item = self._normal_rows_layout.takeAt(0)
+                    sub = item.layout()
+                    if sub is not None:
+                        while sub.count():
+                            w = sub.takeAt(0).widget()
+                            if w is not None:
+                                w.deleteLater()
+                    elif item.widget() is not None:
+                        item.widget().deleteLater()
+                for kind, name, color, count in normal_rows:
+                    line = QHBoxLayout()
+                    line.setSpacing(6)
+                    cb = QCheckBox(name)
+                    cb.setChecked(self._row_visible(name, count))
+                    cb.setStyleSheet(f"color: {color};")
+                    cb.setToolTip(f"Show the {name} row on the timeline (normal operation)")
+                    cb.toggled.connect(lambda on, n=name: self._on_error_row_toggled(n, on))
+                    total = QLabel(str(count))
+                    total.setStyleSheet(f"color: {color}; font-weight: 600;")
+                    line.addWidget(cb)
+                    line.addWidget(total)
+                    line.addStretch(1)
+                    self._normal_rows_layout.addLayout(line)
+                    self._error_checks[name] = cb
             # Two columns of (tick, total) pairs so the numbers stay in view
             # (Chris, 2026-09-10); filled down the first column, then the second.
             half = (len(rows) + 1) // 2
