@@ -63,6 +63,14 @@ def _timeline_perf_log(message: str) -> None:
         print(f"[timeline-perf] {message}", flush=True)
 
 
+# Condition tracks that share one row to save height (Chris, 2026-09-10):
+# matched by the condition's name, case-insensitive. Each keeps its own
+# tick colour; the row carries one combined label and count.
+SHARED_ROW_NAMES = ("start", "operator stop", "estop", "e-stop")
+SHARED_ROW_LABEL = "Start / Op stop / E-stop"
+TRACK_SPACING = 20
+
+
 class _EventTickItem(QGraphicsRectItem):
     """An event mark on a condition track (Chris, 2026-09-08): a wider
     invisible hit area around the 2 px tick so it can be hovered and
@@ -368,8 +376,11 @@ class TimePicker(QWidget):
                 color_map[item.kind] = item.color
 
         track_map = {}
-        spacing = 24
+        spacing = TRACK_SPACING
         non_video_start = baseline_y + 32
+        # Kinds whose label names them as part of the shared stop/start row.
+        shared_kinds = [k for k in kinds if k != "video" and str(label_map.get(k, "")).strip().lower() in SHARED_ROW_NAMES]
+        shared_y: Optional[float] = None
         if "video" in kinds:
             track_map["video"] = baseline_y
         next_row = non_video_start
@@ -383,6 +394,12 @@ class TimePicker(QWidget):
             next_row += picks_h + 6
         for kind in kinds:
             if kind == "video":
+                continue
+            if kind in shared_kinds:
+                if shared_y is None:
+                    shared_y = next_row
+                    next_row += spacing
+                track_map[kind] = shared_y
                 continue
             track_map[kind] = next_row
             next_row += spacing
@@ -462,13 +479,19 @@ class TimePicker(QWidget):
             count_map[item.kind] = count_map.get(item.kind, 0) + 1
 
         for kind, y in track_map.items():
-            text = "" if kind == "video" else label_map.get(kind, kind.capitalize())
+            if kind in shared_kinds and kind != shared_kinds[0]:
+                continue  # the shared row is labelled once, on its first kind
+            if kind in shared_kinds:
+                text = SHARED_ROW_LABEL
+                count_val = sum(count_map.get(k, 0) for k in shared_kinds)
+            else:
+                text = "" if kind == "video" else label_map.get(kind, kind.capitalize())
+                count_val = count_map.get(kind, 0)
             label_item = self.scene.addText(text)
-            label_item.setDefaultTextColor(color_map.get(kind, QColor("#cccccc")))
+            label_item.setDefaultTextColor(QColor("#cccccc") if kind in shared_kinds else color_map.get(kind, QColor("#cccccc")))
             label_item.setZValue(3)
             self._track_labels[kind] = label_item
 
-            count_val = count_map.get(kind, 0)
             count_item = self.scene.addText("" if kind == "telemetry" else f"{count_val}")
             count_item.setDefaultTextColor(color_map.get(kind, QColor("#cccccc")))
             count_item.setZValue(3)
@@ -476,7 +499,7 @@ class TimePicker(QWidget):
         self._reposition_track_labels()
 
         # Scene height adjusts to number of tracks
-        total_tracks = max(1, len(track_map))
+        total_tracks = max(1, len(set(track_map.values())))
         # Add top/side margin so cursor/time labels aren't clipped.
         self.scene.setSceneRect(-60, -40, total_minutes * ppm + 120, height + (total_tracks - 1) * spacing + 60 + strips_height)
         # Auto-scroll to the first item if it's off-screen.

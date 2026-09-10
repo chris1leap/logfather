@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Shorter timeline (Chris, 2026-09-10): the Start, Operator stop and EStop
+  condition tracks share one row labelled "Start / Op stop / E-stop" with a
+  combined count, each keeping its own tick colour; track rows are 20 px
+  apart instead of 24.
 - No OCR on timeline clicks (Chris, 2026-09-10): opening a clip at a
   moment from the timeline or an event tick no longer forces an OCR sync;
   it seeks with the cached OCR offset if there is one, else by the clip's
