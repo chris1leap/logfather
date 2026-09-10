@@ -1893,10 +1893,9 @@ class MainWindow(QWidget):
             seek_seconds = min(seek_seconds, clip_duration_seconds)
         seek_seconds = max(0.0, seek_seconds)
         self._cancel_overview_navigation()
-        try:
-            self.viewer._auto_sync_with_ocr(force=True)
-        except Exception:
-            pass
+        # No forced OCR here (Chris, 2026-09-10): the clip load has already
+        # applied any cached OCR offset; a timeline click must not start a
+        # copy-and-Tesseract run of its own.
         self.viewer.seek_to_seconds(seek_seconds, pause=True)
 
 

@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- No OCR on timeline clicks (Chris, 2026-09-10): opening a clip at a
+  moment from the timeline or an event tick no longer forces an OCR sync;
+  it seeks with the cached OCR offset if there is one, else by the clip's
+  filename time. The Settings option "open OCR tool when offset missing"
+  was switched off in Chris's settings at the same time.
 - Faults stand out (Chris, 2026-09-10): a default timeline condition
   "Motor fault" (query "Fault on motor", orange-red) fills the first unused
   condition slot, and log lines carrying a motor fault, an error state, a
