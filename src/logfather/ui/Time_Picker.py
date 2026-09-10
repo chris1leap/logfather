@@ -1154,7 +1154,11 @@ class TimePicker(QWidget):
                 if w is not None:
                     w.deleteLater()
             self._error_checks = {}
-            for r, (kind, name, color, count) in enumerate(rows):
+            # Two columns of (tick, total) pairs so the numbers stay in view
+            # (Chris, 2026-09-10); filled down the first column, then the second.
+            half = (len(rows) + 1) // 2
+            for i, (kind, name, color, count) in enumerate(rows):
+                col, r = (0, i) if i < half else (2, i - half)
                 cb = QCheckBox(name)
                 cb.setChecked(self._row_visible(name, count))
                 cb.setStyleSheet(f"color: {color};")
@@ -1163,10 +1167,15 @@ class TimePicker(QWidget):
                 total = QLabel(str(count))
                 total.setStyleSheet(f"color: {color}; font-weight: 600;")
                 total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self._errors_grid.addWidget(cb, r, 0)
-                self._errors_grid.addWidget(total, r, 1)
+                total.setMinimumWidth(28)
+                self._errors_grid.addWidget(cb, r, col)
+                self._errors_grid.addWidget(total, r, col + 1)
                 self._error_checks[name] = cb
             self._errors_grid.setColumnStretch(0, 1)
+            self._errors_grid.setColumnStretch(2, 1)
+            self._errors_grid.setColumnMinimumWidth(1, 30)
+            self._errors_grid.setColumnMinimumWidth(3, 30)
+            self._errors_grid.setHorizontalSpacing(6)
             self._errors_box.setVisible(bool(rows))
         finally:
             self._errors_box_updating = False
