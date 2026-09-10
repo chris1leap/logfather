@@ -370,7 +370,7 @@ class TimePicker(QWidget):
         scale_group = QGraphicsItemGroup()
         scale_group.setZValue(4)
         scale_group.setHandlesChildEvents(False)
-        band = self.scene.addRect(-60, scale_y - 18, total_minutes * ppm + 120, 32, QPen(Qt.NoPen), QBrush(QColor(20, 20, 20, 235)))
+        band = self.scene.addRect(-60, scale_y - 30, total_minutes * ppm + 120, 44, QPen(Qt.NoPen), QBrush(QColor(20, 20, 20, 235)))
         scale_group.addToGroup(band)
         for minute in range(0, total_minutes + 1, step_min):
             x = minute * ppm
@@ -566,6 +566,7 @@ class TimePicker(QWidget):
         self._playhead_time = None
         self._last_cursor_x = None
         self._update_playhead_indicator()
+        self._on_vertical_scroll()  # scene rect is final now: pin the scale to the top
 
     def set_telemetry_summary(self, summary: Optional[tuple]) -> None:
         """(Track, unit) for the Telemetry row, or None to clear it."""
@@ -1409,8 +1410,13 @@ class TimePicker(QWidget):
     def _on_vertical_scroll(self) -> None:
         """Keep the time scale at the top of the view whatever the vertical
         scroll, and move the cursor marker with it."""
-        vbar = self.view.verticalScrollBar()
-        self._scale_shift = float(max(0, vbar.value() - vbar.minimum()))
+        # Pin the band's top edge to the top of the viewport, so there is no
+        # gap above the scale whether scrolled or not (Chris, 2026-09-10).
+        try:
+            top = float(self.view.mapToScene(0, 0).y())
+        except Exception:
+            top = float(self._scale_y - 30)
+        self._scale_shift = top - (self._scale_y - 30)
         if self._scale_group is not None:
             try:
                 self._scale_group.setPos(0, self._scale_shift)
