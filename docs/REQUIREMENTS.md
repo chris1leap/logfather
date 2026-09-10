@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Errors & Stops per-system view (Chris, 2026-09-10): over 14 days the day
+  heading above each cluster is just the day number, and the row under the
+  chart shows each day's total instead of repeating the date.
 - Eject crate is normal operation (Chris, 2026-09-10): it is ticked in the
   Data box, under the readings, with the day's total, not in the Errors box;
   its row shows by default whenever the day has any.

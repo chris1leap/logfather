@@ -571,13 +571,30 @@ class StackedBarChart(QWidget):
                 else:
                     painter.setPen(Qt.NoPen)
                 painter.drawRect(seg)
-            # The day, not the total, heads each cluster (Chris, 2026-09-06).
-            if slot >= 34:
+            # The day, not the total, heads each cluster (Chris, 2026-09-06);
+            # over 14 days there is no room for the weekday, so just the
+            # number (Chris, 2026-09-10).
+            if slot >= 34 or len(self._days) > 14:
                 painter.setPen(QColor(theme.TEXT))
+                wide = len(self._days) <= 14
                 painter.drawText(
                     QRectF(x0 - slot / 2, plot_bottom - plot_h - 22, cluster_w + slot, 18),
                     Qt.AlignHCenter | Qt.AlignBottom,
-                    day_heading(day) if slot >= 64 else f"{day:%a} {day.day}",
+                    day_heading(day) if wide and slot >= 64 else (f"{day:%a} {day.day}" if wide else str(day.day)),
                 )
-        self._paint_day_axis(painter, origin, slot, plot_bottom, visible_left, visible_right, months=False)
+        # Under each cluster: the day's total, not the date again (Chris, 2026-09-10).
+        self._paint_totals_row(painter, origin, slot, plot_bottom, visible_left, visible_right, totals)
         self._paint_labels(painter, plot_bottom - plot_h)
+
+    def _paint_totals_row(self, painter, origin, slot, plot_bottom, visible_left: float, visible_right: float, totals) -> None:
+        small = QFont(self.font().family(), max(8, self.font().pointSize() - 2))
+        small.setBold(True)
+        painter.setFont(small)
+        every = max(1, int(math.ceil(28.0 / max(1.0, slot))))
+        for i, day in enumerate(self._days):
+            x = origin + i * slot
+            if x + slot < visible_left or x > visible_right or i % every or day in self._pending:
+                continue
+            total = totals[i] if i < len(totals) else 0
+            painter.setPen(QColor(theme.TEXT) if total > 0 else QColor(theme.TEXT_MUTED))
+            painter.drawText(QRectF(x - slot, plot_bottom + 4, slot * 3, 16), Qt.AlignHCenter | Qt.AlignTop, self._fmt(total) if total > 0 else "0")
