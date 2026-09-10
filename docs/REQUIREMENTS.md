@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Errors box (Chris, 2026-09-10): on System Replay, a box in the right
+  column lists every timeline condition with the day's total and a tick to
+  show or hide its row. A row is shown by default only when the day has more
+  than one of that error; a tick the user changes is remembered in ui_state
+  (replay_rows). Conditions with no events today are listed with 0.
 - Shorter timeline (Chris, 2026-09-10): the Start, Operator stop and EStop
   condition tracks share one row labelled "Start / Op stop / E-stop" with a
   combined count, each keeping its own tick colour; track rows are 20 px

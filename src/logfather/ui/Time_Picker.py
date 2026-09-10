@@ -20,8 +20,9 @@ from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
     QGraphicsScene, QGraphicsView, QGraphicsRectItem, QGraphicsItem,
-    QGraphicsPolygonItem, QGraphicsLineItem
+    QGraphicsPolygonItem, QGraphicsLineItem, QGroupBox, QGridLayout, QCheckBox
 )
+from logfather.data.ui_state_store import load_ui_state, update_ui_state
 
 from logfather.data.elastic_errors import ElasticFetchError
 # Re-exported for the many UI modules that import these from Time_Picker.
@@ -186,6 +187,20 @@ class TimePicker(QWidget):
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #9aa0a6;")
         self._drag_candidate = None
+        # Errors box (Chris, 2026-09-10): one line per condition with the
+        # day's total and a tick to show or hide its row. A row is shown by
+        # default when the day has more than one of that error; a tick the
+        # user changes is remembered in ui_state under replay_rows.
+        stored = load_ui_state().get("replay_rows")
+        self._row_overrides: Dict[str, bool] = {str(k): bool(v) for k, v in stored.items()} if isinstance(stored, dict) else {}
+        self._errors_box = QGroupBox("Errors")
+        self._errors_grid = QGridLayout(self._errors_box)
+        self._errors_grid.setContentsMargins(8, 4, 8, 6)
+        self._errors_grid.setHorizontalSpacing(8)
+        self._errors_grid.setVerticalSpacing(2)
+        self._error_checks: Dict[str, QCheckBox] = {}
+        self._errors_box_updating = False
+        self._last_condition_rows: list = []
         # The moment under the pointer at the last press on the timeline, so
         # a click on a clip opens it at that moment (Chris, 2026-09-10).
         self.last_click_time: Optional[datetime] = None
@@ -374,6 +389,15 @@ class TimePicker(QWidget):
                 label_map[item.kind] = item.track_label or item.kind.capitalize()
             if item.kind not in color_map:
                 color_map[item.kind] = item.color
+        # Condition rows are shown only when wanted (Chris, 2026-09-10): the
+        # user's tick in the Errors box, else only if the day has more than
+        # one of that error.
+        all_counts: Dict[str, int] = {}
+        for item in self._items:
+            all_counts[item.kind] = all_counts.get(item.kind, 0) + 1
+        hidden_kinds = {k for k in kinds if k.startswith("cond_") and not self._row_visible(str(label_map.get(k, k)), all_counts.get(k, 0))}
+        kinds = [k for k in kinds if k not in hidden_kinds]
+        self._refresh_errors_box(label_map, color_map, all_counts)
 
         track_map = {}
         spacing = TRACK_SPACING
@@ -408,6 +432,8 @@ class TimePicker(QWidget):
                 next_row += picks_h + 6
 
         for item in self._items:
+            if item.kind in hidden_kinds:
+                continue
             start_offset_min = max(0, (item.start - day_start).total_seconds() / 60.0)
             end_offset_min = (item.end - day_start).total_seconds() / 60.0
             width = max(2.0, (end_offset_min - start_offset_min) * ppm)
@@ -488,7 +514,12 @@ class TimePicker(QWidget):
                 text = "" if kind == "video" else label_map.get(kind, kind.capitalize())
                 count_val = count_map.get(kind, 0)
             label_item = self.scene.addText(text)
-            label_item.setDefaultTextColor(QColor("#cccccc") if kind in shared_kinds else color_map.get(kind, QColor("#cccccc")))
+            if kind in shared_kinds:
+                # Each name in its own colour (Chris, 2026-09-10): Start green,
+                # Stop grey, E-stop red, taken from the conditions themselves.
+                label_item.setHtml(self._shared_row_html(shared_kinds, label_map, color_map))
+            else:
+                label_item.setDefaultTextColor(color_map.get(kind, QColor("#cccccc")))
             label_item.setZValue(3)
             self._track_labels[kind] = label_item
 
@@ -1070,9 +1101,82 @@ class TimePicker(QWidget):
         column = QVBoxLayout(holder)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(4)
+        column.addWidget(self._errors_box)
         column.addLayout(self._signals.row_layout())
         column.addWidget(self.status_label)
         return holder
+
+    @staticmethod
+    def _shared_row_html(shared_kinds: list, label_map: Dict[str, str], color_map: Dict[str, QColor]) -> str:
+        short = {"start": "Start", "operator stop": "Stop", "estop": "E-stop", "e-stop": "E-stop"}
+        order = ["start", "operator stop", "estop", "e-stop"]
+        parts = []
+        for want in order:
+            for kind in shared_kinds:
+                name = str(label_map.get(kind, "")).strip().lower()
+                if name == want:
+                    colour = color_map.get(kind)
+                    hexc = colour.name() if isinstance(colour, QColor) else "#cccccc"
+                    parts.append(f'<span style="color:{hexc}">{short.get(name, name)}</span>')
+        return ' <span style="color:#777777">/</span> '.join(parts)
+
+    # ---- Errors box ---------------------------------------------------------
+    def _row_visible(self, name: str, count: int) -> bool:
+        key = name.strip().lower()
+        if key in self._row_overrides:
+            return self._row_overrides[key]
+        return count > 1
+
+    def _refresh_errors_box(self, label_map: Dict[str, str], color_map: Dict[str, QColor], counts: Dict[str, int]) -> None:
+        """One line per condition: a tick (show the row), the name in its
+        colour, the day's total. Conditions come from Settings when known,
+        so a condition with no events today still appears with 0."""
+        rows = []
+        conds = list(getattr(self.settings, "conditions", None) or [])
+        if conds:
+            for idx, cond in enumerate(conds):
+                if not getattr(cond, "query", ""):
+                    continue
+                kind = f"cond_{idx}"
+                rows.append((kind, cond.name or f"Cond {idx + 1}", cond.color or "#cccccc", counts.get(kind, 0)))
+        else:
+            for kind, label in label_map.items():
+                if kind.startswith("cond_"):
+                    c = color_map.get(kind)
+                    rows.append((kind, label, c.name() if isinstance(c, QColor) else "#cccccc", counts.get(kind, 0)))
+        if rows == self._last_condition_rows:
+            return
+        self._last_condition_rows = rows
+        self._errors_box_updating = True
+        try:
+            while self._errors_grid.count():
+                w = self._errors_grid.takeAt(0).widget()
+                if w is not None:
+                    w.deleteLater()
+            self._error_checks = {}
+            for r, (kind, name, color, count) in enumerate(rows):
+                cb = QCheckBox(name)
+                cb.setChecked(self._row_visible(name, count))
+                cb.setStyleSheet(f"color: {color};")
+                cb.setToolTip(f"Show the {name} row on the timeline")
+                cb.toggled.connect(lambda on, n=name: self._on_error_row_toggled(n, on))
+                total = QLabel(str(count))
+                total.setStyleSheet(f"color: {color}; font-weight: 600;")
+                total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self._errors_grid.addWidget(cb, r, 0)
+                self._errors_grid.addWidget(total, r, 1)
+                self._error_checks[name] = cb
+            self._errors_grid.setColumnStretch(0, 1)
+            self._errors_box.setVisible(bool(rows))
+        finally:
+            self._errors_box_updating = False
+
+    def _on_error_row_toggled(self, name: str, on: bool) -> None:
+        if self._errors_box_updating:
+            return
+        self._row_overrides[name.strip().lower()] = bool(on)
+        update_ui_state({"replay_rows": dict(self._row_overrides)})
+        self._schedule_redraw()
 
     def _schedule_redraw(self) -> None:
         if self._items and self._current_date:
