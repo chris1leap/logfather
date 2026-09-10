@@ -1193,6 +1193,23 @@ def fetch_sku_items(
     return build_sku_bands(events, cap_end)
 
 
+def actuator_detail(src: dict) -> str:
+    """The detail the actuator controller attaches to a fault or warning:
+    "servo 5: Current limit exceeded :: Current over limit" for a Fault on
+    motor, the update_info text for a Warning update, else ""."""
+    fail = str(src.get("fail_type", "") or "").strip()
+    servo = str(src.get("servo_id", "") or "").strip()
+    info = str(src.get("update_info", "") or "").strip()
+    bits = []
+    if servo and (fail or info):
+        bits.append(f"servo {servo}")
+    if fail:
+        bits.append(fail)
+    if info:
+        bits.append(info)
+    return ": ".join(bits[:1] + [", ".join(bits[1:])]) if len(bits) > 1 else (bits[0] if bits else "")
+
+
 def _fetch_logs_range_raw(
     settings: Settings,
     pikpak_root: Path | None,
@@ -1234,6 +1251,12 @@ def _fetch_logs_range_raw(
                 "leap_robot_id",
                 "system_id",
                 "json_request.params",
+                # The detail behind actuator faults and warnings (Chris,
+                # 2026-09-10): "Fault on motor" alone said nothing.
+                "fail_type",
+                "servo_id",
+                "update_info",
+                "error_code",
             ],
             "sort": [{ts_field: {"order": "asc", "format": "strict_date_optional_time"}}],
             "query": {
@@ -1268,6 +1291,9 @@ def _fetch_logs_range_raw(
             source_key = str(src.get("source", "") or "").strip()
             message_key = str(src.get("message", "") or "").strip()
             state_val = str(src.get("state_name", "") or "").strip()
+            detail = actuator_detail(src)
+            if detail:
+                message_key = f"{message_key} | {detail}" if message_key else detail
             parts = [p for p in [source_key, state_val, message_key] if p]
             text = " | ".join(parts) if parts else message_key or state_val or source_key or "(event)"
             rows.append((ts, text, source_key, state_val, message_key))

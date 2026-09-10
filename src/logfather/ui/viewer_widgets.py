@@ -428,6 +428,14 @@ class ClipRangeSlider(QSlider):
 _HIGHLIGHT_ACTIVE_BG  = QColor("#cc2222")  # red   — playhead is inside this event
 _HIGHLIGHT_NEAREST_BG = QColor("#7a4800")  # amber — next upcoming event (forward bound)
 _HIGHLIGHT_FG         = QColor("#ffffff")
+_FAULT_FG             = QColor("#ff7a45")  # orange-red — a fault or error line (Chris, 2026-09-10)
+_FAULT_MARKERS = ("Fault on motor", "_error |", "| error |", "Warning update", "emergency_stop", "protective_stop")
+
+
+def is_fault_row(text: str) -> bool:
+    """A log line worth colouring: actuator faults, error states, drive
+    warnings and stops, so they stand out among hundreds of routine lines."""
+    return any(marker in text for marker in _FAULT_MARKERS)
 
 
 class LogListModel(QAbstractListModel):
@@ -454,6 +462,8 @@ class LogListModel(QAbstractListModel):
         if role == Qt.ForegroundRole:
             if row in self._active or row == self._nearest:
                 return _HIGHLIGHT_FG
+            if is_fault_row(self._rows[row]):
+                return _FAULT_FG
         return None
 
     def reset_data(self, rows: list[str]) -> None:

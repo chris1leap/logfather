@@ -97,7 +97,9 @@ DEFAULT_COND_PRESETS = [
     ("Cond 10", ""),
     ("Cond 11", ""),
     ("Cond 12", ""),
-    ("Cond 13", ""),
+    # Motor faults from the actuator controller (Chris, 2026-09-10): the
+    # over-current trip at 07:25 on PikPak 007 was invisible on the timeline.
+    ("Motor fault", '"Fault on motor"'),
     ("Cond 14", ""),
     ("Cond 15", ""),
 ]
@@ -234,7 +236,7 @@ class Settings:
                     break
                 if not conds[idx].query and query:
                     conds[idx].query = query
-                if not conds[idx].name and name:
+                if name and (not conds[idx].name or conds[idx].name == f"Cond {idx + 1}"):
                     conds[idx].name = name
                 # Enforce key colors: Start green, Caution orange, EStop red.
                 lower = conds[idx].name.lower()
@@ -244,6 +246,8 @@ class Settings:
                     conds[idx].color = "#fa8c16"
                 elif lower == "estop":
                     conds[idx].color = "#ff4d4f"
+                elif lower == "motor fault":
+                    conds[idx].color = "#ff7a45"
                 elif not conds[idx].color:
                     conds[idx].color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
             # If loaded conditions are all blank, seed defaults.

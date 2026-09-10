@@ -24,6 +24,14 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Faults stand out (Chris, 2026-09-10): a default timeline condition
+  "Motor fault" (query "Fault on motor", orange-red) fills the first unused
+  condition slot, and log lines carrying a motor fault, an error state, a
+  drive warning or a stop input are drawn in orange-red in the log list.
+- Actuator detail in the log list (Chris, 2026-09-10): "Fault on motor"
+  and "Warning update" lines now carry the servo number and the fault or
+  warning text, e.g. "act_controller | Fault on motor | servo 5: Current
+  limit exceeded :: Current over limit", so they can be seen and searched.
 - Click a clip at a moment (Chris, 2026-09-10): clicking a video segment
   on the System Replay timeline opens the clip and seeks to the moment
   under the pointer, instead of the start of the segment; the logs follow.
