@@ -127,6 +127,34 @@ question to take to the drive vendor is why the master's heartbeat and tick
 stall for several seconds every 10 s, since a stall over 1.5 s while the
 drives are guarding the master is enough to trip 0x8130.
 
+## What the "Warning update" log lines are: decoded emergencies
+
+Every actuator-controller "Warning update" line in Elastic is one CANopen
+emergency frame from a drive (COB-ID 081 to 086), decoded. The `error_code`
+field in the log is the 16-bit emergency code; the text after "::" comes
+from the manufacturer bytes. Confirmed by matching the 8 September 18:32
+capture against the log lines at the same second (Chris, 2026-09-10):
+
+| Log text | Emergency code | Manufacturer byte |
+|---|---|---|
+| DS401: Input voltage too low :: Under Voltage | 0x3120 | 40 + float supply volts |
+| Power Stage Controller Error :: Hardware error (driver error) | 0xFF80 | 26 |
+| Power Stage Controller Error :: Current Limit Phase A / B / C | 0xFF80 | 46 / 47 / 48 |
+| Device specific :: Motor Encoder disconnected | 0xFF00 | 38 |
+| Device specific :: Gear Encoder disconnected, Over Force | 0xFF00 | other |
+| Life Guard Error or Heartbeat Error :: N/A | 0x8130 | 1B + float 1501 (ms) |
+| CAN Passive Mode :: CAN Tx passive | 0x8120 | |
+| recovered from bus off :: CAN transmit bus is off | 0x8140 | |
+| Position controller following error | 0x8611 | |
+| Generic Error :: Emergency buffer is full | 0x1000 | |
+| Error Reset or No Error :: <what cleared> | 0x0000 | the condition that cleared |
+
+So "Current Limit Phase A" is the drive's own power stage reporting that
+one motor phase hit its hardware current limit; it is a warning from the
+drive, not a trip. The controller's "Fault on motor ... Current limit
+exceeded :: Current over limit" (state high_current_error) is the separate
+software trip that stops the run.
+
 ## Object 0x2202: the PVT trajectory buffer
 
 Manufacturer object 0x2202 is the drive's queue of position-velocity-time
