@@ -113,6 +113,16 @@
   .seek .cursor { position: absolute; top: -26px; transform: translateX(-50%); font-family: Consolas, "Courier New", monospace; font-size: 12px; font-weight: 600; color: var(--eth); background: var(--panel); padding: 0 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
   .seek .cursor::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 0; height: 0; margin-left: -4px; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--eth); }
   .seek .marks i { position: absolute; top: 0; width: 2px; height: 5px; background: var(--estop); }
+  /* emergency code reference */
+  .ref { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 13px; }
+  .ref summary { cursor: pointer; font-weight: 600; font-size: 13px; letter-spacing: .04em; color: var(--ink); }
+  .ref .note { color: var(--muted); margin: 8px 0; }
+  .ref code { font-family: Consolas, "Courier New", monospace; }
+  .ref .tblwrap { overflow-x: auto; }
+  .ref table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .ref th, .ref td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  .ref th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .ref td:nth-child(1), .ref td:nth-child(2) { font-family: Consolas, "Courier New", monospace; white-space: nowrap; }
   /* sender / receiver highlight and the moving dots */
   :root { --send: #2e5eaa; --recv: #2e8b3a; --send-soft: rgba(46,94,170,.16); --recv-soft: rgba(46,139,58,.16); }
   @media (prefers-color-scheme: dark) { :root { --send: #7fa6e8; --recv: #6fcf7a; --send-soft: rgba(127,166,232,.22); --recv-soft: rgba(111,207,122,.22); } }
@@ -285,6 +295,27 @@
     </div>
     <ol id="hb-list"></ol>
   </section>
+  <details class="ref">
+    <summary>Emergency codes: what the drives send, what the Logfather logs show, what Grafana holds</summary>
+    <p class="note">Every "Warning update" line from the actuator controller in Elastic is one emergency frame from a drive (COB-ID 081 to 086), decoded. The log's <code>error_code</code> field is the emergency code; the text after "::" is the controller's reading of the manufacturer byte. Confirmed against the 8 September capture.</p>
+    <div class="tblwrap"><table>
+      <thead><tr><th>Emergency code</th><th>Manufacturer byte</th><th>Value bytes</th><th>Elastic "Warning update" text</th><th>Grafana</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>0xFF80</td><td>46 / 47 / 48</td><td></td><td>Power Stage Controller Error :: Current Limit Phase A / B / C</td><td>none</td><td>One motor phase hit the drive's hardware current limit and was clamped. A warning, not a trip.</td></tr>
+        <tr><td>0xFF80</td><td>26</td><td></td><td>Power Stage Controller Error :: Hardware error (driver error)</td><td>none</td><td>Power stage fault in the drive.</td></tr>
+        <tr><td>0xFF00</td><td>38</td><td></td><td>Device specific :: Motor Encoder disconnected</td><td>none</td><td>The drive lost its motor encoder, typically during a brownout.</td></tr>
+        <tr><td>0xFF00</td><td>other</td><td></td><td>Device specific :: Gear Encoder disconnected, Over Force</td><td>none</td><td>Other device-specific faults.</td></tr>
+        <tr><td>0x3120</td><td>40</td><td>float, supply volts</td><td>DS401: Input voltage too low :: Under Voltage</td><td>none (timeline condition "Under Voltage" in the Logfather)</td><td>Drive supply below its limit; about 35 V during the 8 September E-Stop.</td></tr>
+        <tr><td>0x8130</td><td>1B</td><td>float, ms without heartbeat</td><td>Life Guard Error or Heartbeat Error :: N/A</td><td>none</td><td>The drive stopped hearing the master's heartbeat (1,501 ms on 8 September).</td></tr>
+        <tr><td>0x8120</td><td></td><td></td><td>CAN Passive Mode :: CAN Tx passive</td><td>behaviour_canbus_errors (per-window counts)</td><td>The drive's CAN controller went error-passive: too many transmit errors.</td></tr>
+        <tr><td>0x8140</td><td></td><td></td><td>recovered from bus off :: CAN transmit bus is off</td><td>behaviour_canbus_errors, _errors_near_power_event</td><td>The drive dropped off the bus and came back.</td></tr>
+        <tr><td>0x8611</td><td></td><td></td><td>Position controller following error</td><td>none</td><td>The motor could not follow the commanded position.</td></tr>
+        <tr><td>0x1000</td><td></td><td></td><td>Generic Error :: Emergency buffer is full</td><td>none</td><td>The drive had more emergencies queued than it can hold.</td></tr>
+        <tr><td>0x0000</td><td></td><td></td><td>Error Reset or No Error :: &lt;what cleared&gt;</td><td>none (timeline condition "N/A error")</td><td>A previous error has cleared; the text names it. Marks the end of a fault, not a fault.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">Not an emergency: the controller's own "Fault on motor :: Current limit exceeded :: Current over limit" (state high_current_error) is the software trip that stops the run; it appears in Grafana as a step in actuators_motor_halting_errors. Motor current and temperature in Grafana are one reading every 30 s of the status block the master reads from each drive about 56 times a second (object 0x2014:01).</p>
+  </details>
   <div class="tip" id="tip" hidden></div>
 </div>
 <script>
