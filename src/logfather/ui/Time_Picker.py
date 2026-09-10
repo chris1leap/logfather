@@ -178,6 +178,9 @@ class TimePicker(QWidget):
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #9aa0a6;")
         self._drag_candidate = None
+        # The moment under the pointer at the last press on the timeline, so
+        # a click on a clip opens it at that moment (Chris, 2026-09-10).
+        self.last_click_time: Optional[datetime] = None
         self._signals = SignalBoxes(self, "replay", picks_default=True)
         self._strips_bottom: Optional[float] = None
         layout = QVBoxLayout()
@@ -983,6 +986,11 @@ class TimePicker(QWidget):
         if obj is self.view.viewport():
             if event.type() == QEvent.Wheel and self._handle_wheel(event):
                 return True
+            if event.type() == QEvent.MouseButtonPress and self._day_start is not None:
+                pos = self._event_viewport_pos(event)
+                if pos is not None and self._ppm:
+                    minute = max(0.0, min(24 * 60.0, self.view.mapToScene(pos).x() / self._ppm))
+                    self.last_click_time = self._day_start + timedelta(minutes=minute)
             if self._signals.handle_resize(event):
                 return True
             if event.type() == QEvent.MouseMove:

@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-10
 
+- Click a clip at a moment (Chris, 2026-09-10): clicking a video segment
+  on the System Replay timeline opens the clip and seeks to the moment
+  under the pointer, instead of the start of the segment; the logs follow.
 - Timeline default view (Chris, 2026-09-10): Fit, and the automatic fit
   on load and resize, shows every item of the day from half an hour before
   the first to the end of the last, scrolled to the start; the scale is

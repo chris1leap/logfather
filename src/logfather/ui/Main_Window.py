@@ -1321,6 +1321,23 @@ class MainWindow(QWidget):
 
     def on_time_chosen(self, item: TimelineItem):
         if item.kind == "video" and isinstance(item.payload, Path):
+            # Open the clip at the moment that was clicked, not at its start
+            # (Chris, 2026-09-10): same route as a click on an event tick.
+            clicked = getattr(self.time_picker, "last_click_time", None)
+            root = self.time_picker.current_root
+            day = self.time_picker._current_date
+            if (isinstance(clicked, datetime) and isinstance(item.start, datetime) and isinstance(item.end, datetime)
+                    and ensure_utc(item.start) <= ensure_utc(clicked) < ensure_utc(item.end)
+                    and isinstance(root, Path) and day is not None):
+                self._pending_overview_navigation = {
+                    "root": root,
+                    "day": day,
+                    "target_dt": ensure_utc(clicked),
+                    "stage": "load_timeline",
+                }
+                self._overview_nav_failsafe.start()
+                self._on_items_changed_for_navigation()
+                return
             self.open_in_viewer(item)
         elif item.kind == "additional" and isinstance(item.payload, Path):
             self.time_picker.clear_clip_target_rate_heat()
