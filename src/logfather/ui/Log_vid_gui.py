@@ -34,6 +34,7 @@ from logfather.core.frame_analysis import (
 from logfather.ui.annotated_video_widget import AnnotatedVideoWidget
 from logfather.data.clip_cache import ClipCache
 from logfather.data.ocr_offset_store import OcrOffsetStore
+from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.core.time_alignment import TimeAlignment
 from logfather.ui import theme
 from logfather.core.log_events import (
@@ -615,10 +616,19 @@ class VideoLogViewer(QWidget):
         self.sync_tools_btn.setCheckable(True)
         self.overlay_tools_btn = QPushButton("Overlays")
         self.overlay_tools_btn.setCheckable(True)
+        # The green pick-rate / SKU text drawn over the footage can be
+        # switched off (Chris, 2026-09-10); the choice is remembered.
+        self.status_text_btn = QPushButton("Info text")
+        self.status_text_btn.setCheckable(True)
+        self.status_text_btn.setChecked(bool(load_ui_state().get("viewer_status_text", True)))
+        self.status_text_btn.setToolTip("Show the pick rate, SKU, tray and tool text over the CCTV image")
+        self.status_text_btn.toggled.connect(self._on_status_text_toggled)
+        self._last_status_lines: list[str] = []
         self.playback_layout = QHBoxLayout()
         self.playback_layout.addWidget(self.play_pause_btn)
         self.playback_layout.addWidget(self.sync_tools_btn)
         self.playback_layout.addWidget(self.overlay_tools_btn)
+        self.playback_layout.addWidget(self.status_text_btn)
         # Additional CCTV loads via timeline selection.
         self.playback_layout.addStretch(1)
 
@@ -3908,13 +3918,22 @@ class VideoLogViewer(QWidget):
         ppm_lines, playback_dt_from_helper = self._overlay_context_for_time(t_seconds)
         if playback_dt is None:
             playback_dt = playback_dt_from_helper
-        if hasattr(self, "video_label"):
-            self.video_label.set_status_lines(ppm_lines)
-        if self._popout_label is not None:
-            self._popout_label.set_status_lines(ppm_lines)
+        self._last_status_lines = list(ppm_lines)
+        self._apply_status_lines()
         if hasattr(self, "frame_label"):
             self.frame_label.display(str(frame_index))
         self.current_time_changed.emit(playback_dt)
+
+    def _apply_status_lines(self) -> None:
+        lines = self._last_status_lines if self.status_text_btn.isChecked() else []
+        if hasattr(self, "video_label"):
+            self.video_label.set_status_lines(lines)
+        if self._popout_label is not None:
+            self._popout_label.set_status_lines(lines)
+
+    def _on_status_text_toggled(self, on: bool) -> None:
+        update_ui_state({"viewer_status_text": bool(on)})
+        self._apply_status_lines()
 
     def update_log_highlight(self, t_seconds: float):
         if not self.events or self._log_model.rowCount() == 0:

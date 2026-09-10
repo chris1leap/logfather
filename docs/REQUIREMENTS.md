@@ -22,6 +22,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ## Shipped
 
+### 2026-09-10
+
+- Info text toggle (Chris, 2026-09-10): an "Info text" button on the
+  playback bar, next to Overlays, hides or shows the green pick-rate / SKU /
+  tray / tool text drawn over the CCTV image (main view and pop-out). On by
+  default; the choice is remembered in ui_state as viewer_status_text.
+
 ### 2026-09-08
 
 - Log-time clock back on the top row (Chris, 2026-09-08): the green
