@@ -57,8 +57,8 @@ Living record of agreed functionality: what is open, and what has shipped
   the first to the end of the last, scrolled to the start; the scale is
   fractional so a long day fits the view exactly.
 - Timeline scrolling and zoom (Chris, 2026-09-10): the mouse wheel over the
-  System Replay timeline scrolls it left and right, Shift+wheel scrolls the
-  reading strips, Ctrl+wheel zooms about the cursor (between the whole day
+  System Replay timeline scrolls up and down, Shift+wheel scrolls left and
+  right along the day, Ctrl+wheel zooms about the cursor (between the whole day
   and one second per pixel). The view's minimum height dropped from 260 to
   110 px so the horizontal scrollbar is no longer clipped when the timeline
   is collapsed.

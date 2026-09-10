@@ -1058,8 +1058,8 @@ class TimePicker(QWidget):
 
     # ---- wheel: scroll along the day, Ctrl to zoom (Chris, 2026-09-10) ----
     def _handle_wheel(self, event) -> bool:
-        """Plain wheel scrolls left and right along the day, Shift+wheel
-        scrolls the strips up and down, Ctrl+wheel zooms about the cursor."""
+        """Plain wheel scrolls up and down (Chris, 2026-09-10), Shift+wheel
+        scrolls left and right along the day, Ctrl+wheel zooms about the cursor."""
         delta = event.angleDelta().y() or event.angleDelta().x()
         if not delta:
             return False
@@ -1068,7 +1068,7 @@ class TimePicker(QWidget):
             pos = self._event_viewport_pos(event)
             self._zoom_about(1.25 if delta > 0 else 1 / 1.25, pos)
             return True
-        bar = self.view.verticalScrollBar() if mods & Qt.ShiftModifier else self.view.horizontalScrollBar()
+        bar = self.view.horizontalScrollBar() if mods & Qt.ShiftModifier else self.view.verticalScrollBar()
         if bar.maximum() <= bar.minimum():
             return False
         bar.setValue(bar.value() - int(delta / 120 * max(40, self.view.viewport().width() // 8)))
