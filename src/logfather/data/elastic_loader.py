@@ -60,7 +60,9 @@ _LAST_VIDEO_END_UNSET: object = object()
 ELASTIC_EVENT_MAX_PAGES = 20
 # Part of the events-cache digest; bump on any change to TimelineItem
 # (de)serialization or the SKU/event extraction logic.
-EVENTS_CACHE_SCHEMA_VERSION = 2
+# 3: condition clause changed (state-change documents count only on their own
+# state_name, 2026-09-11); cached days still held the doubled counts.
+EVENTS_CACHE_SCHEMA_VERSION = 3
 
 ELASTIC_EVENT_PAGE_SIZE = 1500
 ELASTIC_EVENT_MIN_PAGE_SIZE = 300

@@ -30,6 +30,8 @@ Living record of agreed functionality: what is open, and what has shipped
   previous_state_name. State-change documents now count only when their own
   state_name matches. PikPak 010 on 22 August showed 12 crate change errors
   for 6 events; Operator stop was doubled the same way.
+  The events cache schema version was bumped to 3 so cached past days are
+  refetched with the corrected counts.
 
 ### 2026-09-10
 
