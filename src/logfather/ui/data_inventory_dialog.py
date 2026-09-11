@@ -186,16 +186,16 @@ class DataInventoryDialog(QDialog):
 
         controls = QHBoxLayout()
         self._filter_btn = QToolButton()
-        self._filter_btn.setText("Systems")
+        self._filter_btn.setText("PikPaks")
         self._filter_btn.setIcon(funnel_icon())
         self._filter_btn.setIconSize(QSize(18, 18))
         self._filter_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self._filter_btn.setToolTip("Choose which systems to show")
+        self._filter_btn.setToolTip("Choose which PikPaks to show")
         # Never elide the "(N hidden)" suffix (Chris, 2026-09-07).
         self._filter_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._filter_btn.clicked.connect(self._open_filter_popup)
         if self._hidden_systems:
-            self._filter_btn.setText(f"Systems ({len(self._hidden_systems)} hidden)")
+            self._filter_btn.setText(f"PikPaks ({len(self._hidden_systems)} hidden)")
         controls.addWidget(self._filter_btn)
         controls.addSpacing(12)
         # Live (the last 14 days ending today) or a chosen day / span
@@ -804,7 +804,7 @@ class DataInventoryDialog(QDialog):
     def _persist_hidden(self) -> None:
         update_ui_state({_HIDDEN_SYSTEMS_KEY: sorted(self._hidden_systems)})
         count = len(self._hidden_systems)
-        self._filter_btn.setText("Systems" if not count else f"Systems ({count} hidden)")
+        self._filter_btn.setText("PikPaks" if not count else f"PikPaks ({count} hidden)")
 
     # ---- views ------------------------------------------------------------
 

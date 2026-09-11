@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Naming (Chris, 2026-09-11): the "System Replay" button reads "PikPak
+  Replay", and the systems filter button on the Overview, Errors & Stops
+  and Data windows reads "PikPaks" (with "(N hidden)"), its popup titled
+  "Show PikPaks". Internal names and saved keys are unchanged.
 - Picks visible zoomed out (Chris, 2026-09-11): a month-long Overview span
   samples the strips every 5 minutes (Grafana) or 30 minutes (Argus 1 pick
   rate from Elastic), and the line broke at every gap over five minutes,

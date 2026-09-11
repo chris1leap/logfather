@@ -149,7 +149,7 @@ class SystemFilterPopup(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 8, 10, 8)
         head = QHBoxLayout()
-        title = QLabel("Show systems")
+        title = QLabel("Show PikPaks")
         title.setStyleSheet(f"font-weight: bold; color: {theme.TEXT_BRIGHT};")
         head.addWidget(title)
         head.addStretch(1)

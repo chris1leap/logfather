@@ -136,7 +136,7 @@ class ErrorsStopsWindow(QDialog):
         self.filter_btn.setIcon(funnel_icon())
         self.filter_btn.setIconSize(QSize(18, 18))
         self.filter_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.filter_btn.setToolTip("Choose which systems to include")
+        self.filter_btn.setToolTip("Choose which PikPaks to include")
         self.filter_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.filter_btn.clicked.connect(self._open_filter)
         controls.addWidget(self.filter_btn)
@@ -310,7 +310,7 @@ class ErrorsStopsWindow(QDialog):
         else:
             self.pick_days_btn.setText(f"{start:%d/%m} – {end:%d/%m/%Y}")
         count = len(self._hidden)
-        self.filter_btn.setText("Systems" if not count else f"Systems ({count} hidden)")
+        self.filter_btn.setText("PikPaks" if not count else f"PikPaks ({count} hidden)")
 
     def _on_live(self):
         today = datetime.now().date()

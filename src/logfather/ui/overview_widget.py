@@ -714,7 +714,7 @@ class OverviewWidget(QWidget):
         self.filter_btn.setIcon(funnel_icon())
         self.filter_btn.setIconSize(QSize(18, 18))
         self.filter_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.filter_btn.setToolTip("Choose which systems to load and show")
+        self.filter_btn.setToolTip("Choose which PikPaks to load and show")
         self.filter_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.filter_btn.clicked.connect(self._open_filter_popup)
         self._refresh_filter_label()
@@ -1091,7 +1091,7 @@ class OverviewWidget(QWidget):
 
     def _refresh_filter_label(self):
         count = len(self._hidden_systems)
-        self.filter_btn.setText("Systems" if not count else f"Systems ({count} hidden)")
+        self.filter_btn.setText("PikPaks" if not count else f"PikPaks ({count} hidden)")
 
     # ---- temperatures and currents ----------------------------------------
 
