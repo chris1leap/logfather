@@ -62,3 +62,8 @@ package split; module names unchanged).
   import them, don't extend them.
 - `build.ps1` builds the Windows exe/installer (only for releases, not dev).
 - Tesseract OCR binary is optional; OCR features degrade gracefully without it.
+- **Caches never expire for past days** and the Refresh button reads them. Any
+  change to query logic or to what a cache stores (condition clauses, TimelineItem
+  fields, counting rules) must bump the matching cache schema version in the same
+  commit (`EVENTS_CACHE_SCHEMA_VERSION` in `elastic_loader.py`; check other
+  `*_cache*` stores too), or Chris keeps seeing the old numbers (2026-09-11).
