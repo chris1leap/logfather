@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Play button on the picture (Chris, 2026-09-11): the play / pause button
+  is a round translucent button in the middle of the CCTV image; the
+  bottom row keeps the log-time clock and the report buttons, and the
+  right column ends level with that row.
 - Green line moves on click (Chris, 2026-09-11): clicking the CCTV row or
   an event tick on the PikPak Replay timeline moves the green playhead to
   that moment at once, before the clip has loaded; playback then takes

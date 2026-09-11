@@ -573,12 +573,19 @@ class VideoLogViewer(QWidget):
         # window (Chris, 2026-09-11).
         from logfather.ui.icons import media_icon
 
-        self._media_icons = {"play": media_icon("play"), "pause": media_icon("pause")}
-        self.play_pause_btn = QPushButton()
+        self._media_icons = {"play": media_icon("play", 32), "pause": media_icon("pause", 32)}
+        # The play button sits in the middle of the CCTV picture (Chris,
+        # 2026-09-11), a round translucent button over the footage.
+        self.play_pause_btn = QPushButton(self.video_label)
         self.play_pause_btn.setIcon(self._media_icons["play"])
-        self.play_pause_btn.setIconSize(QSize(28, 28))
-        self.play_pause_btn.setFixedSize(QSize(54, 44))
+        self.play_pause_btn.setIconSize(QSize(32, 32))
+        self.play_pause_btn.setFixedSize(QSize(60, 60))
+        self.play_pause_btn.setCursor(Qt.PointingHandCursor)
         self.play_pause_btn.setToolTip("Play / pause (space)")
+        self.play_pause_btn.setStyleSheet(
+            "QPushButton { background: rgba(0, 0, 0, 120); border: 1px solid rgba(255, 255, 255, 90); border-radius: 30px; }"
+            "QPushButton:hover { background: rgba(0, 0, 0, 200); }"
+        )
         self.play_pause_btn.clicked.connect(self.toggle_play_pause)
         self.annotate_btn = QPushButton("Annotate")
         self.annotate_btn.clicked.connect(self._open_annotation_popout)
@@ -637,8 +644,6 @@ class VideoLogViewer(QWidget):
         # a View menu at the top right of the CCTV image, with a switch for
         # the clip-time and frame counters (off by default).
         self.playback_layout = QHBoxLayout()
-        self.playback_layout.addWidget(self.play_pause_btn)
-        self.playback_layout.addSpacing(8)
         self.playback_layout.addWidget(self.calc_label)
         # Additional CCTV loads via timeline selection.
         self.playback_layout.addStretch(1)
@@ -754,12 +759,17 @@ class VideoLogViewer(QWidget):
             update_ui_state({"viewer_clip_counters": bool(on)})
 
     def _place_view_menu(self) -> None:
-        btn = getattr(self, "view_menu_btn", None)
-        if btn is None or self.video_label is None:
+        if self.video_label is None:
             return
-        btn.adjustSize()
-        btn.move(max(0, self.video_label.width() - btn.width() - 8), 8)
-        btn.raise_()
+        btn = getattr(self, "view_menu_btn", None)
+        if btn is not None:
+            btn.adjustSize()
+            btn.move(max(0, self.video_label.width() - btn.width() - 8), 8)
+            btn.raise_()
+        play = getattr(self, "play_pause_btn", None)
+        if play is not None and play.parent() is self.video_label:
+            play.move(max(0, (self.video_label.width() - play.width()) // 2), max(0, (self.video_label.height() - play.height()) // 2))
+            play.raise_()
 
     def _build_analysis_controls(self):
         """Frame-diff / optical-flow controls and the analysis view pane."""
@@ -3878,7 +3888,7 @@ class VideoLogViewer(QWidget):
         column spans the whole row, so its layout gets a bottom margin
         equal to whatever sits below the play row."""
         column = getattr(self, "right_column", None)
-        anchor = getattr(self, "play_pause_btn", None)
+        anchor = getattr(self, "calc_label", None)  # the bottom row: the play button is on the picture now
         if column is None or anchor is None or not anchor.isVisible():
             return
         try:
