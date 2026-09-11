@@ -50,8 +50,9 @@ Living record of agreed functionality: what is open, and what has shipped
   colour instead of resetting it to the slot default on every apply.
 - Row headers always readable (Chris, 2026-09-11): the row labels and
   counts on PikPak Replay, and the strip titles and axis values on both
-  PikPak Replay and the Overview, sit on a dark backdrop that moves with
-  them, so they never read directly over the chart when scrolled.
+  PikPak Replay and the Overview, sit on a backdrop in the table's own
+  background colour that moves with them, so they never read directly
+  over the chart when scrolled and are invisible otherwise.
 - No "Rate" label on PikPak Replay (Chris, 2026-09-11): the day rate heat
   strip under the time scale no longer carries a "Rate" caption, which sat
   by the CCTV row label.

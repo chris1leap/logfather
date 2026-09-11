@@ -47,7 +47,10 @@ COMPACT_BOX_STYLE = (
 KEY_LABEL_STYLE = f"{theme.MUTED_LABEL} font-size: {COMPACT_FONT_PX}px;"
 
 
-LABEL_BACKDROP = QColor(11, 16, 20, 225)
+# The same colour as the table behind the labels (the app background the
+# scenes paint), so the pill is invisible until a chart scrolls under it
+# (Chris, 2026-09-11).
+LABEL_BACKDROP = QColor(theme.BG)
 
 
 class CollapsibleGroupBox(QGroupBox):
