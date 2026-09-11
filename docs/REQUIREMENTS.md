@@ -24,6 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Label gutter (Chris, 2026-09-11): on the PikPak Replay timeline a solid
+  bar in the table's background colour runs the full height of the scene
+  behind the row and strip labels (CCTV, Additional CCTV, SKU, Start /
+  Stop / E-stop, the conditions, Picks and the readings), as wide as the
+  widest label, and follows the horizontal scroll, so no chart data
+  shows under the labels.
 - Play rolls into the next clip (Chris, 2026-09-11): pressing Play at the
   end of a CCTV clip opens the next clip on the day's timeline and starts
   playing it; with no later clip, Play behaves as before.

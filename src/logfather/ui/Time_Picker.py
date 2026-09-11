@@ -264,6 +264,10 @@ class TimePicker(QWidget):
         self._baseline_y = 28
         self._scale_y = 4
         self._track_labels: Dict[str, object] = {}
+        # A solid gutter behind the row labels, the full height of the
+        # scene, as wide as the widest label (Chris, 2026-09-11): no chart
+        # data shows under the labels when the timeline is scrolled.
+        self._gutter_rect = None
         self._track_counts: Dict[str, object] = {}
         self._track_positions: Dict[str, float] = {}
         self._busy = False
@@ -580,6 +584,10 @@ class TimePicker(QWidget):
         total_tracks = max(1, len(set(track_map.values())))
         # Add top/side margin so cursor/time labels aren't clipped.
         self.scene.setSceneRect(-60, -40, total_minutes * ppm + 120, height + (total_tracks - 1) * spacing + 60 + strips_height)
+        self._gutter_rect = self.scene.addRect(QRectF(0, 0, 1, 1), QPen(Qt.NoPen), QBrush(QColor(theme.BG)))
+        self._gutter_rect.setZValue(2.5)
+        self._gutter_rect.setAcceptedMouseButtons(Qt.NoButton)
+        self._update_gutter()
         # Auto-scroll to the first item if it's off-screen.
         if self._items:
             first = self._items[0]
@@ -592,6 +600,7 @@ class TimePicker(QWidget):
         self._cursor_marker_inner = None
         self._playhead_line = None
         self._playhead_label = None
+        self._gutter_rect = None
         # The playhead time is kept across a redraw (Chris, 2026-09-11: the
         # green line was missing when the screen first loaded, because the
         # viewer had reported its time before the timeline drew, and the
@@ -1554,6 +1563,44 @@ class TimePicker(QWidget):
                     count_item.setPos(right_x - rect.width(), y - h2 / 2)
                 except RuntimeError:
                     continue
+        self._update_gutter()
+
+    def _update_gutter(self) -> None:
+        """Size and place the label gutter: the viewport's left edge, the
+        scene's full height, as wide as the widest row or strip label."""
+        gutter = self._gutter_rect
+        if gutter is None:
+            return
+        try:
+            if gutter.scene() is None:
+                self._gutter_rect = None
+                return
+        except RuntimeError:
+            self._gutter_rect = None
+            return
+        widest = 0.0
+        for label_item in list(self._track_labels.values()):
+            try:
+                if label_item.scene() is not None and label_item.toPlainText().strip():
+                    widest = max(widest, label_item.boundingRect().width())
+            except RuntimeError:
+                continue
+        for channel in self._signals.channels:
+            for item, kind, _y in channel.label_items:
+                if kind != "title":
+                    continue
+                try:
+                    if item.scene() is not None:
+                        widest = max(widest, item.boundingRect().width())
+                except RuntimeError:
+                    continue
+        if widest <= 0:
+            gutter.setVisible(False)
+            return
+        gutter.setVisible(True)
+        h_offset = self.view.horizontalScrollBar().value()
+        scene_rect = self.scene.sceneRect()
+        gutter.setRect(QRectF(h_offset, scene_rect.top(), widest + 6, scene_rect.height()))
 
     def collect_event_markers(self, video_item: TimelineItem) -> list[tuple[float, str]]:
         markers: list[tuple[float, str]] = []
