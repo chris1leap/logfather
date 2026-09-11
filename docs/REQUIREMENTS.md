@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Mode button icons (Chris, 2026-09-11): Overview shows four tiles, PikPak
+  Replay a play triangle, Search a magnifying glass; painted in icons.py
+  (rows, bars and radar alternatives for the Overview are there too).
 - Clip span above the scroll bar (Chris, 2026-09-11): the clip's start
   time at the left and end time at the right, to the minute (06:35), just
   above the CCTV seek slider; the start comes from the filename until the
