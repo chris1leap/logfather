@@ -11,7 +11,7 @@ from typing import Callable, Iterable, Optional, Dict, Tuple, List
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
 from logfather.ui.qt_worker import JobSlot
-from logfather.ui.overview_signals import SignalBoxes, COMPACT_BOX_STYLE, COMPACT_FONT_PX, add_label_backdrop
+from logfather.ui.overview_signals import SignalBoxes, COMPACT_BOX_STYLE, COMPACT_FONT_PX, add_label_backdrop, CollapsibleGroupBox
 from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
 from types import SimpleNamespace
@@ -224,9 +224,9 @@ class TimePicker(QWidget):
         # user changes is remembered in ui_state under replay_rows.
         stored = load_ui_state().get("replay_rows")
         self._row_overrides: Dict[str, bool] = {str(k): bool(v) for k, v in stored.items()} if isinstance(stored, dict) else {}
-        self._errors_box = QGroupBox("Errors")
+        self._errors_box = CollapsibleGroupBox("Errors")
         self._errors_box.setStyleSheet(COMPACT_BOX_STYLE)
-        self._errors_grid = QGridLayout(self._errors_box)
+        self._errors_grid = QGridLayout(self._errors_box.body)
         self._errors_grid.setContentsMargins(4, 2, 4, 2)
         self._errors_grid.setHorizontalSpacing(6)
         self._errors_grid.setVerticalSpacing(0)
@@ -1149,10 +1149,15 @@ class TimePicker(QWidget):
         self._normal_rows_layout = QVBoxLayout()
         self._normal_rows_layout.setContentsMargins(0, 1, 0, 0)
         self._normal_rows_layout.setSpacing(0)
-        box_layout = self._signals.data_box.layout()
+        box_layout = self._signals.data_box.body.layout()
         if box_layout is not None:
             box_layout.addLayout(self._normal_rows_layout)
         column.addWidget(self.status_label)
+        self.status_label.setVisible(False)
+        # The arrows after the titles fold each box away (Chris, 2026-09-11).
+        self._errors_box.set_collapsible("errors")
+        self._signals.data_box.set_collapsible("data")
+        self._signals.additional_box.set_collapsible("additional")
         holder.pin_height()
         return holder
 
@@ -1294,8 +1299,10 @@ class TimePicker(QWidget):
             return
         if not grafana_client.is_configured(self.settings):
             self.status_label.setText("Readings need Grafana: gear menu, Data sources")
+            self.status_label.setVisible(True)
             return
         self.status_label.setText("")
+        self.status_label.setVisible(False)
         start = local_day_start_utc(self._current_date)
         now_utc = datetime.now(timezone.utc)
         end = min(now_utc, start + timedelta(days=1))

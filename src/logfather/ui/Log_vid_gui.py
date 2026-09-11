@@ -3719,6 +3719,29 @@ class VideoLogViewer(QWidget):
         super().resizeEvent(event)
         self.update_video_label()
         self._update_marker_bar_padding()
+        QTimer.singleShot(0, self._align_right_column_bottom)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._align_right_column_bottom)
+
+    def _align_right_column_bottom(self) -> None:
+        """The boxes under the log tabs end level with the bottom of the
+        CCTV image (Chris, 2026-09-11): the column spans the whole row, so
+        its layout gets a bottom margin equal to the rows under the video."""
+        column = getattr(self, "right_column", None)
+        video = getattr(self, "video_label", None)
+        if column is None or video is None or not video.isVisible():
+            return
+        try:
+            video_bottom = video.mapTo(self, video.rect().bottomLeft()).y()
+            column_bottom = column.mapTo(self, column.rect().bottomLeft()).y()
+        except RuntimeError:
+            return
+        margin = max(0, column_bottom - video_bottom)
+        lay = column.layout()
+        if lay is not None and lay.contentsMargins().bottom() != margin:
+            lay.setContentsMargins(0, 0, 0, margin)
 
     def _update_marker_bar_padding(self):
         if not hasattr(self, "seek_slider") or not hasattr(self, "event_marker_bar"):

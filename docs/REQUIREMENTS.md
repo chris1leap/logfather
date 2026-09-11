@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Collapsible Errors and Data boxes (Chris, 2026-09-11): on PikPak Replay
+  each of the Errors, Data and Additional data boxes has a ^ arrow after
+  its title that folds the contents away (the arrow becomes v to show them
+  again); the choice is remembered in ui_state (replay_boxes_collapsed).
+  The column of boxes ends level with the bottom of the CCTV image, and the
+  log tabs above take whatever the folded boxes free up. The timeline
+  status line under the boxes shows only when it has something to say.
 - No "Load logs" button (Chris, 2026-09-11): removed from the Logs tab on
   PikPak Replay; a clip's logs load on their own when the clip opens.
 - Motor conditions reordered (Chris, 2026-09-11): "Motor overcurrent" is

@@ -14,7 +14,7 @@ from typing import Callable
 from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem
-from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from logfather.core.telemetry import (
     ADDITIONAL_CHANNELS,
@@ -48,6 +48,74 @@ KEY_LABEL_STYLE = f"{theme.MUTED_LABEL} font-size: {COMPACT_FONT_PX}px;"
 
 
 LABEL_BACKDROP = QColor(11, 16, 20, 225)
+
+
+class CollapsibleGroupBox(QGroupBox):
+    """A group box whose contents live in `body`, so they can fold away
+    behind a small arrow after the title (Chris, 2026-09-11: ^ hides the
+    values, v shows them again). The arrow appears once `set_collapsible`
+    names the ui_state key that remembers the choice."""
+
+    COLLAPSED_KEY = "replay_boxes_collapsed"
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(title, parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.body = QWidget(self)
+        outer.addWidget(self.body)
+        self._arrow: QToolButton | None = None
+        self._store_key: str | None = None
+        self._collapsed = False
+
+    def set_collapsible(self, store_key: str) -> None:
+        self._store_key = store_key
+        self._arrow = QToolButton(self)
+        self._arrow.setAutoRaise(True)
+        self._arrow.setFixedSize(16, 14)
+        self._arrow.setCursor(Qt.PointingHandCursor)
+        self._arrow.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
+        stored = load_ui_state().get(self.COLLAPSED_KEY)
+        collapsed = bool(stored.get(store_key)) if isinstance(stored, dict) else False
+        self.set_collapsed(collapsed, remember=False)
+        self._place_arrow()
+
+    def set_collapsed(self, collapsed: bool, remember: bool = True) -> None:
+        self._collapsed = bool(collapsed)
+        self.body.setVisible(not self._collapsed)
+        if self._arrow is not None:
+            self._arrow.setArrowType(Qt.DownArrow if self._collapsed else Qt.UpArrow)
+            self._arrow.setToolTip("Show the values" if self._collapsed else "Hide the values")
+        if remember and self._store_key:
+            stored = load_ui_state().get(self.COLLAPSED_KEY)
+            stored = dict(stored) if isinstance(stored, dict) else {}
+            stored[self._store_key] = self._collapsed
+            update_ui_state({self.COLLAPSED_KEY: stored})
+        self.updateGeometry()
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    def _place_arrow(self) -> None:
+        if self._arrow is None:
+            return
+        # The title sits at left 10 px with 4 px padding (COMPACT_BOX_STYLE)
+        # in the compact font; the arrow goes just after the text, on the
+        # title line.
+        font = QFont(self.font())
+        font.setPixelSize(COMPACT_FONT_PX)
+        x = 10 + 4 + QFontMetrics(font).horizontalAdvance(self.title()) + 4
+        self._arrow.move(x, 0)
+        self._arrow.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_arrow()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._place_arrow()
 
 
 def add_label_backdrop(item, colour: QColor = LABEL_BACKDROP, pad: float = 1.0) -> QGraphicsRectItem | None:
@@ -618,9 +686,9 @@ class SignalBoxes(QObject):
         self.additional_key.setStyleSheet(KEY_LABEL_STYLE)
         # The two boxes.
         style = COMPACT_BOX_STYLE
-        self.data_box = QGroupBox("Data")
+        self.data_box = CollapsibleGroupBox("Data")
         self.data_box.setStyleSheet(style)
-        data_layout = QVBoxLayout(self.data_box)
+        data_layout = QVBoxLayout(self.data_box.body)
         data_layout.setContentsMargins(4, 2, 4, 2)
         data_layout.setSpacing(3)
         for channel in self.data_channels:
@@ -631,9 +699,9 @@ class SignalBoxes(QObject):
             row.addStretch(1)
             data_layout.addLayout(row)
             channel.refresh_label()  # hidden while parentless; now it has a home
-        self.additional_box = QGroupBox("Additional data")
+        self.additional_box = CollapsibleGroupBox("Additional data")
         self.additional_box.setStyleSheet(style)
-        add_layout = QVBoxLayout(self.additional_box)
+        add_layout = QVBoxLayout(self.additional_box.body)
         add_layout.setContentsMargins(4, 2, 4, 2)
         add_layout.setSpacing(1)
         add_row = QHBoxLayout()
