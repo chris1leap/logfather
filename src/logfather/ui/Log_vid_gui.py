@@ -1069,6 +1069,12 @@ class VideoLogViewer(QWidget):
         column_layout.setContentsMargins(0, 0, 0, 0)
         column_layout.setSpacing(6)
         column_layout.addWidget(self.right_tabs, 1)
+        # The tabs give way first: the boxes mounted under them keep the
+        # height their text needs, and the log tabs take whatever is left
+        # (Chris, 2026-09-11), however little.
+        tabs_policy = self.right_tabs.sizePolicy()
+        tabs_policy.setVerticalPolicy(QSizePolicy.Ignored)
+        self.right_tabs.setSizePolicy(tabs_policy)
         self.right_extra_layout = QVBoxLayout()
         self.right_extra_layout.setContentsMargins(0, 0, 0, 0)
         column_layout.addLayout(self.right_extra_layout)

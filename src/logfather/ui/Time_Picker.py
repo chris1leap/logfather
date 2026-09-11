@@ -20,8 +20,29 @@ from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
     QGraphicsScene, QGraphicsView, QGraphicsRectItem, QGraphicsItem,
-    QGraphicsPolygonItem, QGraphicsLineItem, QGroupBox, QGridLayout, QCheckBox, QGraphicsItemGroup
+    QGraphicsPolygonItem, QGraphicsLineItem, QGroupBox, QGridLayout, QCheckBox, QGraphicsItemGroup,
+    QSizePolicy
 )
+
+
+class _PinnedHeightPanel(QWidget):
+    """A panel that is never shorter than its contents need (Chris,
+    2026-09-11: the Data box text was squashed unreadable on a short
+    screen). A layout hands out less than an item's minimum when the
+    column is too short, but a widget is never resized below an explicit
+    minimum, so the panel pins its own minimum height to what its layout
+    needs and re-pins whenever the contents change."""
+
+    def event(self, ev):
+        handled = super().event(ev)  # lays the contents out first
+        if ev.type() == QEvent.LayoutRequest:
+            self.pin_height()
+        return handled
+
+    def pin_height(self) -> None:
+        lay = self.layout()
+        if lay is not None:
+            self.setMinimumHeight(lay.minimumSize().height())
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 
 from logfather.data.elastic_errors import ElasticFetchError
@@ -1117,7 +1138,9 @@ class TimePicker(QWidget):
     def signal_boxes_widget(self) -> QWidget:
         """The Data and Additional data boxes, for the main window to mount
         under the log tabs (Chris, 2026-09-08)."""
-        holder = QWidget()
+        holder = _PinnedHeightPanel()
+        holder.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self._side_panel = holder
         column = QVBoxLayout(holder)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(4)
@@ -1132,6 +1155,7 @@ class TimePicker(QWidget):
         if box_layout is not None:
             box_layout.addLayout(self._normal_rows_layout)
         column.addWidget(self.status_label)
+        holder.pin_height()
         return holder
 
     @staticmethod
@@ -1237,6 +1261,21 @@ class TimePicker(QWidget):
             self._errors_box.setVisible(bool(rows))
         finally:
             self._errors_box_updating = False
+        if getattr(self, "_side_panel", None) is not None:
+            QTimer.singleShot(0, self._pin_side_panel)
+
+    def _pin_side_panel(self) -> None:
+        """Re-pin the side panel's height once the new rows are in place;
+        the boxes' geometry is refreshed first so the pin sees them."""
+        panel = getattr(self, "_side_panel", None)
+        if panel is None:
+            return
+        try:
+            self._errors_box.updateGeometry()
+            self._signals.data_box.updateGeometry()
+            panel.pin_height()
+        except RuntimeError:
+            pass
 
     def _on_error_row_toggled(self, name: str, on: bool) -> None:
         if self._errors_box_updating:

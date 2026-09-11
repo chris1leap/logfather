@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Data and Errors boxes never squashed (Chris, 2026-09-11): on System
+  Replay the panel under the log tabs (Errors, Data, Additional data,
+  status line) pins its minimum height to what its contents need and
+  re-pins when the rows change, so the text stays readable on a short
+  screen; the log tabs above shrink instead, to nothing if need be.
 - Errors & Stops counts events, not documents (Chris, 2026-09-11): one
   failure is logged as a cascade of state changes a few hundred
   milliseconds apart (controller node error, crate_change_package_error,
