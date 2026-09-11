@@ -183,6 +183,7 @@ class MainWindow(QWidget):
         self.time_picker.settings = self.settings
         self.viewer.add_right_panel_widget(self.time_picker.signal_boxes_widget())
         self.viewer.additional_cctv_resolver = self._additional_clip_covering
+        self.viewer.next_clip_requester = self._open_next_clip
         self.content_stack = QStackedWidget()
         self.content_stack.addWidget(self.viewer)
         self.content_stack.addWidget(self.overview_widget)
@@ -1420,6 +1421,30 @@ class MainWindow(QWidget):
                 if DEBUG_CLIP_TIMING:
                     print(f"[main] Logs pending for {start_iso} -> {end_iso}", flush=True)
                 self.viewer.set_pending_logs(str(current_root), start_iso, end_iso)
+
+    def _open_next_clip(self) -> bool:
+        """Open the clip after the one in the viewer (Chris, 2026-09-11:
+        Play at the end of a clip rolls into the next). True when a next
+        clip was found and its load started."""
+        current = self.viewer.current_video_original_path
+        if current is None:
+            return False
+        try:
+            key = _path_key(Path(current))
+        except Exception:
+            return False
+        items = [it for it in (getattr(self.time_picker, "_items", []) or []) if it.kind == "video" and isinstance(it.payload, Path)]
+        current_item = next((it for it in items if (it.path_key or _path_key(it.payload)) == key), None)
+        if current_item is None:
+            return False
+        _prev, nxt = self.time_picker.get_adjacent_video_items(current_item)
+        if nxt is None or not isinstance(nxt.payload, Path):
+            return False
+        self._cancel_overview_navigation()
+        if isinstance(nxt.start, datetime):
+            self.time_picker.set_playhead_datetime(ensure_utc(nxt.start))
+        self.open_in_viewer(nxt)
+        return True
 
     def _additional_clip_covering(self, moment) -> Path | None:
         """The day's Additional CCTV clip that covers `moment`, for the

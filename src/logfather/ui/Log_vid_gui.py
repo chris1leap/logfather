@@ -688,6 +688,10 @@ class VideoLogViewer(QWidget):
         # time (Chris, 2026-09-11): tick to show it, untick to hide it. The
         # main window supplies the lookup (the timeline knows the clips).
         self.additional_cctv_resolver = None
+        # Play at the end of a clip opens the next one and plays it (Chris,
+        # 2026-09-11); the main window supplies the opener.
+        self.next_clip_requester = None
+        self._play_after_open = False
         additional = QAction("Additional CCTV", self)
         additional.setCheckable(True)
         additional.toggled.connect(self._on_additional_cctv_toggled)
@@ -2084,6 +2088,9 @@ class VideoLogViewer(QWidget):
                 0, lambda: self.seek_to_seconds(seek_seconds, pause=seek_pause)
             )
         print(f"[viewer] load_video_from_path total {time.perf_counter() - t0:.2f}s", flush=True)
+        if getattr(self, "_play_after_open", False):
+            self._play_after_open = False
+            QTimer.singleShot(0, self.play)
         self.clip_opened.emit(path_obj)
         return True
 
@@ -3040,6 +3047,17 @@ class VideoLogViewer(QWidget):
     def play(self):
         if self.cap is None:
             return
+        if not self.playing and self.frame_count > 0 and self.current_frame >= self.frame_count - 1:
+            requester = getattr(self, "next_clip_requester", None)
+            if requester is not None:
+                self._play_after_open = True
+                try:
+                    started = bool(requester())
+                except Exception:
+                    started = False
+                if started:
+                    return
+                self._play_after_open = False
         if not self.playing:
             self.playing = True
             self.play_pause_btn.setIcon(self._media_icons["pause"])

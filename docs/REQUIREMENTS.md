@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Play rolls into the next clip (Chris, 2026-09-11): pressing Play at the
+  end of a CCTV clip opens the next clip on the day's timeline and starts
+  playing it; with no later clip, Play behaves as before.
 - Play button centred on the bottom row (Chris, 2026-09-11): the play /
   pause button sits level with the green log-time clock, centred on the
   seek slider (so it never shifts when the additional camera appears),
