@@ -105,14 +105,15 @@ class _EventTickItem(QGraphicsRectItem):
     click asks the picker to open the footage and logs at that moment."""
 
     def __init__(self, x: float, y_center: float, item: TimelineItem, picker: "TimePicker"):
-        super().__init__(QRectF(x - 5, y_center - 10, 10, 20))
+        # 14 px tall, the same as the clip bars (Chris, 2026-09-11).
+        super().__init__(QRectF(x - 5, y_center - 8, 10, 16))
         self._item = item
         self._picker = picker
         self.setPen(QPen(Qt.NoPen))
         self.setBrush(QBrush(QColor(0, 0, 0, 0)))
         pen = QPen(QColor(item.color))
         pen.setWidth(2)
-        line = QGraphicsLineItem(x, y_center - 8, x, y_center + 8, self)
+        line = QGraphicsLineItem(x, y_center - 7, x, y_center + 7, self)
         line.setPen(pen)
         self.setData(0, item)
         self.setCursor(Qt.PointingHandCursor)
