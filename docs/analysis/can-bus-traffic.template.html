@@ -268,8 +268,6 @@
     <section class="frame" id="frame">
       <div class="head">
         <h2>Current CAN frame</h2>
-        <span class="when" id="f-when"></span>
-        <span class="hint">← → step one frame · Shift ← → same type · space replays</span>
       </div>
       <p class="summary" id="f-summary"></p>
       <div class="raw" id="f-raw"></div>
@@ -600,7 +598,6 @@
   function show(i) {
     cur = Math.max(0, Math.min(N - 1, i));
     const d = describe(cur), id = IDS[ID[cur]], bytes = hexAt(cur), dlc = bytes.length;
-    byId("f-when").textContent = fmt((T[cur] - T0) / 1000, 3) + " ms from start · " + clock(T[cur] - T0) + " · frame " + fmt(cur + 1, 0) + " of " + fmt(N, 0);
     byId("f-summary").innerHTML = esc(d.family) + (d.sub ? ' <span class="dim">' + esc(d.sub) + "</span>" : "") + ' <span class="dim">·</span> ' + dlc + (dlc === 1 ? " byte" : " bytes") + ' <span class="dim">·</span> ' + esc(d.from) + ' <span class="dim">→</span> ' + esc(d.to);
     let raw = tok("can0", "iface", "The CAN interface the monitor listened on.") + "  " + tok(id, "id", d.kind + " From " + d.from + " to " + d.to + ".") + "   " + tok("[" + dlc + "]", "dlc", dlc + " data byte" + (dlc === 1 ? "" : "s") + " follow. A CAN frame carries at most 8.") + "  ";
     let k = 0; const parts = [];
