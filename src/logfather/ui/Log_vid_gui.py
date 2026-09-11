@@ -60,7 +60,7 @@ from logfather.ui.viewer_widgets import (
 )
 
 import cv2
-from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QMetaObject, Slot, QRect, QPoint, QPointF, Q_ARG, QVariantAnimation, QEasingCurve, QAbstractListModel, QModelIndex
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QMetaObject, Slot, QRect, QPoint, QPointF, QSize, Q_ARG, QVariantAnimation, QEasingCurve, QAbstractListModel, QModelIndex
 from PySide6.QtGui import QAction, QImage, QColor, QPainter, QPen, QBrush, QPalette, QFont, QTransform, QPolygonF, QPixmap
 import numpy as np
 from PySide6.QtWidgets import (
@@ -569,8 +569,16 @@ class VideoLogViewer(QWidget):
         self.offset_step = 0.05
         self._offset_slider_scale = 1000
 
-        self.play_pause_btn = QPushButton("Play")
+        # The same play / pause glyph button as the conveyor calibration
+        # window (Chris, 2026-09-11).
+        from logfather.ui.icons import media_icon
 
+        self._media_icons = {"play": media_icon("play"), "pause": media_icon("pause")}
+        self.play_pause_btn = QPushButton()
+        self.play_pause_btn.setIcon(self._media_icons["play"])
+        self.play_pause_btn.setIconSize(QSize(28, 28))
+        self.play_pause_btn.setFixedSize(QSize(54, 44))
+        self.play_pause_btn.setToolTip("Play / pause (space)")
         self.play_pause_btn.clicked.connect(self.toggle_play_pause)
         self.annotate_btn = QPushButton("Annotate")
         self.annotate_btn.clicked.connect(self._open_annotation_popout)
@@ -3015,7 +3023,7 @@ class VideoLogViewer(QWidget):
             return
         if not self.playing:
             self.playing = True
-            self.play_pause_btn.setText("Pause")
+            self.play_pause_btn.setIcon(self._media_icons["pause"])
             interval_ms = int(1000 / self.fps) if self.fps > 0 else 40
             self.timer.start(interval_ms)
             self.playing_changed.emit(True)
@@ -3023,7 +3031,7 @@ class VideoLogViewer(QWidget):
     def pause(self):
         if self.playing:
             self.playing = False
-            self.play_pause_btn.setText("Play")
+            self.play_pause_btn.setIcon(self._media_icons["play"])
             self.timer.stop()
             self.playing_changed.emit(False)
 

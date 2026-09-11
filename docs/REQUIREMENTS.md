@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Play button (Chris, 2026-09-11): the PikPak Replay Play button is the
+  same light-ink play / pause glyph button as the conveyor calibration
+  window's transport row (54 x 44, 28 px icon).
 - Repository moved (Chris, 2026-09-11): the GitHub repo now lives under
   the chrishamblin489 account (https://github.com/chrishamblin489/logfather);
   the old chris1leap address redirects. Commits are authored as

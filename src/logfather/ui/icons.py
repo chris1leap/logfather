@@ -357,3 +357,22 @@ def radar_icon(size: int = 24) -> QIcon:
 
 
 overview_icon = rows_icon  # Chris, 2026-09-11: three rows with a dot each
+
+
+def media_icon(kind: str, size: int = 28) -> QIcon:
+    """Play or pause glyph in the theme's light ink, as on the conveyor
+    calibration window; the main PikPak Replay Play button uses it too
+    (Chris, 2026-09-11)."""
+    from PySide6.QtGui import QPolygonF
+
+    pm, painter, s = _start(size)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    if kind == "play":
+        painter.drawPolygon(QPolygonF([QPointF(s * 0.30, s * 0.18), QPointF(s * 0.30, s * 0.82), QPointF(s * 0.82, s * 0.50)]))
+    else:
+        bar_w = s * 0.18
+        painter.drawRect(QRectF(s * 0.26, s * 0.18, bar_w, s * 0.64))
+        painter.drawRect(QRectF(s * 0.56, s * 0.18, bar_w, s * 0.64))
+    painter.end()
+    return QIcon(pm)
