@@ -115,8 +115,8 @@
   .seek .marks i { position: absolute; top: 0; width: 2px; height: 5px; background: var(--estop); }
   /* frame types */
   .types { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 13px; }
-  .types .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 6px; }
-  .types h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  .types summary { cursor: pointer; margin-bottom: 6px; }
+  .types .h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-right: 12px; }
   .types .note { color: var(--muted); font-size: 12px; }
   .types .tblwrap { overflow-x: auto; }
   .types table { border-collapse: collapse; width: 100%; }
@@ -309,16 +309,13 @@
     </div>
     <ol id="hb-list"></ol>
   </section>
-  <section class="types">
-    <div class="head">
-      <h2>Frame types</h2>
-      <span class="note" id="types-note"></span>
-    </div>
+  <details class="types" open>
+    <summary><span class="h2">Frame types</span> <span class="note" id="types-note"></span></summary>
     <div class="tblwrap"><table>
       <thead><tr><th>Type</th><th>Drive</th><th>Frames</th><th>Per second</th><th>% of bus</th><th></th></tr></thead>
       <tbody id="types-body"></tbody>
     </table></div>
-  </section>
+  </details>
   <details class="ref">
     <summary>Emergency codes: what the drives send, what the Logfather logs show, what Grafana holds</summary>
     <p class="note">Every "Warning update" line from the actuator controller in Elastic is one emergency frame from a drive (COB-ID 081 to 086), decoded. The log's <code>error_code</code> field is the emergency code; the text after "::" is the controller's reading of the manufacturer byte. Confirmed against the 8 September capture.</p>
@@ -607,7 +604,9 @@ const RAW = {"ids":["000","081","082","083","085","086","100","27F","285","385",
     }
     const span = Math.max(1e-6, (T[N - 1] - T0) / 1e6);
     typeRows = Object.keys(counts).map(key => { const [fam, node] = key.split("|"); return { key, fam, node: +node, n: counts[key], perSec: counts[key] / span, pct: 100 * bits[key] / totalBits }; });
-    typeRows.sort((a, b) => b.pct - a.pct || a.fam.localeCompare(b.fam) || a.node - b.node);
+    // Order: kinds by their total share of the bus, and within a kind the drives in order 1, 2, 3, 5, 6.
+    const famPct = {}; typeRows.forEach(r => { famPct[r.fam] = (famPct[r.fam] || 0) + r.pct; });
+    typeRows.sort((a, b) => famPct[b.fam] - famPct[a.fam] || a.fam.localeCompare(b.fam) || a.node - b.node);
     byId("types-note").textContent = "Frames kept in this file over " + fmt(span, 1) + " s. Per second and % of bus are from the kept frames" + (TOTALS ? "; the monitor saw roughly " + fmt(Object.values(TOTALS).reduce((a, v) => a + v, 0) / Math.max(1, Object.keys(TOTALS).length), 0) + " frames a second in all." : ".");
     byId("types-body").innerHTML = typeRows.map((r, k) => '<tr data-key="' + r.key + '"><td>' + esc(TYPE_NAMES[r.fam] || r.fam) + '</td><td>' + (r.node ? "drive " + r.node : (MOTOR_FAMILIES.has(r.fam) ? "-" : "")) + '</td><td class="num">' + fmt(r.n, 0) + '</td><td class="num">' + fmt(r.perSec, r.perSec < 10 ? 2 : 1) + '</td><td class="num">' + fmt(r.pct, 1) + '%<span class="bar" style="width:' + Math.max(1, Math.round(r.pct * 1.6)) + 'px"></span></td><td><button data-k="' + k + '">Go to next</button></td></tr>').join("");
   }
