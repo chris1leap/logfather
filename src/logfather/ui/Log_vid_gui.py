@@ -573,19 +573,16 @@ class VideoLogViewer(QWidget):
         # window (Chris, 2026-09-11).
         from logfather.ui.icons import media_icon
 
-        self._media_icons = {"play": media_icon("play", 32), "pause": media_icon("pause", 32)}
-        # The play button sits in the middle of the CCTV picture (Chris,
-        # 2026-09-11), a round translucent button over the footage.
-        self.play_pause_btn = QPushButton(self.video_label)
+        self._media_icons = {"play": media_icon("play"), "pause": media_icon("pause")}
+        # The play button sits on the bottom row, level with the green
+        # clock and centred under the picture (Chris, 2026-09-11): it is
+        # placed by hand over the row so the clock on the left and the
+        # report buttons on the right do not pull it off centre.
+        self.play_pause_btn = QPushButton(self)
         self.play_pause_btn.setIcon(self._media_icons["play"])
-        self.play_pause_btn.setIconSize(QSize(32, 32))
-        self.play_pause_btn.setFixedSize(QSize(60, 60))
-        self.play_pause_btn.setCursor(Qt.PointingHandCursor)
+        self.play_pause_btn.setIconSize(QSize(28, 28))
+        self.play_pause_btn.setFixedSize(QSize(54, 44))
         self.play_pause_btn.setToolTip("Play / pause (space)")
-        self.play_pause_btn.setStyleSheet(
-            "QPushButton { background: rgba(0, 0, 0, 120); border: 1px solid rgba(255, 255, 255, 90); border-radius: 30px; }"
-            "QPushButton:hover { background: rgba(0, 0, 0, 200); }"
-        )
         self.play_pause_btn.clicked.connect(self.toggle_play_pause)
         self.annotate_btn = QPushButton("Annotate")
         self.annotate_btn.clicked.connect(self._open_annotation_popout)
@@ -767,8 +764,11 @@ class VideoLogViewer(QWidget):
             btn.move(max(0, self.video_label.width() - btn.width() - 8), 8)
             btn.raise_()
         play = getattr(self, "play_pause_btn", None)
-        if play is not None and play.parent() is self.video_label:
-            play.move(max(0, (self.video_label.width() - play.width()) // 2), max(0, (self.video_label.height() - play.height()) // 2))
+        clock = getattr(self, "calc_label", None)
+        if play is not None and clock is not None and play.parent() is self:
+            centre_x = self.video_label.geometry().center().x()
+            centre_y = clock.geometry().center().y()
+            play.move(max(0, centre_x - play.width() // 2), max(0, centre_y - play.height() // 2))
             play.raise_()
 
     def _build_analysis_controls(self):
@@ -3877,6 +3877,7 @@ class VideoLogViewer(QWidget):
         self.update_video_label()
         self._update_marker_bar_padding()
         QTimer.singleShot(0, self._align_right_column_bottom)
+        QTimer.singleShot(0, self._place_view_menu)
 
     def showEvent(self, event):
         super().showEvent(event)
