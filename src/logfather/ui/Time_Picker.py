@@ -589,7 +589,10 @@ class TimePicker(QWidget):
         self._cursor_marker_outer = None
         self._cursor_marker_inner = None
         self._playhead_line = None
-        self._playhead_time = None
+        # The playhead time is kept across a redraw (Chris, 2026-09-11: the
+        # green line was missing when the screen first loaded, because the
+        # viewer had reported its time before the timeline drew, and the
+        # redraw forgot it); the line is drawn again from it here.
         self._last_cursor_x = None
         self._update_playhead_indicator()
         self._on_vertical_scroll()  # scene rect is final now: pin the scale to the top

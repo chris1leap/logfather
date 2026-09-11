@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Green playhead on first load (Chris, 2026-09-11): the PikPak Replay
+  timeline keeps the viewer's last reported time across a redraw and draws
+  the green current-time line from it, so the line is there as soon as the
+  day's timeline appears instead of after the video next moves.
 - Play button (Chris, 2026-09-11): the PikPak Replay Play button is the
   same light-ink play / pause glyph button as the conveyor calibration
   window's transport row (54 x 44, 28 px icon).
