@@ -24,6 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Motor overcurrent condition (Chris, 2026-09-11): a preset timeline
+  condition "Motor overcurrent" (search phrase "Current over limit") fills
+  slot 14 so the controller's over-current trip has its own row and total.
+  "Motor fault" stays as the umbrella for every "Fault on motor" line
+  (over-current, stop / enable / queue failures, rejected PVT points), so an
+  over-current trip counts under both.
 - CCTV row labelled (Chris, 2026-09-11): the clips row at the bottom of
   System Replay is labelled "CCTV" with its clip count, like the
   "Additional CCTV" row under it; it had no label before.

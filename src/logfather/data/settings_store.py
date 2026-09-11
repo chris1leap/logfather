@@ -100,7 +100,10 @@ DEFAULT_COND_PRESETS = [
     # Motor faults from the actuator controller (Chris, 2026-09-10): the
     # over-current trip at 07:25 on PikPak 007 was invisible on the timeline.
     ("Motor fault", '"Fault on motor"'),
-    ("Cond 14", ""),
+    # The over-current trip on its own row (Chris, 2026-09-11): "Motor
+    # fault" also covers stop / enable / queue failures, so this names the
+    # common case. Its lines still count under Motor fault too.
+    ("Motor overcurrent", '"Current over limit"'),
     ("Cond 15", ""),
 ]
 
