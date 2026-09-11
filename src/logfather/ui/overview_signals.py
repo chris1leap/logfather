@@ -117,6 +117,9 @@ class CollapsibleGroupBox(QGroupBox):
         x = 10 + 4 + QFontMetrics(font).horizontalAdvance(self.title()) + 4
         self._arrow.move(x, 0)
         self._arrow.raise_()
+        # A folded box shrinks to its title; keep room for the arrow
+        # (Chris, 2026-09-11: the show arrow vanished when Data was folded).
+        self.setMinimumWidth(x + self._arrow.width() + 12)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
