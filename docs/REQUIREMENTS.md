@@ -32,6 +32,8 @@ Living record of agreed functionality: what is open, and what has shipped
 - Compact Errors and Data boxes (Chris, 2026-09-11): 11 px text, tight
   rows and box padding, smaller icons, and the Errors box in three columns
   of tick + total, so the log tabs above keep their room.
+  The key labels beside the Data buttons use the same 11 px text, with a
+  shorter colour block, and 3 px between rows.
 - Errors & Stops counts events, not documents (Chris, 2026-09-11): one
   failure is logged as a cascade of state changes a few hundred
   milliseconds apart (controller node error, crate_change_package_error,

@@ -34,6 +34,24 @@ from logfather.ui import theme
 from logfather.ui.icons import current_icon, gauge_icon, pick_icon, plus_box_icon, thermometer_icon
 from logfather.ui.qt_worker import JobSlot
 
+# Compact boxes (Chris, 2026-09-11): small text and tight rows so the
+# Errors and Data boxes leave room for the log tabs above them. The
+# font-size on the box cascades to every widget inside it; rich-text key
+# labels set it themselves.
+COMPACT_FONT_PX = 11
+COMPACT_BOX_STYLE = (
+    f"QGroupBox {{ font-weight: normal; font-size: {COMPACT_FONT_PX}px; margin-top: 9px;"
+    f" padding: 3px 6px 2px 6px; border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
+    f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
+)
+KEY_LABEL_STYLE = f"{theme.MUTED_LABEL} font-size: {COMPACT_FONT_PX}px;"
+
+
+def key_swatch(colour: str) -> str:
+    """A short colour block for a key label: the span's small font keeps
+    the block shorter than the text beside it (Chris, 2026-09-11)."""
+    return f'<span style="background-color:{colour}; font-size:6px;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'
+
 STRIP_MIN, STRIP_MAX = 16, 240
 DEFAULT_STRIP_HEIGHT = 44
 GUIDE_COLOUR = "#ff8a65"
@@ -143,7 +161,7 @@ class SignalChannel(QObject):
         self.button.setMenu(menu)
         self.key_label = QLabel("")
         self.key_label.setTextFormat(Qt.RichText)
-        self.key_label.setStyleSheet(theme.MUTED_LABEL)
+        self.key_label.setStyleSheet(KEY_LABEL_STYLE)
         self.refresh_label()
 
     # ---- selection ----------------------------------------------------------
@@ -155,7 +173,7 @@ class SignalChannel(QObject):
         n = len(self.keys)
         self.button.setText(self.title if not n else f"{self.title} ({n})")
         bits = [
-            f'<span style="background-color:{self.colours[key]};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{label}'
+            f'{key_swatch(self.colours[key])}&nbsp;{label}'
             for key, label in self.choices if key in self.keys
         ]
         self.key_label.setText("&nbsp;&nbsp;".join(bits))
@@ -473,17 +491,6 @@ class SignalChannel(QObject):
         return True
 
 
-# Compact boxes (Chris, 2026-09-11): small text and tight rows so the
-# Errors and Data boxes leave room for the log tabs above them. The
-# font-size on the box cascades to every widget inside it.
-COMPACT_FONT_PX = 11
-COMPACT_BOX_STYLE = (
-    f"QGroupBox {{ font-weight: normal; font-size: {COMPACT_FONT_PX}px; margin-top: 9px;"
-    f" padding: 3px 6px 2px 6px; border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
-    f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
-)
-
-
 class SignalBoxes(QObject):
     """The Data box (Picks, Temps, Currents, Pressure) and the Additional
     data box, with their channels, for one owner: the Overview or the
@@ -584,14 +591,14 @@ class SignalBoxes(QObject):
         self.additional_btn.setMenu(menu)
         self.additional_key = QLabel("")
         self.additional_key.setTextFormat(Qt.RichText)
-        self.additional_key.setStyleSheet(theme.MUTED_LABEL)
+        self.additional_key.setStyleSheet(KEY_LABEL_STYLE)
         # The two boxes.
         style = COMPACT_BOX_STYLE
         self.data_box = QGroupBox("Data")
         self.data_box.setStyleSheet(style)
         data_layout = QVBoxLayout(self.data_box)
         data_layout.setContentsMargins(4, 2, 4, 2)
-        data_layout.setSpacing(1)
+        data_layout.setSpacing(3)
         for channel in self.data_channels:
             row = QHBoxLayout()
             row.setSpacing(10)
@@ -644,7 +651,7 @@ class SignalBoxes(QObject):
             for key, label in channel.choices:
                 if key in channel.keys:
                     text = f"{channel.title} {label}" if many else label
-                    bits.append(f'<span style="background-color:{channel.colours[key]};">&nbsp;&nbsp;&nbsp;</span>&nbsp;{text}')
+                    bits.append(f'{key_swatch(channel.colours[key])}&nbsp;{text}')
         self.additional_key.setText("&nbsp;&nbsp;".join(bits))
         self.additional_key.setVisible(bool(bits))
 
