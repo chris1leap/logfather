@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Motor conditions reordered (Chris, 2026-09-11): "Motor overcurrent" is
+  slot 13 and the umbrella for the other controller trips is slot 14,
+  renamed "Motor other fault". A saved pair in the old order is swapped
+  and renamed on load; an old "Motor fault" slot is renamed too.
 - Row headers always readable (Chris, 2026-09-11): the row labels and
   counts on PikPak Replay, and the strip titles and axis values on both
   PikPak Replay and the Overview, sit on a dark backdrop that moves with

@@ -99,11 +99,10 @@ DEFAULT_COND_PRESETS = [
     ("Cond 12", ""),
     # Motor faults from the actuator controller (Chris, 2026-09-10): the
     # over-current trip at 07:25 on PikPak 007 was invisible on the timeline.
-    # Motor fault covers the other controller trips (stop / enable / queue
-    # failures, rejected PVT points); the over-current trip has its own
-    # row below (Chris, 2026-09-11).
-    ("Motor fault", '"Fault on motor" AND NOT "Current over limit"'),
+    # The over-current trip first, then the other controller trips (stop /
+    # enable / queue failures, rejected PVT points) (Chris, 2026-09-11).
     ("Motor overcurrent", '"Current over limit"'),
+    ("Motor other fault", '"Fault on motor" AND NOT "Current over limit"'),
     ("Cond 15", ""),
 ]
 
@@ -114,6 +113,13 @@ DEFAULT_COND_PRESETS = [
 PRESET_QUERY_UPGRADES = {
     '"Fault on motor"': '"Fault on motor" AND NOT "Current over limit"',
 }
+# Preset names changed after shipping: a slot holding the old name with
+# the preset's own query is renamed on load.
+PRESET_NAME_UPGRADES = {
+    "Motor fault": "Motor other fault",
+}
+MOTOR_OVERCURRENT_QUERY = '"Current over limit"'
+MOTOR_OTHER_FAULT_QUERY = '"Fault on motor" AND NOT "Current over limit"'
 
 
 def _default_conditions() -> List[Condition]:
@@ -251,6 +257,15 @@ class Settings:
                     conds[idx].query = PRESET_QUERY_UPGRADES[conds[idx].query]
                 if name and (not conds[idx].name or conds[idx].name == f"Cond {idx + 1}"):
                     conds[idx].name = name
+            # Motor overcurrent moved ahead of the other motor faults
+            # (Chris, 2026-09-11): swap a saved pair still in the old order,
+            # and rename the old "Motor fault" slot.
+            if (len(conds) > 13 and conds[12].query == MOTOR_OTHER_FAULT_QUERY and conds[13].query == MOTOR_OVERCURRENT_QUERY):
+                conds[12], conds[13] = conds[13], conds[12]
+            for cond in conds:
+                new_name = PRESET_NAME_UPGRADES.get(cond.name)
+                if new_name and cond.query == MOTOR_OTHER_FAULT_QUERY:
+                    cond.name = new_name
                 # Enforce key colors: Start green, Caution orange, EStop red.
                 lower = conds[idx].name.lower()
                 if lower == "start":
@@ -259,7 +274,7 @@ class Settings:
                     conds[idx].color = "#fa8c16"
                 elif lower == "estop":
                     conds[idx].color = "#ff4d4f"
-                elif lower == "motor fault":
+                elif lower in ("motor fault", "motor other fault"):
                     conds[idx].color = "#ff7a45"
                 elif not conds[idx].color:
                     conds[idx].color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
