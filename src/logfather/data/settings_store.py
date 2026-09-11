@@ -99,13 +99,21 @@ DEFAULT_COND_PRESETS = [
     ("Cond 12", ""),
     # Motor faults from the actuator controller (Chris, 2026-09-10): the
     # over-current trip at 07:25 on PikPak 007 was invisible on the timeline.
-    ("Motor fault", '"Fault on motor"'),
-    # The over-current trip on its own row (Chris, 2026-09-11): "Motor
-    # fault" also covers stop / enable / queue failures, so this names the
-    # common case. Its lines still count under Motor fault too.
+    # Motor fault covers the other controller trips (stop / enable / queue
+    # failures, rejected PVT points); the over-current trip has its own
+    # row below (Chris, 2026-09-11).
+    ("Motor fault", '"Fault on motor" AND NOT "Current over limit"'),
     ("Motor overcurrent", '"Current over limit"'),
     ("Cond 15", ""),
 ]
+
+
+# Preset queries that were changed after shipping: a slot still holding the
+# old text is moved to the new one on load (a slot the user edited is left
+# alone).
+PRESET_QUERY_UPGRADES = {
+    '"Fault on motor"': '"Fault on motor" AND NOT "Current over limit"',
+}
 
 
 def _default_conditions() -> List[Condition]:
@@ -239,6 +247,8 @@ class Settings:
                     break
                 if not conds[idx].query and query:
                     conds[idx].query = query
+                elif conds[idx].query in PRESET_QUERY_UPGRADES:
+                    conds[idx].query = PRESET_QUERY_UPGRADES[conds[idx].query]
                 if name and (not conds[idx].name or conds[idx].name == f"Cond {idx + 1}"):
                     conds[idx].name = name
                 # Enforce key colors: Start green, Caution orange, EStop red.
