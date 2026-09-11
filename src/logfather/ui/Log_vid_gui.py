@@ -887,6 +887,19 @@ class VideoLogViewer(QWidget):
         # The yellow log-marker bar is no longer shown (Chris, 2026-09-11);
         # the log list and the blue timeline bar carry the same events.
         self.event_marker_bar.hide()
+        # Clip start (left) and end (right) to the minute, just above the
+        # scroll bar (Chris, 2026-09-11).
+        self.clip_start_label = QLabel("")
+        self.clip_end_label = QLabel("")
+        for lbl in (self.clip_start_label, self.clip_end_label):
+            lbl.setStyleSheet(f"{theme.MUTED_LABEL} font-size: 11px;")
+        self.clip_end_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        span_row = QHBoxLayout()
+        span_row.setContentsMargins(2, 0, 2, 0)
+        span_row.addWidget(self.clip_start_label)
+        span_row.addStretch(1)
+        span_row.addWidget(self.clip_end_label)
+        middle_layout.addLayout(span_row)
         middle_layout.addWidget(self.seek_slider)
         middle_layout.addWidget(self.timeline_marker_bar)
         middle_layout.addLayout(self.playback_layout)
@@ -3982,7 +3995,31 @@ class VideoLogViewer(QWidget):
             ppm_lines = list(ppm_lines) + sku_lines
         return ppm_lines, playback_dt
 
+    def _refresh_clip_span_labels(self) -> None:
+        """Clip start and end to the minute above the seek slider; the
+        filename time until an OCR offset refines the start."""
+        start_lbl = getattr(self, "clip_start_label", None)
+        end_lbl = getattr(self, "clip_end_label", None)
+        if start_lbl is None or end_lbl is None:
+            return
+        start = self.video_start_dt or getattr(self, "current_video_filename_dt", None)
+        if start is None or self.cap is None:
+            texts = ("", "")
+        else:
+            try:
+                seconds = (self.frame_count or 0) / (self.fps or 25.0)
+                end = start + timedelta(seconds=seconds)
+                texts = (start.strftime("%H:%M"), end.strftime("%H:%M"))
+            except Exception:
+                texts = ("", "")
+        if start_lbl.text() != texts[0]:
+            start_lbl.setText(texts[0])
+        if end_lbl.text() != texts[1]:
+            end_lbl.setText(texts[1])
+
+
     def update_time_and_overlay(self, t_seconds: float, frame_index: int):
+        self._refresh_clip_span_labels()
         td = timedelta(seconds=t_seconds)
         time_str = format_timecode(td).replace(",", ".")
         if hasattr(self, "info_label"):
