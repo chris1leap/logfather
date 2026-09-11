@@ -24,6 +24,8 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Data, Errors / Stops and Software buttons only on the Overview (Chris,
+  2026-09-11): hidden on PikPak Replay and Search.
 - Less around the CCTV image (Chris, 2026-09-11): the yellow log-marker
   bar under the picture is gone; the clip-time and frame counters above it
   are hidden by default; the green log-time clock sits next to Play; and

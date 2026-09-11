@@ -1737,6 +1737,11 @@ class MainWindow(QWidget):
         self.current_system_label.setVisible(False)
         self.choose_system_btn.setVisible(in_viewer)
         self.choose_date_btn.setVisible(in_viewer)
+        # Data, Errors / Stops and Software are fleet views: only on the
+        # Overview (Chris, 2026-09-11).
+        on_overview = self._should_show_overview()
+        for btn in (self.data_btn, self.errors_btn, self.software_btn):
+            btn.setVisible(on_overview)
         self._update_chooser_pulse()
 
     def _on_first_clip_opened(self, _path) -> None:
