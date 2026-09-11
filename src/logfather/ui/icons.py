@@ -376,3 +376,24 @@ def media_icon(kind: str, size: int = 28) -> QIcon:
         painter.drawRect(QRectF(s * 0.56, s * 0.18, bar_w, s * 0.64))
     painter.end()
     return QIcon(pm)
+
+
+def refresh_icon(size: int = 24) -> QIcon:
+    """A circular arrow for the Refresh button (Chris, 2026-09-11)."""
+    from PySide6.QtGui import QPolygonF
+
+    pm, painter, s = _start(size)
+    pen = QPen(QColor(theme.TEXT_BRIGHT))
+    pen.setWidthF(s * 0.11)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    rect = QRectF(s * 0.20, s * 0.20, s * 0.60, s * 0.60)
+    painter.drawArc(rect, 30 * 16, 300 * 16)
+    # arrow head at the arc's end (top right)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    tip_x, tip_y = s * 0.84, s * 0.30
+    painter.drawPolygon(QPolygonF([QPointF(tip_x, tip_y), QPointF(tip_x - s * 0.22, tip_y - s * 0.02), QPointF(tip_x - s * 0.04, tip_y + s * 0.20)]))
+    painter.end()
+    return QIcon(pm)

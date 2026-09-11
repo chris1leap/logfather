@@ -36,7 +36,7 @@ from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
 from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import SystemPickerPopup, funnel_icon
-from logfather.ui.icons import calendar_icon
+from logfather.ui.icons import refresh_icon, calendar_icon
 from logfather.ui.window_placement import show_over_parent
 from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.day_selection import DaySelection
@@ -192,6 +192,12 @@ class MainWindow(QWidget):
         self.content_stack.addWidget(self.fleetwide_search_widget)
         self.stop_report_btn = QPushButton("Stop Report")
         self.stop_report_btn.clicked.connect(self.open_stop_report)
+        # Stop report and Fit live in the gear menu (Chris, 2026-09-11);
+        # the buttons stay hidden as the enabled-state holders.
+        self.stop_report_action = QAction("Stop report\u2026", self)
+        self.stop_report_action.triggered.connect(self.open_stop_report)
+        self.fit_timeline_action = QAction("Fit timeline to the day", self)
+        self.fit_timeline_action.triggered.connect(self.time_picker._fit_to_items)
         self._stop_report_slot = JobSlot(self)
         self._stop_report_progress = None
         # One exclusive Overview/Viewer/Fleetwide mode switcher (Chris,
@@ -257,9 +263,8 @@ class MainWindow(QWidget):
         self._chooser_pulser = Pulser(self)
         self._chosen_root: Path | None = None
         self._chosen_day: date | None = None
-        self.viewer.add_playback_right_widget(self.stop_report_btn)
-        self.viewer.add_playback_right_widget(self.time_picker.fit_btn)
-        self.viewer.add_playback_right_widget(self.time_picker.refresh_btn)
+        self.stop_report_btn.hide()
+        self.time_picker.fit_btn.hide()
         self.time_picker.setMinimumHeight(TIMELINE_MIN_HEIGHT)
         self._timeline_min_height = TIMELINE_MIN_HEIGHT
         self._timeline_max_height = TIMELINE_MAX_HEIGHT
@@ -408,7 +413,16 @@ class MainWindow(QWidget):
         # sources, Settings, Systems, Readme, the zoom row and About. The
         # zoom shortcuts (Ctrl+= / Ctrl+- / Ctrl+0) stay as hidden
         # application-wide actions so they work without opening the menu.
-        self.gear_btn = build_gear_button(self, self)
+        self.gear_btn = build_gear_button(self, self, extra_actions=[self.stop_report_action, self.fit_timeline_action])
+        # Refresh as an icon button at the top right, next to the gear
+        # (Chris, 2026-09-11).
+        self.refresh_btn = self.time_picker.refresh_btn
+        self.refresh_btn.setText("")
+        self.refresh_btn.setIcon(refresh_icon())
+        self.refresh_btn.setIconSize(QSize(20, 20))
+        self.refresh_btn.setFixedSize(QSize(34, 30))
+        self.refresh_btn.setToolTip("Refresh the day's data")
+        self.refresh_btn.setCursor(Qt.PointingHandCursor)
         for delta, shortcut in (
             (theme.ZOOM_STEP, "Ctrl+="),
             (-theme.ZOOM_STEP, "Ctrl+-"),
@@ -436,6 +450,7 @@ class MainWindow(QWidget):
         self.update_btn.clicked.connect(self._restart_for_update)
         self.update_btn.hide()
         top_controls.addWidget(self.update_btn, 0, Qt.AlignRight)
+        top_controls.addWidget(self.refresh_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.gear_btn, 0, Qt.AlignRight)
         self._update_slot = JobSlot(self)
         self._update_info: dict | None = None
@@ -1582,6 +1597,7 @@ class MainWindow(QWidget):
         clip_cache = self.viewer.clip_cache
 
         self.stop_report_btn.setEnabled(False)
+        self.stop_report_action.setEnabled(False)
         progress = QProgressDialog("Building stop report...", "Cancel", 0, 0, self)
         progress.setWindowTitle("Stop Report")
         progress.setMinimumDuration(0)
@@ -1590,6 +1606,7 @@ class MainWindow(QWidget):
 
         def _cleanup():
             self.stop_report_btn.setEnabled(True)
+            self.stop_report_action.setEnabled(True)
             if self._stop_report_progress is progress:
                 self._stop_report_progress = None
             try:

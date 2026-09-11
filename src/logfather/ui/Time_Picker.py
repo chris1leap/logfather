@@ -585,7 +585,8 @@ class TimePicker(QWidget):
         total_tracks = max(1, len(set(track_map.values())))
         # Add top/side margin so cursor/time labels aren't clipped.
         self.scene.setSceneRect(-60, -40, total_minutes * ppm + 120, height + (total_tracks - 1) * spacing + 60 + strips_height)
-        self._gutter_rect = self.scene.addRect(QRectF(0, 0, 1, 1), QPen(Qt.NoPen), QBrush(QColor(theme.BG)))
+        # Solid black (Chris, 2026-09-11), the full height of the scene.
+        self._gutter_rect = self.scene.addRect(QRectF(0, 0, 1, 1), QPen(Qt.NoPen), QBrush(QColor("#000000")))
         self._gutter_rect.setZValue(2.5)
         self._gutter_rect.setAcceptedMouseButtons(Qt.NoButton)
         self._update_gutter()
@@ -601,7 +602,6 @@ class TimePicker(QWidget):
         self._cursor_marker_inner = None
         self._playhead_line = None
         self._playhead_label = None
-        self._gutter_rect = None
         # The playhead time is kept across a redraw (Chris, 2026-09-11: the
         # green line was missing when the screen first loaded, because the
         # viewer had reported its time before the timeline drew, and the

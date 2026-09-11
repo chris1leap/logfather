@@ -24,8 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Stop report and Fit in the gear menu, Refresh top right (Chris,
+  2026-09-11): "Stop report..." and "Fit timeline to the day" are gear
+  menu entries (Stop report greys out while a report builds); Refresh is
+  an icon button (circular arrow) beside the gear at the top right. The
+  playback row keeps only the clock and the play button.
 - Label gutter (Chris, 2026-09-11): on the PikPak Replay timeline a solid
-  bar in the table's background colour runs the full height of the scene
+  black bar runs the full height of the scene
   behind the row and strip labels (CCTV, Additional CCTV, SKU, Start /
   Stop / E-stop, the conditions, Picks and the readings), as wide as the
   widest label, and follows the horizontal scroll, so no chart data
