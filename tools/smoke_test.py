@@ -35,6 +35,7 @@ MODULES = [
     "logfather.data.conveyor_calibration",
     "logfather.data.clip_cache",
     "logfather.data.target_buffer_loader",
+    "logfather.data.event_counts",
     "logfather.ui.about_page",
     "logfather.ui.time_ocr",
     "logfather.ui.Time_Picker",

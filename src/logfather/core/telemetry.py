@@ -302,6 +302,10 @@ ADDITIONAL_CHANNELS: tuple[dict, ...] = (
      "choices": (("clock_offset", "RCU CCU offset (s)"),), "colours": {"clock_offset": "#d46bff"}},
     {"name": "halting", "title": "Halting errors", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
      "choices": (("halting_errors", "Motor halting errors"),), "colours": {"halting_errors": "#ff4d4f"}},
+    # From Elastic, not Grafana (Chris, 2026-09-11): the controller's
+    # "Current over limit" trips as a running total over the loaded span.
+    {"name": "overcurrent", "title": "Motor overcurrent", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
+     "choices": (("motor_overcurrent", "Overcurrent trips (running total)"),), "colours": {"motor_overcurrent": "#ffd666"}},
     {"name": "logqueue", "title": "Log queue", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,
      "choices": (("log_queue", "Argus log queue"),), "colours": {"log_queue": "#36cfc9"}},
     {"name": "canbus", "title": "CAN bus", "unit": "", "axis_unit": "", "decimals": 0, "axis_min": 0.0,

@@ -79,6 +79,18 @@ def fetch_fleet_signals(settings: Settings, keys: list[str], start_utc, end_utc,
                     slot["picks_per_min"] = track
         except Exception:
             pass
+    # Event counts come from Elastic too (Chris, 2026-09-11: motor
+    # over-current trips). Same rule: Elastic trouble must not sink the rest.
+    from logfather.data.event_counts import EVENT_SIGNALS, fetch_elastic_event_counts
+
+    for key in keys:
+        if key not in EVENT_SIGNALS or (job is not None and job.interrupted()):
+            continue
+        try:
+            for robot, track in fetch_elastic_event_counts(settings, key, start_utc, end_utc).items():
+                out.setdefault(robot, {})[key] = track
+        except Exception:
+            pass
     return out
 
 

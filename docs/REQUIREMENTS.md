@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Motor overcurrent strip (Chris, 2026-09-11): the Additional data menu on
+  the Overview (and System Replay) offers "Motor overcurrent: Overcurrent
+  trips (running total)", a staircase of the "Current over limit" lines
+  per system from Elastic, stepping up at each trip over the loaded span,
+  so trips can be read against temperatures and currents.
 - Motor overcurrent condition (Chris, 2026-09-11): a preset timeline
   condition "Motor overcurrent" (search phrase "Current over limit") fills
   slot 14 so the controller's over-current trip has its own row and total.
