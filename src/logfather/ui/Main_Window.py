@@ -208,7 +208,7 @@ class MainWindow(QWidget):
         self.fleetwide_search_btn = QToolButton()
         self.fleetwide_search_btn.setText("Search")
         self.fleetwide_search_btn.setCheckable(True)
-        # Icons on the mode buttons (Chris, 2026-09-11): tiles for the
+        # Icons on the mode buttons (Chris, 2026-09-11): rows for the
         # Overview, a play triangle for PikPak Replay, a magnifier for Search.
         from logfather.ui.icons import overview_icon, play_icon, search_icon
 

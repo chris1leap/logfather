@@ -356,4 +356,4 @@ def radar_icon(size: int = 24) -> QIcon:
     return QIcon(pm)
 
 
-overview_icon = grid_icon
+overview_icon = rows_icon  # Chris, 2026-09-11: three rows with a dot each

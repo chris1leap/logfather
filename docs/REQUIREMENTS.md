@@ -29,9 +29,9 @@ Living record of agreed functionality: what is open, and what has shipped
   the current time (loading it from the day's AdditionalCCTV folder if
   need be) and hides it again when unticked; greyed as "none for this
   time" when no additional clip covers the moment.
-- Mode button icons (Chris, 2026-09-11): Overview shows four tiles, PikPak
+- Mode button icons (Chris, 2026-09-11): Overview shows three rows with a dot each, PikPak
   Replay a play triangle, Search a magnifying glass; painted in icons.py
-  (rows, bars and radar alternatives for the Overview are there too).
+  (tiles, bars and radar alternatives for the Overview are there too).
 - Clip span above the scroll bar (Chris, 2026-09-11): the clip's start
   time at the left and end time at the right, to the minute (06:35), just
   above the CCTV seek slider; the start comes from the filename until the
