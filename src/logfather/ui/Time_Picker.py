@@ -17,7 +17,7 @@ from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
 from types import SimpleNamespace
 from PySide6.QtGui import QAction, QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics, QPainterPath
-from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
+from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu, QToolButton
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
     QGraphicsScene, QGraphicsView, QGraphicsRectItem, QGraphicsItem,
@@ -208,6 +208,27 @@ class TimePicker(QWidget):
         self._scale_group: Optional[QGraphicsItemGroup] = None
         self._scale_shift = 0.0
         self.view.verticalScrollBar().valueChanged.connect(lambda _v: self._on_vertical_scroll())
+        # A View menu at the top right of the chart shows or hides the bars
+        # (Chris, 2026-09-11); hidden static rows are remembered in
+        # ui_state under replay_bars_hidden.
+        stored_bars = load_ui_state().get("replay_bars_hidden")
+        self._hidden_bars: set = {str(k) for k in stored_bars} if isinstance(stored_bars, list) else set()
+        self._bars_menu_btn = QToolButton(self.view)
+        self._bars_menu_btn.setText("View \u25be")
+        self._bars_menu_btn.setPopupMode(QToolButton.InstantPopup)
+        self._bars_menu_btn.setCursor(Qt.PointingHandCursor)
+        self._bars_menu_btn.setToolTip("Show or hide the bars on the timeline")
+        self._bars_menu_btn.setStyleSheet(
+            "QToolButton { background: rgba(0, 0, 0, 150); color: #ecf0f4; border: 1px solid rgba(255, 255, 255, 70);"
+            " border-radius: 4px; padding: 2px 8px; font-size: 12px; }"
+            "QToolButton:hover { background: rgba(0, 0, 0, 210); }"
+            "QToolButton::menu-indicator { image: none; width: 0px; }"
+        )
+        self._bars_menu = QMenu(self._bars_menu_btn)
+        self._bars_menu.aboutToShow.connect(self._rebuild_bars_menu)
+        self._bars_menu_btn.setMenu(self._bars_menu)
+        self.view.installEventFilter(self)
+        self._place_bars_menu_btn()
 
         # The Data and Additional data boxes, as on the Overview (Chris,
         # 2026-09-08): the ticked readings are drawn as strips under the
@@ -449,6 +470,13 @@ class TimePicker(QWidget):
         hidden_kinds = {k for k in kinds if k.startswith("cond_") and not self._row_visible(str(label_map.get(k, k)), all_counts.get(k, 0))}
         if not self._show_telemetry_row:
             hidden_kinds.add("telemetry")
+        # Static rows hidden from the View menu; "shared" covers the
+        # Start / Stop / E-stop row.
+        for k in kinds:
+            if k in self._hidden_bars:
+                hidden_kinds.add(k)
+            elif "shared" in self._hidden_bars and k != "video" and str(label_map.get(k, "")).strip().lower() in SHARED_ROW_NAMES:
+                hidden_kinds.add(k)
         kinds = [k for k in kinds if k not in hidden_kinds]
         self._refresh_errors_box(label_map, color_map, all_counts)
 
@@ -1096,7 +1124,61 @@ class TimePicker(QWidget):
         if data is not None:
             self.time_selected.emit(data)
 
+    def _place_bars_menu_btn(self) -> None:
+        btn = getattr(self, "_bars_menu_btn", None)
+        if btn is None:
+            return
+        btn.adjustSize()
+        btn.move(max(0, self.view.viewport().width() - btn.width() - 6), 6)
+        btn.raise_()
+
+    def _rebuild_bars_menu(self) -> None:
+        """One tick per bar: the static rows, Telemetry, then the condition
+        rows (the same ticks as the Errors box)."""
+        menu = self._bars_menu
+        menu.clear()
+        counts: Dict[str, int] = {}
+        for item in self._items:
+            counts[item.kind] = counts.get(item.kind, 0) + 1
+        for kind, label in (("video", "CCTV"), ("additional", "Additional CCTV"), ("sku", "SKU"), ("shared", "Start / Stop / E-stop")):
+            action = QAction(label, menu)
+            action.setCheckable(True)
+            action.setChecked(kind not in self._hidden_bars)
+            action.toggled.connect(lambda on, k=kind: self._on_bar_toggled(k, on))
+            menu.addAction(action)
+        telemetry = QAction("Telemetry", menu)
+        telemetry.setCheckable(True)
+        telemetry.setChecked(self._show_telemetry_row)
+        telemetry.toggled.connect(self._on_telemetry_row_toggled)
+        menu.addAction(telemetry)
+        conds = list(getattr(self.settings, "conditions", None) or [])
+        rows = []
+        for idx, cond in enumerate(conds):
+            name = (cond.name or "").strip()
+            if not getattr(cond, "query", "") or not name or name.lower() in SHARED_ROW_NAMES:
+                continue
+            rows.append((name, counts.get(f"cond_{idx}", 0)))
+        if rows:
+            menu.addSeparator()
+            for name, count in rows:
+                action = QAction(f"{name}  ({count})", menu)
+                action.setCheckable(True)
+                action.setChecked(self._row_visible(name, count))
+                action.toggled.connect(lambda on, n=name: self._on_error_row_toggled(n, on))
+                menu.addAction(action)
+
+    def _on_bar_toggled(self, kind: str, on: bool) -> None:
+        if on:
+            self._hidden_bars.discard(kind)
+        else:
+            self._hidden_bars.add(kind)
+        update_ui_state({"replay_bars_hidden": sorted(self._hidden_bars)})
+        self._schedule_redraw()
+
     def eventFilter(self, obj, event):
+        if obj is self.view and event.type() == QEvent.Resize:
+            self._place_bars_menu_btn()
+            return False
         if obj is self.view.viewport():
             if event.type() == QEvent.Wheel and self._handle_wheel(event):
                 return True
@@ -1323,6 +1405,13 @@ class TimePicker(QWidget):
             return
         self._row_overrides[name.strip().lower()] = bool(on)
         update_ui_state({"replay_rows": dict(self._row_overrides)})
+        cb = self._error_checks.get(name)
+        if cb is not None and cb.isChecked() != bool(on):
+            self._errors_box_updating = True
+            try:
+                cb.setChecked(bool(on))
+            finally:
+                self._errors_box_updating = False
         self._schedule_redraw()
 
     def _schedule_redraw(self) -> None:

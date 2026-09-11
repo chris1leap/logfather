@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- View menu on the timeline (Chris, 2026-09-11): a "View" dropdown at the
+  top right of the PikPak Replay chart shows or hides each bar: CCTV,
+  Additional CCTV, SKU, Start / Stop / E-stop, Telemetry, and each
+  condition row (the same ticks as the Errors box, kept in step). Hidden
+  static rows are remembered in ui_state (replay_bars_hidden).
 - Telemetry row optional (Chris, 2026-09-11): the Telemetry row is off
   the PikPak Replay timeline by default; "Telemetry row on the timeline"
   at the top of the Additional data menu turns it on, remembered in
