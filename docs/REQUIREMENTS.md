@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- PikPak Replay is one day (Chris, 2026-09-11): its calendar picks a
+  single day, and when the Overview holds a span of days that selection is
+  ignored on the way in: opening a system from the Overview keeps the
+  replay's own day (or today) unless a moment on the row was clicked, in
+  which case that moment's day is used.
 - Product tracking overlays back (Chris, 2026-09-11): the pick-buffer
   load printed log lines with an arrow and dash character, which raise
   when the app's output goes to a cp1252 file, so the load failed with

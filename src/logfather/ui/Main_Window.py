@@ -1841,7 +1841,16 @@ class MainWindow(QWidget):
         self.activateWindow()
 
     def _open_system_from_overview(self, pikpak_root: Path | None, selected_day: date | None, target_dt: datetime | None = None):
-        if not isinstance(pikpak_root, Path) or selected_day is None:
+        if not isinstance(pikpak_root, Path):
+            return
+        # PikPak Replay is always one day (Chris, 2026-09-11): when the
+        # Overview has a span of days and no moment was clicked, its day
+        # says nothing, so the replay keeps its own day (or today).
+        shared = getattr(self.day_selection, "range", None)
+        multi_day = isinstance(shared, tuple) and shared[0] != shared[1]
+        if multi_day and not isinstance(target_dt, datetime):
+            selected_day = self.date_picker.active_day or date.today()
+        if selected_day is None:
             return
         self.viewer_btn.setChecked(True)
         if isinstance(target_dt, datetime):
