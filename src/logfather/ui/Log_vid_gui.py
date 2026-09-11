@@ -61,7 +61,7 @@ from logfather.ui.viewer_widgets import (
 
 import cv2
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QMetaObject, Slot, QRect, QPoint, QPointF, Q_ARG, QVariantAnimation, QEasingCurve, QAbstractListModel, QModelIndex
-from PySide6.QtGui import QImage, QColor, QPainter, QPen, QBrush, QPalette, QFont, QTransform, QPolygonF, QPixmap
+from PySide6.QtGui import QAction, QImage, QColor, QPainter, QPen, QBrush, QPalette, QFont, QTransform, QPolygonF, QPixmap
 import numpy as np
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout,
@@ -624,13 +624,74 @@ class VideoLogViewer(QWidget):
         self.status_text_btn.setToolTip("Show the pick rate, SKU, tray and tool text over the CCTV image")
         self.status_text_btn.toggled.connect(self._on_status_text_toggled)
         self._last_status_lines: list[str] = []
+        # Less around the picture (Chris, 2026-09-11): the playback row is
+        # Play and the log-time clock; Sync, Overlays and Info text live in
+        # a View menu at the top right of the CCTV image, with a switch for
+        # the clip-time and frame counters (off by default).
         self.playback_layout = QHBoxLayout()
         self.playback_layout.addWidget(self.play_pause_btn)
-        self.playback_layout.addWidget(self.sync_tools_btn)
-        self.playback_layout.addWidget(self.overlay_tools_btn)
-        self.playback_layout.addWidget(self.status_text_btn)
+        self.playback_layout.addSpacing(8)
+        self.playback_layout.addWidget(self.calc_label)
         # Additional CCTV loads via timeline selection.
         self.playback_layout.addStretch(1)
+        for btn in (self.sync_tools_btn, self.overlay_tools_btn, self.status_text_btn):
+            btn.hide()
+        self._build_view_menu()
+
+    def _build_view_menu(self) -> None:
+        """The View menu button sits on the CCTV image, top right."""
+        self.view_menu_btn = QToolButton(self.video_label)
+        self.view_menu_btn.setText("View \u25be")
+        self.view_menu_btn.setPopupMode(QToolButton.InstantPopup)
+        self.view_menu_btn.setCursor(Qt.PointingHandCursor)
+        self.view_menu_btn.setToolTip("Sync tools, overlays, info text and the clip counters")
+        self.view_menu_btn.setStyleSheet(
+            "QToolButton { background: rgba(0, 0, 0, 150); color: #ecf0f4; border: 1px solid rgba(255, 255, 255, 70);"
+            " border-radius: 4px; padding: 2px 8px; font-size: 12px; }"
+            "QToolButton:hover { background: rgba(0, 0, 0, 210); }"
+            "QToolButton::menu-indicator { image: none; width: 0px; }"
+        )
+        menu = QMenu(self.view_menu_btn)
+        self._view_menu_actions: dict[str, QAction] = {}
+
+        def bind(label: str, btn: QPushButton, tip: str) -> None:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(btn.isChecked())
+            action.setToolTip(tip)
+            action.toggled.connect(lambda on, b=btn: b.setChecked(on) if b.isChecked() != on else None)
+            btn.toggled.connect(lambda on, a=action: a.setChecked(on) if a.isChecked() != on else None)
+            menu.addAction(action)
+            self._view_menu_actions[label] = action
+
+        bind("Sync tools", self.sync_tools_btn, "Show the sync strip under the picture")
+        bind("Overlay tools", self.overlay_tools_btn, "Show the overlay strip under the picture")
+        bind("Info text", self.status_text_btn, "Show the pick rate, SKU, tray and tool text over the CCTV image")
+        menu.addSeparator()
+        counters = QAction("Clip time and frame counter", self)
+        counters.setCheckable(True)
+        counters.setChecked(bool(load_ui_state().get("viewer_clip_counters", False)))
+        counters.toggled.connect(self._set_clip_counters_visible)
+        menu.addAction(counters)
+        self._view_menu_actions["counters"] = counters
+        self.view_menu_btn.setMenu(menu)
+        self.video_label.installEventFilter(self)
+        self._set_clip_counters_visible(counters.isChecked(), remember=False)
+        self._place_view_menu()
+
+    def _set_clip_counters_visible(self, on: bool, remember: bool = True) -> None:
+        for widget in (self.info_label, self.frame_label):
+            widget.setVisible(bool(on))
+        if remember:
+            update_ui_state({"viewer_clip_counters": bool(on)})
+
+    def _place_view_menu(self) -> None:
+        btn = getattr(self, "view_menu_btn", None)
+        if btn is None or self.video_label is None:
+            return
+        btn.adjustSize()
+        btn.move(max(0, self.video_label.width() - btn.width() - 8), 8)
+        btn.raise_()
 
     def _build_analysis_controls(self):
         """Frame-diff / optical-flow controls and the analysis view pane."""
@@ -815,8 +876,6 @@ class VideoLogViewer(QWidget):
         lock_row = QHBoxLayout()
         lock_row.addWidget(self.info_label)
         lock_row.addSpacing(8)
-        lock_row.addWidget(self.calc_label)
-        lock_row.addSpacing(8)
         lock_row.addWidget(self.frame_label)
         lock_row.addStretch(1)
         middle_layout.addLayout(lock_row)
@@ -825,7 +884,9 @@ class VideoLogViewer(QWidget):
         video_row.addWidget(self.secondary_video_label, 1)
         video_row.addWidget(self.analysis_label, 1)
         middle_layout.addLayout(video_row)
-        middle_layout.addWidget(self.event_marker_bar)
+        # The yellow log-marker bar is no longer shown (Chris, 2026-09-11);
+        # the log list and the blue timeline bar carry the same events.
+        self.event_marker_bar.hide()
         middle_layout.addWidget(self.seek_slider)
         middle_layout.addWidget(self.timeline_marker_bar)
         middle_layout.addLayout(self.playback_layout)
@@ -1137,6 +1198,8 @@ class VideoLogViewer(QWidget):
         if obj is self.video_label and event.type() == QEvent.MouseButtonDblClick:
             self._toggle_video_popout()
             return True
+        if obj is self.video_label and event.type() == QEvent.Resize:
+            self._place_view_menu()
         if obj is self.secondary_video_label and event.type() == QEvent.Wheel:
             self._handle_secondary_scroll_wheel(event.angleDelta().y())
             return True

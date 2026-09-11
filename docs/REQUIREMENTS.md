@@ -24,6 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Less around the CCTV image (Chris, 2026-09-11): the yellow log-marker
+  bar under the picture is gone; the clip-time and frame counters above it
+  are hidden by default; the green log-time clock sits next to Play; and
+  Sync, Overlays and Info text moved into a "View" dropdown at the top
+  right of the picture, which also has a switch for the counters
+  (remembered as viewer_clip_counters).
 - Collapsible Errors and Data boxes (Chris, 2026-09-11): on PikPak Replay
   each of the Errors, Data and Additional data boxes has a ^ arrow after
   its title that folds the contents away (the arrow becomes v to show them
