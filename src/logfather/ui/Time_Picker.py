@@ -11,7 +11,7 @@ from typing import Callable, Iterable, Optional, Dict, Tuple, List
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
 from logfather.ui.qt_worker import JobSlot
-from logfather.ui.overview_signals import SignalBoxes, COMPACT_BOX_STYLE, COMPACT_FONT_PX
+from logfather.ui.overview_signals import SignalBoxes, COMPACT_BOX_STYLE, COMPACT_FONT_PX, add_label_backdrop
 from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
 from types import SimpleNamespace
@@ -564,11 +564,13 @@ class TimePicker(QWidget):
             else:
                 label_item.setDefaultTextColor(color_map.get(kind, QColor("#cccccc")))
             label_item.setZValue(3)
+            add_label_backdrop(label_item)
             self._track_labels[kind] = label_item
 
             count_item = self.scene.addText("" if kind == "telemetry" else f"{count_val}")
             count_item.setDefaultTextColor(color_map.get(kind, QColor("#cccccc")))
             count_item.setZValue(3)
+            add_label_backdrop(count_item)
             self._track_counts[kind] = count_item
         self._reposition_track_labels()
 

@@ -13,7 +13,7 @@ from typing import Callable
 
 from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QPainterPath, QPen, QTransform
-from PySide6.QtWidgets import QGraphicsItem
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout
 
 from logfather.core.telemetry import (
@@ -45,6 +45,24 @@ COMPACT_BOX_STYLE = (
     f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
 )
 KEY_LABEL_STYLE = f"{theme.MUTED_LABEL} font-size: {COMPACT_FONT_PX}px;"
+
+
+LABEL_BACKDROP = QColor(11, 16, 20, 225)
+
+
+def add_label_backdrop(item, colour: QColor = LABEL_BACKDROP, pad: float = 1.0) -> QGraphicsRectItem | None:
+    """A dark pill behind a scene text label so it stays readable over
+    whatever it scrolls across (Chris, 2026-09-11: the row headers sat
+    directly on the chart). A child of the label, so it moves with it."""
+    if not item.toPlainText().strip():
+        return None
+    rect = item.boundingRect().adjusted(2 - pad, 1, pad - 2, -1)
+    bg = QGraphicsRectItem(rect, item)
+    bg.setBrush(QBrush(colour))
+    bg.setPen(QPen(Qt.NoPen))
+    bg.setFlag(QGraphicsItem.ItemStacksBehindParent, True)
+    bg.setAcceptedMouseButtons(Qt.NoButton)
+    return bg
 
 
 def key_swatch(colour: str) -> str:
@@ -253,6 +271,7 @@ class SignalChannel(QObject):
         title_y = rect.top() + max(0.0, (rect.height() - title_item.boundingRect().height()) / 2)
         title_item.setPos(title_x, title_y)
         title_item.setZValue(4)
+        add_label_backdrop(title_item)
         self.label_items.append((title_item, "title", title_y))
         tracks = self.data.get(state.robot_id or "", {})
         w0 = int(window_start.timestamp() * 1000)
@@ -317,6 +336,7 @@ class SignalChannel(QObject):
             label_item.setDefaultTextColor(QColor(theme.TEXT_FAINT))
             label_item.setPos(rect.left() - 34, y_pos)
             label_item.setZValue(4)
+            add_label_backdrop(label_item)
             self.label_items.append((label_item, "axis", y_pos))
         if not show_latest:
             self.hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen], state.name))
