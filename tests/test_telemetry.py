@@ -192,3 +192,16 @@ def test_parse_pick_buckets_fills_gaps_and_smooths():
     assert t.values == [12.0, 6.0, 7.5]                # trailing 40 s window as a per-minute rate; both id fields merged
     five = parse_pick_buckets([{"key": 0, "per_robot": {"buckets": [{"key": "35-2300-005", "doc_count": 50}]}, "per_system_id": {"buckets": []}}], 300, smooth_seconds=60)
     assert five["35-2300-005"].values == [10.0]        # 50 picks in a 5-minute bucket
+
+
+def test_track_step_and_gap_break_scale_with_the_sample_spacing():
+    from logfather.core.telemetry import Track
+
+    fine = Track("x", [0, 30_000, 60_000, 90_000], [1.0, 2.0, 3.0, 4.0])
+    assert fine.step_ms() == 30_000 and fine.gap_break_ms() == 5 * 60_000
+    coarse = Track("x", [0, 1_800_000, 3_600_000, 5_400_000], [1.0, None, 3.0, 4.0])
+    assert coarse.step_ms() == 1_800_000 and coarse.gap_break_ms() == 4_500_000
+    # hover readout: a 30-minute track answers within its own spacing
+    assert coarse.value_at(4_000_000) == 3.0
+    assert coarse.value_at(20_000_000) is None
+    assert Track("x", [5], [1.0]).step_ms() == 30_000

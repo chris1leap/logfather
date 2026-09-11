@@ -24,6 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Picks visible zoomed out (Chris, 2026-09-11): a month-long Overview span
+  samples the strips every 5 minutes (Grafana) or 30 minutes (Argus 1 pick
+  rate from Elastic), and the line broke at every gap over five minutes,
+  so Argus 1 systems showed nothing. The break now scales with the track's
+  own sample spacing (2.5 steps, at least five minutes) and the hover
+  readout looks within three steps.
 - Motor overcurrent strip (Chris, 2026-09-11): the Additional data menu on
   the Overview (and System Replay) offers "Motor overcurrent: Overcurrent
   trips (running total)", a staircase of the "Current over limit" lines

@@ -80,8 +80,29 @@ class Track:
     values: list[Optional[float]]
     spec_key: str = ""
 
-    def value_at(self, t_ms: int, tolerance_ms: int = 3 * SAMPLE_INTERVAL_MS) -> Optional[float]:
+    def value_at(self, t_ms: int, tolerance_ms: Optional[int] = None) -> Optional[float]:
+        """The nearest sample, within three sample steps of the track's own
+        spacing (a month-long track is sampled every 5 or 30 minutes, not
+        every 30 s; Chris, 2026-09-11: the Picks strip was blank zoomed out)."""
+        if tolerance_ms is None:
+            tolerance_ms = 3 * max(SAMPLE_INTERVAL_MS, self.step_ms())
         return value_at(self.times_ms, self.values, t_ms, tolerance_ms)
+
+    def step_ms(self) -> int:
+        """The track's typical sample spacing: the median gap between
+        consecutive sample times, valued or not (cached)."""
+        cached = self.__dict__.get("_step")
+        if cached is None:
+            times = self.times_ms
+            gaps = sorted(b - a for a, b in zip(times, times[1:]))
+            cached = gaps[len(gaps) // 2] if gaps else SAMPLE_INTERVAL_MS
+            self.__dict__["_step"] = cached
+        return cached
+
+    def gap_break_ms(self) -> int:
+        """A gap this long between samples means the line breaks: five
+        minutes, or two and a half sample steps for coarser tracks."""
+        return max(5 * 60_000, int(2.5 * self.step_ms()))
 
     def dense(self) -> tuple[list[int], list[float]]:
         """(times, values) with the gaps dropped, cached: min/max over a

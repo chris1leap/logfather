@@ -339,12 +339,16 @@ class SignalChannel(QObject):
         path = QPainterPath()
         pen_down = False
         last_t = None
+        # A gap over five minutes breaks the line; a month-long track is
+        # sampled every 5 or 30 minutes, so the break scales with its
+        # spacing (Chris, 2026-09-11: Picks was blank zoomed out to a month).
+        break_ms = track.gap_break_ms()
         for t, v in zip(track.times_ms, track.values):
             if v is None:
                 pen_down = False
                 continue
-            if pen_down and last_t is not None and t - last_t > 5 * 60_000:
-                pen_down = False  # a gap over five minutes breaks the line
+            if pen_down and last_t is not None and t - last_t > break_ms:
+                pen_down = False
             x = t / 1000.0
             if pen_down:
                 path.lineTo(x, v)
