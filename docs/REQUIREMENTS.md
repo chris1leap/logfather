@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Playhead time label (Chris, 2026-09-11): the current time, hours and
+  minutes, in green at the top of the green playhead line on the PikPak
+  Replay timeline, riding with the pinned time scale.
 - Green playhead on first load (Chris, 2026-09-11): the PikPak Replay
   timeline keeps the viewer's last reported time across a redraw and draws
   the green current-time line from it, so the line is there as soon as the

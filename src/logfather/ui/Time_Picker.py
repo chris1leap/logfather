@@ -254,6 +254,7 @@ class TimePicker(QWidget):
         self._cursor_marker_outer = None
         self._cursor_marker_inner = None
         self._playhead_line = None
+        self._playhead_label = None
         self._playhead_time: Optional[datetime] = None
         self._ppm = 5
         self._day_start: Optional[datetime] = None
@@ -309,6 +310,7 @@ class TimePicker(QWidget):
         self._cursor_marker_outer = None
         self._cursor_marker_inner = None
         self._playhead_line = None
+        self._playhead_label = None
         self._playhead_time = None
         self._track_positions = {}
         self._selected_video_item = None
@@ -589,6 +591,7 @@ class TimePicker(QWidget):
         self._cursor_marker_outer = None
         self._cursor_marker_inner = None
         self._playhead_line = None
+        self._playhead_label = None
         # The playhead time is kept across a redraw (Chris, 2026-09-11: the
         # green line was missing when the screen first loaded, because the
         # viewer had reported its time before the timeline drew, and the
@@ -1421,29 +1424,36 @@ class TimePicker(QWidget):
             except RuntimeError:
                 setattr(self, attr, None)
 
-    def _update_playhead_indicator(self):
-        if self._playhead_line is not None:
-            try:
-                if self._playhead_line.scene() is None:
-                    self._playhead_line = None
-            except RuntimeError:
-                self._playhead_line = None
-        if not self._day_start or not self._current_date or self._playhead_time is None:
-            if self._playhead_line is not None:
+    def _remove_playhead_items(self) -> None:
+        for attr in ("_playhead_line", "_playhead_label"):
+            item = getattr(self, attr, None)
+            if item is not None:
                 try:
-                    self.scene.removeItem(self._playhead_line)
+                    self.scene.removeItem(item)
                 except Exception:
                     pass
-                self._playhead_line = None
+            setattr(self, attr, None)
+
+    def _playhead_label_y(self) -> float:
+        # Just under the tick marks, at the top of the green line; moves
+        # with the pinned time scale.
+        return self._scale_y + self._scale_shift + 10
+
+    def _update_playhead_indicator(self):
+        for attr in ("_playhead_line", "_playhead_label"):
+            item = getattr(self, attr, None)
+            if item is not None:
+                try:
+                    if item.scene() is None:
+                        setattr(self, attr, None)
+                except RuntimeError:
+                    setattr(self, attr, None)
+        if not self._day_start or not self._current_date or self._playhead_time is None:
+            self._remove_playhead_items()
             return
         play_local = ensure_playhead_local(self._playhead_time)
         if play_local.date() != self._current_date:
-            if self._playhead_line is not None:
-                try:
-                    self.scene.removeItem(self._playhead_line)
-                except Exception:
-                    pass
-                self._playhead_line = None
+            self._remove_playhead_items()
             return
         play_dt = ensure_utc(play_local)
         minute = max(0.0, min(24 * 60, (play_dt - self._day_start).total_seconds() / 60.0))
@@ -1455,6 +1465,21 @@ class TimePicker(QWidget):
             self._playhead_line.setZValue(3)
         else:
             self._playhead_line.setLine(x, self._scale_y, x, self._line_bottom())
+        # The current time, hours and minutes, at the top of the line
+        # (Chris, 2026-09-11).
+        text = play_local.strftime("%H:%M")
+        if self._playhead_label is None:
+            font = QFont()
+            font.setPointSize(8)
+            font.setBold(True)
+            self._playhead_label = self.scene.addText(text, font)
+            self._playhead_label.setDefaultTextColor(QColor("#2ecc71"))
+            self._playhead_label.setZValue(8)
+            self._playhead_label.setAcceptedMouseButtons(Qt.NoButton)
+            add_label_backdrop(self._playhead_label)
+        elif self._playhead_label.toPlainText() != text:
+            self._playhead_label.setPlainText(text)
+        self._playhead_label.setPos(x + 3, self._playhead_label_y())
 
     def _on_vertical_scroll(self) -> None:
         """Keep the time scale at the top of the view whatever the vertical
@@ -1471,6 +1496,11 @@ class TimePicker(QWidget):
                 self._scale_group.setPos(0, self._scale_shift)
             except RuntimeError:
                 self._scale_group = None
+        if self._playhead_label is not None:
+            try:
+                self._playhead_label.setPos(self._playhead_label.pos().x(), self._playhead_label_y())
+            except RuntimeError:
+                self._playhead_label = None
         for item, dy in ((self._cursor_label, -26), (self._cursor_marker_outer, None), (self._cursor_marker_inner, None)):
             if item is None:
                 continue
