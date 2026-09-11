@@ -60,8 +60,8 @@ Living record of agreed functionality: what is open, and what has shipped
   contents away (the arrow becomes v to show them again); the choice is
   remembered in ui_state (replay_boxes_collapsed). Additional data has no
   arrow and folds and unfolds with the Data box.
-  The column of boxes ends level with the bottom of the CCTV image, and the
-  log tabs above take whatever the folded boxes free up. The timeline
+  The column of boxes ends level with the bottom of the Play button, and
+  the log tabs above take whatever the folded boxes free up. The timeline
   status line under the boxes shows only when it has something to say.
 - No "Load logs" button (Chris, 2026-09-11): removed from the Logs tab on
   PikPak Replay; a clip's logs load on their own when the clip opens.

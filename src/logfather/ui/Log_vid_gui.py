@@ -3874,18 +3874,19 @@ class VideoLogViewer(QWidget):
 
     def _align_right_column_bottom(self) -> None:
         """The boxes under the log tabs end level with the bottom of the
-        CCTV image (Chris, 2026-09-11): the column spans the whole row, so
-        its layout gets a bottom margin equal to the rows under the video."""
+        Play button (Chris, 2026-09-11; the CCTV image before that): the
+        column spans the whole row, so its layout gets a bottom margin
+        equal to whatever sits below the play row."""
         column = getattr(self, "right_column", None)
-        video = getattr(self, "video_label", None)
-        if column is None or video is None or not video.isVisible():
+        anchor = getattr(self, "play_pause_btn", None)
+        if column is None or anchor is None or not anchor.isVisible():
             return
         try:
-            video_bottom = video.mapTo(self, video.rect().bottomLeft()).y()
+            anchor_bottom = anchor.mapTo(self, anchor.rect().bottomLeft()).y()
             column_bottom = column.mapTo(self, column.rect().bottomLeft()).y()
         except RuntimeError:
             return
-        margin = max(0, column_bottom - video_bottom)
+        margin = max(0, column_bottom - anchor_bottom)
         lay = column.layout()
         if lay is not None and lay.contentsMargins().bottom() != margin:
             lay.setContentsMargins(0, 0, 0, margin)
