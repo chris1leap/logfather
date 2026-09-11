@@ -674,10 +674,70 @@ class VideoLogViewer(QWidget):
         counters.toggled.connect(self._set_clip_counters_visible)
         menu.addAction(counters)
         self._view_menu_actions["counters"] = counters
+        # Additional CCTV beside the main picture, when a clip covers this
+        # time (Chris, 2026-09-11): tick to show it, untick to hide it. The
+        # main window supplies the lookup (the timeline knows the clips).
+        self.additional_cctv_resolver = None
+        additional = QAction("Additional CCTV", self)
+        additional.setCheckable(True)
+        additional.toggled.connect(self._on_additional_cctv_toggled)
+        menu.addAction(additional)
+        self._view_menu_actions["additional"] = additional
+        menu.aboutToShow.connect(self._refresh_additional_cctv_action)
         self.view_menu_btn.setMenu(menu)
         self.video_label.installEventFilter(self)
         self._set_clip_counters_visible(counters.isChecked(), remember=False)
         self._place_view_menu()
+
+    def _current_clip_time(self):
+        """Wall-clock time of the frame on screen, or None without a clip."""
+        start = self.video_start_dt or getattr(self, "current_video_filename_dt", None)
+        if start is None or self.cap is None:
+            return None
+        try:
+            return start + timedelta(seconds=(self.current_frame or 0) / (self.fps or 25.0))
+        except Exception:
+            return None
+
+    def _additional_cctv_available(self) -> Path | None:
+        """The additional clip covering the current time, if the main
+        window can find one."""
+        resolver = getattr(self, "additional_cctv_resolver", None)
+        moment = self._current_clip_time()
+        if resolver is None or moment is None:
+            return None
+        try:
+            found = resolver(moment)
+        except Exception:
+            return None
+        return found if isinstance(found, Path) else None
+
+    def _refresh_additional_cctv_action(self) -> None:
+        action = self._view_menu_actions.get("additional")
+        if action is None:
+            return
+        loaded = self.secondary_cap is not None or self._pending_secondary_original_path is not None
+        available = loaded or self._additional_cctv_available() is not None
+        action.blockSignals(True)
+        action.setEnabled(available)
+        action.setChecked(bool(loaded and self._draw_secondary_video))
+        action.setText("Additional CCTV" if available else "Additional CCTV (none for this time)")
+        action.blockSignals(False)
+
+    def _on_additional_cctv_toggled(self, on: bool) -> None:
+        if on:
+            if self.secondary_cap is not None:
+                self._draw_secondary_video = True
+                self._refresh_secondary_visibility()
+                return
+            path = self._additional_cctv_available()
+            if path is not None:
+                self.load_additional_cctv_from_path(path)
+            else:
+                self._refresh_additional_cctv_action()
+        else:
+            self._draw_secondary_video = False
+            self._refresh_secondary_visibility()
 
     def _set_clip_counters_visible(self, on: bool, remember: bool = True) -> None:
         for widget in (self.info_label, self.frame_label):

@@ -182,6 +182,7 @@ class MainWindow(QWidget):
         # their boxes sit under the log tabs (Chris, 2026-09-08).
         self.time_picker.settings = self.settings
         self.viewer.add_right_panel_widget(self.time_picker.signal_boxes_widget())
+        self.viewer.additional_cctv_resolver = self._additional_clip_covering
         self.content_stack = QStackedWidget()
         self.content_stack.addWidget(self.viewer)
         self.content_stack.addWidget(self.overview_widget)
@@ -1414,6 +1415,29 @@ class MainWindow(QWidget):
                 if DEBUG_CLIP_TIMING:
                     print(f"[main] Logs pending for {start_iso} -> {end_iso}", flush=True)
                 self.viewer.set_pending_logs(str(current_root), start_iso, end_iso)
+
+    def _additional_clip_covering(self, moment) -> Path | None:
+        """The day's Additional CCTV clip that covers `moment`, for the
+        viewer's View menu (Chris, 2026-09-11)."""
+        try:
+            items = list(getattr(self.time_picker, "_items", []) or [])
+        except Exception:
+            return None
+        tz = getattr(moment, "tzinfo", None)
+        for item in items:
+            if getattr(item, "kind", "") != "additional" or not isinstance(getattr(item, "payload", None), Path):
+                continue
+            start, end = item.start, item.end
+            if start is None or end is None:
+                continue
+            try:
+                s = start if (start.tzinfo is None) == (tz is None) else (start.replace(tzinfo=None) if tz is None else start.astimezone(tz))
+                e = end if (end.tzinfo is None) == (tz is None) else (end.replace(tzinfo=None) if tz is None else end.astimezone(tz))
+                if s <= moment <= e:
+                    return item.payload
+            except Exception:
+                continue
+        return None
 
     def load_additional_in_viewer(self, video_path: Path):
         if not isinstance(video_path, Path) or not video_path.exists():

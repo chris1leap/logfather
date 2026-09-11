@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Additional CCTV in the View menu (Chris, 2026-09-11): a tick item that
+  shows the additional camera beside the main picture when a clip covers
+  the current time (loading it from the day's AdditionalCCTV folder if
+  need be) and hides it again when unticked; greyed as "none for this
+  time" when no additional clip covers the moment.
 - Mode button icons (Chris, 2026-09-11): Overview shows four tiles, PikPak
   Replay a play triangle, Search a magnifying glass; painted in icons.py
   (rows, bars and radar alternatives for the Overview are there too).
