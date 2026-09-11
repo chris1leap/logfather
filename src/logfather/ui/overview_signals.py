@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable
 
-from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt
+from PySide6.QtCore import QEvent, QObject, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
@@ -60,6 +60,7 @@ class CollapsibleGroupBox(QGroupBox):
     names the ui_state key that remembers the choice."""
 
     COLLAPSED_KEY = "replay_boxes_collapsed"
+    collapsed_changed = Signal(bool)
 
     def __init__(self, title: str, parent=None):
         super().__init__(title, parent)
@@ -102,6 +103,7 @@ class CollapsibleGroupBox(QGroupBox):
             stored[self._store_key] = self._collapsed
             update_ui_state({self.COLLAPSED_KEY: stored})
         self.updateGeometry()
+        self.collapsed_changed.emit(self._collapsed)
 
     def is_collapsed(self) -> bool:
         return self._collapsed

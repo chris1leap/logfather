@@ -37,9 +37,10 @@ Living record of agreed functionality: what is open, and what has shipped
   right of the picture, which also has a switch for the counters
   (remembered as viewer_clip_counters).
 - Collapsible Errors and Data boxes (Chris, 2026-09-11): on PikPak Replay
-  each of the Errors, Data and Additional data boxes has a ^ arrow after
-  its title that folds the contents away (the arrow becomes v to show them
-  again); the choice is remembered in ui_state (replay_boxes_collapsed).
+  the Errors and Data boxes have a ^ arrow after the title that folds the
+  contents away (the arrow becomes v to show them again); the choice is
+  remembered in ui_state (replay_boxes_collapsed). Additional data has no
+  arrow and folds and unfolds with the Data box.
   The column of boxes ends level with the bottom of the CCTV image, and the
   log tabs above take whatever the folded boxes free up. The timeline
   status line under the boxes shows only when it has something to say.

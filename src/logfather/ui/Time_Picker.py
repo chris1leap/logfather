@@ -1154,10 +1154,12 @@ class TimePicker(QWidget):
             box_layout.addLayout(self._normal_rows_layout)
         column.addWidget(self.status_label)
         self.status_label.setVisible(False)
-        # The arrows after the titles fold each box away (Chris, 2026-09-11).
+        # The arrows after the titles fold each box away (Chris, 2026-09-11);
+        # Additional data has no arrow and follows the Data box.
         self._errors_box.set_collapsible("errors")
         self._signals.data_box.set_collapsible("data")
-        self._signals.additional_box.set_collapsible("additional")
+        self._signals.data_box.collapsed_changed.connect(lambda on: self._signals.additional_box.set_collapsed(on, remember=False))
+        self._signals.additional_box.set_collapsed(self._signals.data_box.is_collapsed(), remember=False)
         holder.pin_height()
         return holder
 
