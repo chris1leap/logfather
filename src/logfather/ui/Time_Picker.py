@@ -816,15 +816,8 @@ class TimePicker(QWidget):
             rect.setZValue(1.5)
             rect.setAcceptedMouseButtons(Qt.NoButton)
             rect.setToolTip(f"Day proxy {format_local_time(start)}  count={count}")
-        label = self.scene.addText("Rate")
-        label.setDefaultTextColor(QColor("#9fb3c8"))
-        font = QFont()
-        font.setPointSize(8)
-        font.setBold(True)
-        label.setFont(font)
-        label.setPos(-36, strip_y - 4)
-        label.setZValue(3)
-        label.setAcceptedMouseButtons(Qt.NoButton)
+        # The strip carries no "Rate" label (Chris, 2026-09-11): it sat over
+        # the CCTV row label and read as part of it.
 
     def _draw_selected_clip_rate_heat(self) -> None:
         item = self._selected_video_item

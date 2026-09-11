@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- No "Rate" label on PikPak Replay (Chris, 2026-09-11): the day rate heat
+  strip under the time scale no longer carries a "Rate" caption, which sat
+  by the CCTV row label.
 - Elastic key test (Chris, 2026-09-11): the Data sources test probed the
   cluster root, which needs a monitor privilege the team's keys lack, so a
   working key reported "Rejected (HTTP 403)". It now asks who the key
