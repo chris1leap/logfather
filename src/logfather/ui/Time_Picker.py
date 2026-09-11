@@ -11,7 +11,7 @@ from typing import Callable, Iterable, Optional, Dict, Tuple, List
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
 from logfather.ui.qt_worker import JobSlot
-from logfather.ui.overview_signals import SignalBoxes
+from logfather.ui.overview_signals import SignalBoxes, COMPACT_BOX_STYLE, COMPACT_FONT_PX
 from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
 from types import SimpleNamespace
@@ -225,10 +225,11 @@ class TimePicker(QWidget):
         stored = load_ui_state().get("replay_rows")
         self._row_overrides: Dict[str, bool] = {str(k): bool(v) for k, v in stored.items()} if isinstance(stored, dict) else {}
         self._errors_box = QGroupBox("Errors")
+        self._errors_box.setStyleSheet(COMPACT_BOX_STYLE)
         self._errors_grid = QGridLayout(self._errors_box)
-        self._errors_grid.setContentsMargins(8, 4, 8, 6)
-        self._errors_grid.setHorizontalSpacing(8)
-        self._errors_grid.setVerticalSpacing(2)
+        self._errors_grid.setContentsMargins(4, 2, 4, 2)
+        self._errors_grid.setHorizontalSpacing(6)
+        self._errors_grid.setVerticalSpacing(0)
         self._error_checks: Dict[str, QCheckBox] = {}
         self._normal_rows_layout: Optional[QVBoxLayout] = None
         self._errors_box_updating = False
@@ -1149,8 +1150,8 @@ class TimePicker(QWidget):
         # Normal-operation conditions (eject crate) sit under the readings in
         # the Data box, each with a tick and the day's total.
         self._normal_rows_layout = QVBoxLayout()
-        self._normal_rows_layout.setContentsMargins(0, 2, 0, 0)
-        self._normal_rows_layout.setSpacing(2)
+        self._normal_rows_layout.setContentsMargins(0, 1, 0, 0)
+        self._normal_rows_layout.setSpacing(0)
         box_layout = self._signals.data_box.layout()
         if box_layout is not None:
             box_layout.addLayout(self._normal_rows_layout)
@@ -1226,37 +1227,37 @@ class TimePicker(QWidget):
                     line.setSpacing(6)
                     cb = QCheckBox(name)
                     cb.setChecked(self._row_visible(name, count))
-                    cb.setStyleSheet(f"color: {color};")
+                    cb.setStyleSheet(f"color: {color}; font-size: {COMPACT_FONT_PX}px;")
                     cb.setToolTip(f"Show the {name} row on the timeline (normal operation)")
                     cb.toggled.connect(lambda on, n=name: self._on_error_row_toggled(n, on))
                     total = QLabel(str(count))
-                    total.setStyleSheet(f"color: {color}; font-weight: 600;")
+                    total.setStyleSheet(f"color: {color}; font-weight: 600; font-size: {COMPACT_FONT_PX}px;")
                     line.addWidget(cb)
                     line.addWidget(total)
                     line.addStretch(1)
                     self._normal_rows_layout.addLayout(line)
                     self._error_checks[name] = cb
-            # Two columns of (tick, total) pairs so the numbers stay in view
-            # (Chris, 2026-09-10); filled down the first column, then the second.
-            half = (len(rows) + 1) // 2
+            # Three columns of (tick, total) pairs (Chris, 2026-09-11; two
+            # since 2026-09-10) so the box stays short; filled down the
+            # first column, then the second, then the third.
+            per_col = max(1, (len(rows) + 2) // 3)
             for i, (kind, name, color, count) in enumerate(rows):
-                col, r = (0, i) if i < half else (2, i - half)
+                col, r = 2 * (i // per_col), i % per_col
                 cb = QCheckBox(name)
                 cb.setChecked(self._row_visible(name, count))
-                cb.setStyleSheet(f"color: {color};")
+                cb.setStyleSheet(f"color: {color}; font-size: {COMPACT_FONT_PX}px;")
                 cb.setToolTip(f"Show the {name} row on the timeline")
                 cb.toggled.connect(lambda on, n=name: self._on_error_row_toggled(n, on))
                 total = QLabel(str(count))
-                total.setStyleSheet(f"color: {color}; font-weight: 600;")
+                total.setStyleSheet(f"color: {color}; font-weight: 600; font-size: {COMPACT_FONT_PX}px;")
                 total.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                total.setMinimumWidth(28)
+                total.setMinimumWidth(26)
                 self._errors_grid.addWidget(cb, r, col)
                 self._errors_grid.addWidget(total, r, col + 1)
                 self._error_checks[name] = cb
-            self._errors_grid.setColumnStretch(0, 1)
-            self._errors_grid.setColumnStretch(2, 1)
-            self._errors_grid.setColumnMinimumWidth(1, 30)
-            self._errors_grid.setColumnMinimumWidth(3, 30)
+            for col in (0, 2, 4):
+                self._errors_grid.setColumnStretch(col, 1)
+                self._errors_grid.setColumnMinimumWidth(col + 1, 26)
             self._errors_grid.setHorizontalSpacing(6)
             self._errors_box.setVisible(bool(rows))
         finally:

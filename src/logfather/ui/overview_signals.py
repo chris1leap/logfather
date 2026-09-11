@@ -473,6 +473,17 @@ class SignalChannel(QObject):
         return True
 
 
+# Compact boxes (Chris, 2026-09-11): small text and tight rows so the
+# Errors and Data boxes leave room for the log tabs above them. The
+# font-size on the box cascades to every widget inside it.
+COMPACT_FONT_PX = 11
+COMPACT_BOX_STYLE = (
+    f"QGroupBox {{ font-weight: normal; font-size: {COMPACT_FONT_PX}px; margin-top: 9px;"
+    f" padding: 3px 6px 2px 6px; border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
+    f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
+)
+
+
 class SignalBoxes(QObject):
     """The Data box (Picks, Temps, Currents, Pressure) and the Additional
     data box, with their channels, for one owner: the Overview or the
@@ -538,6 +549,8 @@ class SignalBoxes(QObject):
         # The Data-box buttons share one width, the widest with a count.
         widest = 0
         for channel in self.data_channels:
+            channel.button.setStyleSheet(f"font-size: {COMPACT_FONT_PX}px; padding: 0px 4px;")
+            channel.button.setIconSize(QSize(14, 14))
             channel.button.setText(f"{channel.title} (6)")
             widest = max(widest, channel.button.sizeHint().width())
             channel.refresh_label()
@@ -546,7 +559,8 @@ class SignalBoxes(QObject):
         # One combined menu for the Additional data box.
         self.additional_btn = QToolButton()
         self.additional_btn.setIcon(plus_box_icon())
-        self.additional_btn.setIconSize(QSize(18, 18))
+        self.additional_btn.setIconSize(QSize(14, 14))
+        self.additional_btn.setStyleSheet(f"font-size: {COMPACT_FONT_PX}px; padding: 0px 4px;")
         self.additional_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.additional_btn.setPopupMode(QToolButton.InstantPopup)
         self.additional_btn.setToolTip("Computer health and housekeeping readings, one strip each")
@@ -572,16 +586,12 @@ class SignalBoxes(QObject):
         self.additional_key.setTextFormat(Qt.RichText)
         self.additional_key.setStyleSheet(theme.MUTED_LABEL)
         # The two boxes.
-        style = (
-            f"QGroupBox {{ font-weight: normal; margin-top: 12px; padding: 8px 8px 6px 8px;"
-            f" border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
-            f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {theme.TEXT_MUTED}; }}"
-        )
+        style = COMPACT_BOX_STYLE
         self.data_box = QGroupBox("Data")
         self.data_box.setStyleSheet(style)
         data_layout = QVBoxLayout(self.data_box)
-        data_layout.setContentsMargins(6, 4, 6, 4)
-        data_layout.setSpacing(4)
+        data_layout.setContentsMargins(4, 2, 4, 2)
+        data_layout.setSpacing(1)
         for channel in self.data_channels:
             row = QHBoxLayout()
             row.setSpacing(10)
@@ -593,8 +603,8 @@ class SignalBoxes(QObject):
         self.additional_box = QGroupBox("Additional data")
         self.additional_box.setStyleSheet(style)
         add_layout = QVBoxLayout(self.additional_box)
-        add_layout.setContentsMargins(6, 4, 6, 4)
-        add_layout.setSpacing(4)
+        add_layout.setContentsMargins(4, 2, 4, 2)
+        add_layout.setSpacing(1)
         add_row = QHBoxLayout()
         add_row.setSpacing(10)
         add_row.addWidget(self.additional_btn)

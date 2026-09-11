@@ -29,6 +29,9 @@ Living record of agreed functionality: what is open, and what has shipped
   status line) pins its minimum height to what its contents need and
   re-pins when the rows change, so the text stays readable on a short
   screen; the log tabs above shrink instead, to nothing if need be.
+- Compact Errors and Data boxes (Chris, 2026-09-11): 11 px text, tight
+  rows and box padding, smaller icons, and the Errors box in three columns
+  of tick + total, so the log tabs above keep their room.
 - Errors & Stops counts events, not documents (Chris, 2026-09-11): one
   failure is logged as a cascade of state changes a few hundred
   milliseconds apart (controller node error, crate_change_package_error,
