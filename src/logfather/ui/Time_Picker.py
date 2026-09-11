@@ -552,7 +552,9 @@ class TimePicker(QWidget):
                 text = SHARED_ROW_LABEL
                 count_val = sum(count_map.get(k, 0) for k in shared_kinds)
             else:
-                text = "" if kind == "video" else label_map.get(kind, kind.capitalize())
+                # The clips row is labelled like every other row (Chris,
+                # 2026-09-11: it had no label, only "Additional CCTV" below).
+                text = label_map.get(kind, kind.capitalize())
                 count_val = count_map.get(kind, 0)
             label_item = self.scene.addText(text)
             if kind in shared_kinds:
@@ -1762,7 +1764,7 @@ def _scan_videos_and_collect(
                 kind="video",
                 color=VIDEO_COLOR_CACHED if cached else VIDEO_COLOR_UNCACHED,
                 payload=path_obj,
-                track_label="Video",
+                track_label="CCTV",
                 cached=bool(cached),
                 annotated=bool(annotated),
                 path_key=_path_key(path_obj),

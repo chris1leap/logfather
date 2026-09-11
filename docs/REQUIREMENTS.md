@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- CCTV row labelled (Chris, 2026-09-11): the clips row at the bottom of
+  System Replay is labelled "CCTV" with its clip count, like the
+  "Additional CCTV" row under it; it had no label before.
 - Data and Errors boxes never squashed (Chris, 2026-09-11): on System
   Replay the panel under the log tabs (Errors, Data, Additional data,
   status line) pins its minimum height to what its contents need and

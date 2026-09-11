@@ -777,7 +777,7 @@ class MainWindow(QWidget):
 
     def _build_static_tracks(self) -> list[tuple[str, str, str]]:
         static_tracks = [
-            ("video", "Video", "#cce5ff"),
+            ("video", "CCTV", "#cce5ff"),
             ("additional", "Additional CCTV", "#9fb3c8"),
             ("sku", "SKU", "#8fd19e"),
             ("telemetry", "Telemetry", "#ff8a65"),
