@@ -278,7 +278,8 @@ def condition_clause(query: str) -> dict:
             "must_not": [
                 {
                     "bool": {
-                        "filter": [{"terms": {"message.keyword": ["New system state", "New node state"]}}],
+                        # match_phrase, not a keyword term: older indices carry no message.keyword
+                        "filter": [{"bool": {"should": [{"match_phrase": {"message": "New system state"}}, {"match_phrase": {"message": "New node state"}}], "minimum_should_match": 1}}],
                         "must_not": [own_state],
                     }
                 }
