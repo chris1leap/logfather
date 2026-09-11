@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Product tracking overlays back (Chris, 2026-09-11): the pick-buffer
+  load printed log lines with an arrow and dash character, which raise
+  when the app's output goes to a cp1252 file, so the load failed with
+  0 events and nothing was tracked on the picture. Those log lines are
+  ASCII now (the last one was fixed the same way earlier).
 - Playhead time label (Chris, 2026-09-11): the current time, hours and
   minutes, in green at the top of the green playhead line on the PikPak
   Replay timeline, riding with the pinned time scale.
