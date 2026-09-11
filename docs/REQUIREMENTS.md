@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Replay calendar highlights one day (Chris, 2026-09-11): the PikPak
+  Replay day popup highlights only the selected day; days with footage
+  are bold rather than shaded, and the hint names the selected day.
 - Slimmer clip bars, no pick-rate heat (Chris, 2026-09-11): the CCTV and
   Additional CCTV bars on the PikPak Replay timeline are 14 px tall (SKU
   boxes keep 24 px for their text), and the red pick-rate heat strip and

@@ -42,8 +42,10 @@ class DayPopup(QWidget):
         layout.addWidget(self._calendar)
         base = self._calendar.weekdayTextFormat(Qt.Monday)
         self._normal_fmt = QTextCharFormat(base)
+        # Only the chosen day is highlighted (Chris, 2026-09-11: a block of
+        # highlighted footage days read as a multi-day selection); days
+        # with footage are merely bold.
         self._available_fmt = QTextCharFormat(base)
-        self._available_fmt.setBackground(QBrush(QColor(theme.ACCENT_DIM)))
         self._available_fmt.setForeground(QBrush(QColor(theme.TEXT_BRIGHT)))
         self._available_fmt.setFontWeight(QFont.Bold)
         self._selected_fmt = QTextCharFormat(base)
@@ -63,11 +65,13 @@ class DayPopup(QWidget):
         self._available = set(available or ())
         self._selected = selected
         if scanning:
-            self._hint.setText("Still listing the share - highlighted days may be incomplete")
-        elif self._available:
-            self._hint.setText(f"{len(self._available)} days with footage are highlighted")
+            self._hint.setText("Still listing the share - footage days may be incomplete")
+        elif selected is not None:
+            self._hint.setText(f"Selected: {selected:%a %d %b %Y}" + (f"  ·  footage on {len(self._available)} days (bold)" if self._available else ""))
         elif title.startswith("Choose a day"):
-            self._hint.setText("Footage days are highlighted once a system is chosen")
+            self._hint.setText("Pick a day; footage days show in bold once a system is chosen")
+        elif self._available:
+            self._hint.setText(f"Footage on {len(self._available)} days (bold)")
         else:
             self._hint.setText("No footage found for this system yet")
         self._calendar.setMaximumDate(QDate.currentDate())
