@@ -113,6 +113,22 @@
   .seek .cursor { position: absolute; top: -26px; transform: translateX(-50%); font-family: Consolas, "Courier New", monospace; font-size: 12px; font-weight: 600; color: var(--eth); background: var(--panel); padding: 0 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
   .seek .cursor::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 0; height: 0; margin-left: -4px; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--eth); }
   .seek .marks i { position: absolute; top: 0; width: 2px; height: 5px; background: var(--estop); }
+  /* frame types */
+  .types { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 13px; }
+  .types .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 6px; }
+  .types h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  .types .note { color: var(--muted); font-size: 12px; }
+  .types .tblwrap { overflow-x: auto; }
+  .types table { border-collapse: collapse; width: 100%; }
+  .types th, .types td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .types th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .types td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: Consolas, "Courier New", monospace; }
+  .types th.num { text-align: right; }
+  .types td .bar { display: inline-block; height: 8px; background: var(--eth); border-radius: 2px; vertical-align: middle; margin-left: 6px; opacity: .7; }
+  .types button { font: inherit; font-size: 12px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: pointer; }
+  .types button:hover { border-color: var(--eth); }
+  .types button:disabled { opacity: .45; cursor: default; }
+  .types tr.cur td { background: color-mix(in srgb, var(--eth) 10%, transparent); }
   /* emergency code reference */
   .ref { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 13px; }
   .ref summary { cursor: pointer; font-weight: 600; font-size: 13px; letter-spacing: .04em; color: var(--ink); }
@@ -292,6 +308,16 @@
       <span class="note"><span id="hb-periods"></span> Only the master's heartbeat on 700 is checked. A gap is the time from one heartbeat to the next; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
     </div>
     <ol id="hb-list"></ol>
+  </section>
+  <section class="types">
+    <div class="head">
+      <h2>Frame types</h2>
+      <span class="note" id="types-note"></span>
+    </div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>Type</th><th>Drive</th><th>Frames</th><th>Per second</th><th>% of bus</th><th></th></tr></thead>
+      <tbody id="types-body"></tbody>
+    </table></div>
   </section>
   <details class="ref">
     <summary>Emergency codes: what the drives send, what the Logfather logs show, what Grafana holds</summary>
@@ -492,6 +518,7 @@
       byId("seek").max = N - 1; byId("seek-start").textContent = clock(0); byId("seek-end").textContent = clock(T[N - 1] - T0);
       byId("hb-source").textContent = "in " + sourceName;
       try { measurePeriods(); findHeartbeatGaps(); } catch (ex) { byId("hb-count").textContent = "could not be worked out: " + ex.message; }
+      buildTypeTable();
       show(cap.start_index || 0);
     } finally { setBusy(false); progress(""); }
   }
@@ -563,6 +590,35 @@
     finally { setBusy(false); progress(""); e.target.value = ""; }
   });
 
+  // ---- frame types: one row per kind, split per drive where the kind concerns one drive (Chris, 2026-09-11)
+  const MOTOR_FAMILIES = new Set(["Motor status", "PVT point", "Buffer poll", "Buffer clear", "Configuration write", "Heartbeat (drive)", "Emergency", "PDO", "SDO read", "SDO write", "SDO abort"]);
+  const TYPE_NAMES = { "PVT point": "Sending PVT", "Motor status": "Motor status", "Heartbeat (master)": "Heartbeat (master)", "Heartbeat (drive)": "Heartbeat (drive)", "Master tick": "Master tick (27F)" };
+  let typeIndex = {}, typeRows = [];
+  const bitsOfFrame = i => FAM[i] === F["Error frame"] ? 20 : bitsOf(dlcAt(i));
+  function buildTypeTable() {
+    typeIndex = {}; const counts = {}, bits = {}; let totalBits = 0;
+    for (let i = 0; i < N; i++) {
+      const fam = FAMILIES[FAM[i]];
+      const node = MOTOR_FAMILIES.has(fam) ? (FROM[i] > 0 ? FROM[i] : TO[i] > 0 ? TO[i] : 0) : 0;
+      const key = fam + "|" + node;
+      (typeIndex[key] = typeIndex[key] || []).push(i);
+      counts[key] = (counts[key] || 0) + 1;
+      const b = bitsOfFrame(i); bits[key] = (bits[key] || 0) + b; totalBits += b;
+    }
+    const span = Math.max(1e-6, (T[N - 1] - T0) / 1e6);
+    typeRows = Object.keys(counts).map(key => { const [fam, node] = key.split("|"); return { key, fam, node: +node, n: counts[key], perSec: counts[key] / span, pct: 100 * bits[key] / totalBits }; });
+    typeRows.sort((a, b) => b.pct - a.pct || a.fam.localeCompare(b.fam) || a.node - b.node);
+    byId("types-note").textContent = "Frames kept in this file over " + fmt(span, 1) + " s. Per second and % of bus are from the kept frames" + (TOTALS ? "; the monitor saw roughly " + fmt(Object.values(TOTALS).reduce((a, v) => a + v, 0) / Math.max(1, Object.keys(TOTALS).length), 0) + " frames a second in all." : ".");
+    byId("types-body").innerHTML = typeRows.map((r, k) => '<tr data-key="' + r.key + '"><td>' + esc(TYPE_NAMES[r.fam] || r.fam) + '</td><td>' + (r.node ? "drive " + r.node : (MOTOR_FAMILIES.has(r.fam) ? "-" : "")) + '</td><td class="num">' + fmt(r.n, 0) + '</td><td class="num">' + fmt(r.perSec, r.perSec < 10 ? 2 : 1) + '</td><td class="num">' + fmt(r.pct, 1) + '%<span class="bar" style="width:' + Math.max(1, Math.round(r.pct * 1.6)) + 'px"></span></td><td><button data-k="' + k + '">Go to next</button></td></tr>').join("");
+  }
+  function typeKeyOf(i) { const fam = FAMILIES[FAM[i]]; const node = MOTOR_FAMILIES.has(fam) ? (FROM[i] > 0 ? FROM[i] : TO[i] > 0 ? TO[i] : 0) : 0; return fam + "|" + node; }
+  byId("types-body").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const list = typeIndex[typeRows[+b.dataset.k].key] || [];
+    let lo = 0, hi = list.length; while (lo < hi) { const m = (lo + hi) >> 1; if (list[m] <= cur) lo = m + 1; else hi = m; }
+    if (lo < list.length) { stopReplay(); show(list[lo]); } else { b.textContent = "none later"; setTimeout(() => { b.textContent = "Go to next"; }, 1200); }
+  });
+
   // ---- heartbeat gaps
   // The heartbeat period is measured from the file itself (the median spacing of consecutive heartbeats under 2 s),
   // because it differs between captures: 250 ms for the master on 8 September, about 1 ms on 9 September.
@@ -616,6 +672,8 @@
     if (!seeking) byId("seek").value = cur; byId("seek-label").textContent = "frame " + fmt(cur + 1, 0);
     const ct = byId("seek-time"); ct.textContent = clock(T[cur] - T0); ct.style.left = "clamp(34px, " + (N > 1 ? 100 * cur / (N - 1) : 0).toFixed(3) + "%, calc(100% - 34px))";
     traffic();
+    const curKey = typeKeyOf(cur);
+    document.querySelectorAll("#types-body tr").forEach(tr => tr.classList.toggle("cur", tr.dataset.key === curKey));
     animate(d);
   }
   // ---- bus traffic over the second before the current frame
