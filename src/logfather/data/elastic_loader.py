@@ -238,23 +238,53 @@ def _build_query(
                     _build_robot_filters(robot_id),
                     {"bool": {"should": ts_should, "minimum_should_match": 1}},
                 ],
-                "must": [
-                    {
-                        "query_string": {
-                            "query": cond.query,
-                            "default_field": "*",
-                            "default_operator": "AND",
-                            "analyze_wildcard": True,
-                            "lenient": True,
-                        }
-                    }
-                ],
+                "must": [condition_clause(cond.query)],
             }
         },
     }
     if search_after:
         body["search_after"] = search_after
     return body
+
+
+def condition_clause(query: str) -> dict:
+    """The Elastic clause for one timeline condition. A free-text query is
+    matched across every field, but a state-change document only counts
+    when its own state_name matches: the state that follows an error
+    carries the error in previous_state_name and active_package_states,
+    which doubled every crate change error and operator stop (Chris,
+    2026-09-11: PikPak 010 on 22 August showed 12 for 6 events)."""
+    free_text = {
+        "query_string": {
+            "query": query,
+            "default_field": "*",
+            "default_operator": "AND",
+            "analyze_wildcard": True,
+            "lenient": True,
+        }
+    }
+    own_state = {
+        "query_string": {
+            "query": query,
+            "fields": ["state_name", "state_name.keyword"],
+            "default_operator": "AND",
+            "analyze_wildcard": True,
+            "lenient": True,
+        }
+    }
+    return {
+        "bool": {
+            "must": [free_text],
+            "must_not": [
+                {
+                    "bool": {
+                        "filter": [{"terms": {"message.keyword": ["New system state", "New node state"]}}],
+                        "must_not": [own_state],
+                    }
+                }
+            ],
+        }
+    }
 
 
 def _build_overview_query(

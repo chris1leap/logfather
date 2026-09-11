@@ -22,6 +22,15 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ## Shipped
 
+### 2026-09-11
+
+- Condition counts no longer doubled (Chris, 2026-09-11): a free-text
+  timeline condition such as "crate_change_package_error" also matched the
+  state-change document that followed, which names the error in
+  previous_state_name. State-change documents now count only when their own
+  state_name matches. PikPak 010 on 22 August showed 12 crate change errors
+  for 6 events; Operator stop was doubled the same way.
+
 ### 2026-09-10
 
 - Time scale always in view (Chris, 2026-09-10): on System Replay the hour
