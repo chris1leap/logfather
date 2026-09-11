@@ -1210,7 +1210,7 @@ class VideoLogViewer(QWidget):
             and event.type() == QEvent.Resize
         ):
             self._refresh_tray_view_if_open()
-        if self._hover_reveal_enabled:
+        if getattr(self, "_hover_reveal_enabled", False):  # the filter can fire during __init__ (2026-09-11)
             if event.type() == QEvent.MouseMove and obj is self:
                 if not self._right_tabs_expanded:
                     pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
