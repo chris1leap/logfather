@@ -266,6 +266,11 @@ class Settings:
                 new_name = PRESET_NAME_UPGRADES.get(cond.name)
                 if new_name and cond.query == MOTOR_OTHER_FAULT_QUERY:
                     cond.name = new_name
+                lower = cond.name.lower()
+                if lower == "motor overcurrent":
+                    cond.color = "#ff7a45"
+                elif lower == "motor other fault":
+                    cond.color = "#ffd666"
                 # Enforce key colors: Start green, Caution orange, EStop red.
                 lower = conds[idx].name.lower()
                 if lower == "start":
@@ -274,8 +279,10 @@ class Settings:
                     conds[idx].color = "#fa8c16"
                 elif lower == "estop":
                     conds[idx].color = "#ff4d4f"
-                elif lower in ("motor fault", "motor other fault"):
+                elif lower == "motor overcurrent":
                     conds[idx].color = "#ff7a45"
+                elif lower in ("motor fault", "motor other fault"):
+                    conds[idx].color = "#ffd666"
                 elif not conds[idx].color:
                     conds[idx].color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
             # If loaded conditions are all blank, seed defaults.

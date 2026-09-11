@@ -20,8 +20,8 @@ def test_saved_motor_pair_in_the_old_order_is_swapped_and_renamed():
     data["conditions"][12] = {"name": "Motor fault", "query": '"Fault on motor" AND NOT "Current over limit"', "color": "#ff7a45"}
     data["conditions"][13] = {"name": "Motor overcurrent", "query": '"Current over limit"', "color": "#ffd666"}
     s = Settings._from_dict(data)
-    assert (s.conditions[12].name, s.conditions[12].query, s.conditions[12].color) == ("Motor overcurrent", '"Current over limit"', "#ffd666")
-    assert (s.conditions[13].name, s.conditions[13].query) == ("Motor other fault", '"Fault on motor" AND NOT "Current over limit"')
+    assert (s.conditions[12].name, s.conditions[12].query, s.conditions[12].color) == ("Motor overcurrent", '"Current over limit"', "#ff7a45")
+    assert (s.conditions[13].name, s.conditions[13].query, s.conditions[13].color) == ("Motor other fault", '"Fault on motor" AND NOT "Current over limit"', "#ffd666")
     assert s.conditions[14].name == "Cond 15" and s.conditions[14].query == ""
 
 

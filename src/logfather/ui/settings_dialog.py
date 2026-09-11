@@ -113,7 +113,11 @@ class SettingsPanel(QWidget):
         new_conditions = []
         for name_edit, query_edit in zip(self.condition_name_edits, self.condition_query_edits):
             idx = len(new_conditions)
-            color = DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
+            # Keep the slot's colour (the loader enforces the key ones);
+            # resetting to the slot default flipped colours on every apply
+            # (2026-09-11).
+            existing = settings.conditions[idx] if idx < len(settings.conditions) else None
+            color = (existing.color if existing is not None and existing.color else "") or DEFAULT_COLORS[idx % len(DEFAULT_COLORS)]
             new_conditions.append(Condition(name=name_edit.text().strip(), query=query_edit.text().strip(), color=color))
         # Ensure length equals defaults
         target_len = len(DEFAULT_COLORS)
