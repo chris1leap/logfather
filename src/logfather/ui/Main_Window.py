@@ -1423,7 +1423,17 @@ class MainWindow(QWidget):
             items = list(getattr(self.time_picker, "_items", []) or [])
         except Exception:
             return None
-        tz = getattr(moment, "tzinfo", None)
+
+        def local_naive(dt):
+            # Clip items carry UTC; the viewer's clock is naive local. Compare
+            # everything as local wall time (a bare tz strip was an hour out
+            # in summer and picked the wrong clip, 2026-09-11).
+            return dt if dt.tzinfo is None else dt.astimezone().replace(tzinfo=None)
+
+        try:
+            when = local_naive(moment)
+        except Exception:
+            return None
         for item in items:
             if getattr(item, "kind", "") != "additional" or not isinstance(getattr(item, "payload", None), Path):
                 continue
@@ -1431,9 +1441,7 @@ class MainWindow(QWidget):
             if start is None or end is None:
                 continue
             try:
-                s = start if (start.tzinfo is None) == (tz is None) else (start.replace(tzinfo=None) if tz is None else start.astimezone(tz))
-                e = end if (end.tzinfo is None) == (tz is None) else (end.replace(tzinfo=None) if tz is None else end.astimezone(tz))
-                if s <= moment <= e:
+                if local_naive(start) <= when <= local_naive(end):
                     return item.payload
             except Exception:
                 continue
