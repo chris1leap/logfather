@@ -16,7 +16,7 @@ from logfather.ui.overview_signals import SignalBoxes, COMPACT_BOX_STYLE, COMPAC
 from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
 from types import SimpleNamespace
-from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics, QPainterPath
+from PySide6.QtGui import QAction, QBrush, QColor, QPen, QPolygonF, QFont, QFontMetrics, QPainterPath
 from PySide6.QtWidgets import QApplication, QProgressDialog, QMessageBox, QMenu
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
@@ -262,6 +262,9 @@ class TimePicker(QWidget):
         # Telemetry row (Chris, 2026-09-07): one summary line (hottest motor)
         # across the day, fed by the main window once Grafana answers.
         self._telemetry_summary: Optional[tuple] = None
+        # The Telemetry row is off unless ticked in Additional data (Chris,
+        # 2026-09-11); remembered in ui_state.
+        self._show_telemetry_row = bool(load_ui_state().get("replay_telemetry_row", False))
         self._baseline_y = 28
         self._scale_y = 4
         self._track_labels: Dict[str, object] = {}
@@ -444,6 +447,8 @@ class TimePicker(QWidget):
         for item in self._items:
             all_counts[item.kind] = all_counts.get(item.kind, 0) + 1
         hidden_kinds = {k for k in kinds if k.startswith("cond_") and not self._row_visible(str(label_map.get(k, k)), all_counts.get(k, 0))}
+        if not self._show_telemetry_row:
+            hidden_kinds.add("telemetry")
         kinds = [k for k in kinds if k not in hidden_kinds]
         self._refresh_errors_box(label_map, color_map, all_counts)
 
@@ -1170,6 +1175,16 @@ class TimePicker(QWidget):
             box_layout.addLayout(self._normal_rows_layout)
         column.addWidget(self.status_label)
         self.status_label.setVisible(False)
+        # Telemetry row as an Additional data option (Chris, 2026-09-11).
+        menu = self._signals.additional_btn.menu()
+        if menu is not None:
+            telemetry_action = QAction("Telemetry row on the timeline", self)
+            telemetry_action.setCheckable(True)
+            telemetry_action.setChecked(self._show_telemetry_row)
+            telemetry_action.toggled.connect(self._on_telemetry_row_toggled)
+            first = menu.actions()[0] if menu.actions() else None
+            menu.insertAction(first, telemetry_action)
+            menu.insertSeparator(first)
         # The arrows after the titles fold each box away (Chris, 2026-09-11);
         # Additional data has no arrow and follows the Data box.
         self._errors_box.set_collapsible("errors")
@@ -1297,6 +1312,11 @@ class TimePicker(QWidget):
             panel.pin_height()
         except RuntimeError:
             pass
+
+    def _on_telemetry_row_toggled(self, on: bool) -> None:
+        self._show_telemetry_row = bool(on)
+        update_ui_state({"replay_telemetry_row": self._show_telemetry_row})
+        self._schedule_redraw()
 
     def _on_error_row_toggled(self, name: str, on: bool) -> None:
         if self._errors_box_updating:

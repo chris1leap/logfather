@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Telemetry row optional (Chris, 2026-09-11): the Telemetry row is off
+  the PikPak Replay timeline by default; "Telemetry row on the timeline"
+  at the top of the Additional data menu turns it on, remembered in
+  ui_state (replay_telemetry_row).
 - Stop report and Fit in the gear menu, Refresh top right (Chris,
   2026-09-11): "Stop report..." and "Fit timeline to the day" are gear
   menu entries (Stop report greys out while a report builds); Refresh is
