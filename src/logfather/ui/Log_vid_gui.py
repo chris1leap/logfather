@@ -766,17 +766,12 @@ class VideoLogViewer(QWidget):
         play = getattr(self, "play_pause_btn", None)
         clock = getattr(self, "calc_label", None)
         if play is not None and clock is not None and play.parent() is self:
-            # Centred on the whole picture area: main plus the additional
-            # camera or analysis pane when they are showing (Chris,
-            # 2026-09-11).
-            panes = [w for w in (self.video_label, getattr(self, "secondary_video_label", None), getattr(self, "analysis_label", None))
-                     if w is not None and w.isVisible() and w.width() > 0]
-            if panes:
-                left = min(w.geometry().left() for w in panes)
-                right = max(w.geometry().right() for w in panes)
-                centre_x = (left + right) // 2
-            else:
-                centre_x = self.video_label.geometry().center().x()
+            # Centred on the scroll bar, which spans the whole picture area,
+            # so the button never shifts when a second camera appears
+            # (Chris, 2026-09-11).
+            slider = getattr(self, "seek_slider", None)
+            anchor = slider if slider is not None and slider.width() > 0 else self.video_label
+            centre_x = anchor.geometry().center().x()
             centre_y = clock.geometry().center().y()
             play.move(max(0, centre_x - play.width() // 2), max(0, centre_y - play.height() // 2))
             play.raise_()

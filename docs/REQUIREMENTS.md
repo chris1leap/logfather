@@ -25,8 +25,8 @@ Living record of agreed functionality: what is open, and what has shipped
 ### 2026-09-11
 
 - Play button centred on the bottom row (Chris, 2026-09-11): the play /
-  pause button sits level with the green log-time clock, centred under
-  the whole picture area (main plus the additional camera when shown),
+  pause button sits level with the green log-time clock, centred on the
+  seek slider (so it never shifts when the additional camera appears),
   with the clock on the left and the report buttons on the right; the
   right column ends level with that row.
 - Green line moves on click (Chris, 2026-09-11): clicking the CCTV row or
