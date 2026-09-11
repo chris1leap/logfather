@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Playhead through every bar (Chris, 2026-09-11): the green line on the
+  PikPak Replay timeline runs from the time scale to the bottom of the
+  last row (or the last readings strip, whichever is lower), instead of
+  stopping under the CCTV bar when no strips are drawn.
 - Replay calendar highlights one day (Chris, 2026-09-11): the PikPak
   Replay day popup highlights only the selected day; days with footage
   are bold rather than shaded, and the hint names the selected day.

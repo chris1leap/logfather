@@ -283,6 +283,7 @@ class TimePicker(QWidget):
         # Telemetry row (Chris, 2026-09-07): one summary line (hottest motor)
         # across the day, fed by the main window once Grafana answers.
         self._telemetry_summary: Optional[tuple] = None
+        self._tracks_bottom: Optional[float] = None
         # The Telemetry row is off unless ticked in Additional data (Chris,
         # 2026-09-11); remembered in ui_state.
         self._show_telemetry_row = bool(load_ui_state().get("replay_telemetry_row", False))
@@ -574,6 +575,9 @@ class TimePicker(QWidget):
                 strip_y += h
             strips_height = strip_y - next_row
             self._strips_bottom = strip_y if strip_specs else None
+        # The bottom of the last row, so the green playhead runs through
+        # every bar even with no readings strips (Chris, 2026-09-11).
+        self._tracks_bottom = (max(track_map.values()) + 12) if track_map else None
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded if strips_height else Qt.ScrollBarAlwaysOff)
 
         # Track labels on the left
@@ -1231,7 +1235,12 @@ class TimePicker(QWidget):
 
     # ---- reading strips: the owner interface for SignalChannel -------------
     def _line_bottom(self) -> float:
-        return self._strips_bottom if self._strips_bottom is not None else self._baseline_y + 14
+        candidates = [self._baseline_y + 14]
+        if getattr(self, "_tracks_bottom", None) is not None:
+            candidates.append(self._tracks_bottom)
+        if self._strips_bottom is not None:
+            candidates.append(self._strips_bottom)
+        return max(candidates)
 
     def hide_thumbnail_preview(self) -> None:
         pass
