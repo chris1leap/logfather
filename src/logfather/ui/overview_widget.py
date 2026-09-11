@@ -2496,7 +2496,7 @@ class OverviewWidget(QWidget):
             self.scene.addItem(click_item)
             strip_y = y + row_height - 4
             for channel, h in strip_heights:
-                channel.draw_strip(state, QRectF(timeline_x, strip_y, timeline_width, h - 2), window_start, window_end, scene_width, right_pad)
+                channel.draw_strip(state, QRectF(timeline_x, strip_y, timeline_width, h - 2), window_start, window_end, scene_width, right_pad, label_bg=background)
                 strip_y += h
             self._row_bands.append(
                 (y, y + row_step, "system", state.name,

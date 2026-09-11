@@ -336,8 +336,11 @@ class SignalChannel(QObject):
     def _fmt(self, value: float) -> str:
         return f"{value:.{self.decimals}f}{self.unit}"
 
-    def draw_strip(self, state, rect: QRectF, window_start: datetime, window_end: datetime, scene_width: float, right_pad: float, title_x: float = 22.0, show_latest: bool = True) -> None:
+    def draw_strip(self, state, rect: QRectF, window_start: datetime, window_end: datetime, scene_width: float, right_pad: float, title_x: float = 22.0, show_latest: bool = True, label_bg: QColor | None = None) -> None:
+        """`label_bg` is the colour of the table behind the labels (the
+        Overview's rows alternate), so the label backdrops match it."""
         scene = self.owner.scene
+        backdrop = label_bg or LABEL_BACKDROP
         bg = scene.addRect(rect, QPen(QColor("#31414d")), QBrush(QColor("#0b1014")))
         bg.setZValue(1)
         self.edge_bands.append((rect.bottom(), rect.left(), rect.right()))
@@ -348,7 +351,7 @@ class SignalChannel(QObject):
         title_y = rect.top() + max(0.0, (rect.height() - title_item.boundingRect().height()) / 2)
         title_item.setPos(title_x, title_y)
         title_item.setZValue(4)
-        add_label_backdrop(title_item)
+        add_label_backdrop(title_item, backdrop)
         self.label_items.append((title_item, "title", title_y))
         tracks = self.data.get(state.robot_id or "", {})
         w0 = int(window_start.timestamp() * 1000)
@@ -413,7 +416,7 @@ class SignalChannel(QObject):
             label_item.setDefaultTextColor(QColor(theme.TEXT_FAINT))
             label_item.setPos(rect.left() - 34, y_pos)
             label_item.setZValue(4)
-            add_label_backdrop(label_item)
+            add_label_backdrop(label_item, backdrop)
             self.label_items.append((label_item, "axis", y_pos))
         if not show_latest:
             self.hover_rows.append((rect, lo, hi, inner_top, inner_h, [(k, label, t) for k, label, t, _s in chosen], state.name))
