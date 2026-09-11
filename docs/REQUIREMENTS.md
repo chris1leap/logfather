@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Repository moved (Chris, 2026-09-11): the GitHub repo now lives under
+  the chrishamblin489 account (https://github.com/chrishamblin489/logfather);
+  the old chris1leap address redirects. Commits are authored as
+  chris.hamblin@helloleap.ai from this date.
 - Additional CCTV in the View menu (Chris, 2026-09-11): a tick item that
   shows the additional camera beside the main picture when a clip covers
   the current time (loading it from the day's AdditionalCCTV folder if
