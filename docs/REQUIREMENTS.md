@@ -39,10 +39,10 @@ Living record of agreed functionality: what is open, and what has shipped
 - Mode button icons (Chris, 2026-09-11): Overview shows three rows with a dot each, PikPak
   Replay a play triangle, Search a magnifying glass; painted in icons.py
   (tiles, bars and radar alternatives for the Overview are there too).
-- Clip span above the scroll bar (Chris, 2026-09-11): the clip's start
-  time at the left and end time at the right, to the minute (06:35), just
-  above the CCTV seek slider; the start comes from the filename until the
-  OCR offset refines it.
+- Clip span beside the scroll bar (Chris, 2026-09-11): the clip's start
+  time at the left and end time at the right, to the minute (06:35), on
+  the same line as the CCTV seek slider, which is shorter by their width;
+  the start comes from the filename until the OCR offset refines it.
 - Data, Errors / Stops and Software buttons only on the Overview (Chris,
   2026-09-11): hidden on PikPak Replay and Search.
 - Less around the CCTV image (Chris, 2026-09-11): the yellow log-marker

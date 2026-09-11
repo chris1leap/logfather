@@ -955,20 +955,23 @@ class VideoLogViewer(QWidget):
         # The yellow log-marker bar is no longer shown (Chris, 2026-09-11);
         # the log list and the blue timeline bar carry the same events.
         self.event_marker_bar.hide()
-        # Clip start (left) and end (right) to the minute, just above the
-        # scroll bar (Chris, 2026-09-11).
+        # Clip start (left) and end (right) to the minute, on the same
+        # line as the scroll bar, which is shorter by their width (Chris,
+        # 2026-09-11: more height for the picture).
         self.clip_start_label = QLabel("")
         self.clip_end_label = QLabel("")
         for lbl in (self.clip_start_label, self.clip_end_label):
             lbl.setStyleSheet(f"{theme.MUTED_LABEL} font-size: 11px;")
+            lbl.setFixedWidth(36)
+        self.clip_start_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.clip_end_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        span_row = QHBoxLayout()
-        span_row.setContentsMargins(2, 0, 2, 0)
-        span_row.addWidget(self.clip_start_label)
-        span_row.addStretch(1)
-        span_row.addWidget(self.clip_end_label)
-        middle_layout.addLayout(span_row)
-        middle_layout.addWidget(self.seek_slider)
+        slider_row = QHBoxLayout()
+        slider_row.setContentsMargins(0, 0, 0, 0)
+        slider_row.setSpacing(4)
+        slider_row.addWidget(self.clip_start_label)
+        slider_row.addWidget(self.seek_slider, 1)
+        slider_row.addWidget(self.clip_end_label)
+        middle_layout.addLayout(slider_row)
         middle_layout.addWidget(self.timeline_marker_bar)
         middle_layout.addLayout(self.playback_layout)
         QTimer.singleShot(0, self._update_marker_bar_padding)
@@ -3904,9 +3907,14 @@ class VideoLogViewer(QWidget):
         half = int(round(handle.width() / 2))
         left_pad = max(0, groove.left() + half)
         right_pad = max(0, slider.width() - 1 - (groove.right() - half))
-        self.event_marker_bar.set_track_padding(left_pad, right_pad)
-        if hasattr(self, "timeline_marker_bar"):
-            self.timeline_marker_bar.set_track_padding(left_pad, right_pad)
+        # The slider shares its row with the clip time labels, so the
+        # full-width marker bars pad out by the slider's offset in the row.
+        for bar in (self.event_marker_bar, getattr(self, "timeline_marker_bar", None)):
+            if bar is None:
+                continue
+            dx_left = max(0, slider.geometry().left() - bar.geometry().left())
+            dx_right = max(0, bar.geometry().right() - slider.geometry().right())
+            bar.set_track_padding(left_pad + dx_left, right_pad + dx_right)
 
     def _rebuild_ppm_model(self):
         secs: list[float] = []
