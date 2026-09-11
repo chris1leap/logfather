@@ -67,3 +67,7 @@ package split; module names unchanged).
   fields, counting rules) must bump the matching cache schema version in the same
   commit (`EVENTS_CACHE_SCHEMA_VERSION` in `elastic_loader.py`; check other
   `*_cache*` stores too), or Chris keeps seeing the old numbers (2026-09-11).
+- **GitHub remote** is `https://github.com/chrishamblin489/logfather` (moved from
+  chris1leap on 2026-09-11); the remote URL names the account so Git Credential
+  Manager uses the chrishamblin489 login. Commits are authored as
+  chris.hamblin@helloleap.ai.
