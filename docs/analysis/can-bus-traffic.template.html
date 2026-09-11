@@ -98,7 +98,9 @@
   /* heartbeat gaps */
   .hb { margin-top: 14px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
   .hb .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-  .hb h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  .hb summary { cursor: pointer; margin-bottom: 6px; }
+  .hb .h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-right: 12px; }
+  .hb summary .count { margin-left: 12px; }
   .hb input[type=number] { font: inherit; font-size: 13px; width: 8ch; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
   .hb .count { font-weight: 600; }
   .hb .source { color: var(--muted); }
@@ -299,16 +301,14 @@
     <div class="meter" id="tr-meter" data-tip="Estimated bus load over the second before the current frame: frames × about 130 bits each (a full 8-byte frame with worst-case stuffing) against 1,000,000 bits a second. Marks at 30% and 50%, the usual comfort and ceiling figures for a control bus."><i id="tr-bar"></i><b style="left:30%"></b><b style="left:50%"></b></div>
     <div class="detail" id="tr-detail"></div>
   </section>
-  <section class="hb">
+  <details class="hb" open>
+    <summary><span class="h2">Master heartbeat gaps</span> <span class="source" id="hb-source"></span> <span class="count" id="hb-count"></span></summary>
     <div class="head">
-      <h2>Master heartbeat gaps</h2>
-      <span class="source" id="hb-source"></span>
       <label>longer than <input type="number" id="hb-ms" min="1" max="600000" step="50" value="1000"> ms</label>
-      <span class="count" id="hb-count"></span>
       <span class="note"><span id="hb-periods"></span> Only the master's heartbeat on 700 is checked. A gap is the time from one heartbeat to the next; the red marks on the slider show where they are. The monitor keeps only part of the traffic, so a gap here may be the monitor dropping frames rather than the device going quiet; the count of frames the monitor saw in that second is shown to help judge.</span>
     </div>
     <ol id="hb-list"></ol>
-  </section>
+  </details>
   <details class="types" open>
     <summary><span class="h2">Frame types</span> <span class="note" id="types-note"></span></summary>
     <div class="tblwrap"><table>
