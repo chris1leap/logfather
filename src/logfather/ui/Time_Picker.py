@@ -11,6 +11,7 @@ from typing import Callable, Iterable, Optional, Dict, Tuple, List
 from PySide6.QtCore import Qt, Signal, QEvent, QThread, QRectF, QPointF, QTimer
 
 from logfather.ui.qt_worker import JobSlot
+from logfather.ui import theme
 from logfather.ui.overview_signals import SignalBoxes, COMPACT_BOX_STYLE, COMPACT_FONT_PX, add_label_backdrop, CollapsibleGroupBox
 from logfather.data import grafana_client
 from logfather.data.elastic_schema import robot_id_from_folder
