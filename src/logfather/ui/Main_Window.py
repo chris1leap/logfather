@@ -1338,6 +1338,9 @@ class MainWindow(QWidget):
             if (isinstance(clicked, datetime) and isinstance(item.start, datetime) and isinstance(item.end, datetime)
                     and ensure_utc(item.start) <= ensure_utc(clicked) < ensure_utc(item.end)
                     and isinstance(root, Path) and day is not None):
+                # The green line jumps to the click straight away, before
+                # the clip has loaded (Chris, 2026-09-11).
+                self.time_picker.set_playhead_datetime(ensure_utc(clicked))
                 self._pending_overview_navigation = {
                     "root": root,
                     "day": day,
@@ -1347,6 +1350,8 @@ class MainWindow(QWidget):
                 self._overview_nav_failsafe.start()
                 self._on_items_changed_for_navigation()
                 return
+            if isinstance(item.start, datetime):
+                self.time_picker.set_playhead_datetime(ensure_utc(item.start))
             self.open_in_viewer(item)
         elif item.kind == "additional" and isinstance(item.payload, Path):
             self.time_picker.clear_clip_target_rate_heat()
@@ -1876,6 +1881,7 @@ class MainWindow(QWidget):
         day = self.time_picker._current_date
         if not isinstance(root, Path) or day is None or not isinstance(item.start, datetime):
             return
+        self.time_picker.set_playhead_datetime(ensure_utc(item.start))
         self._pending_overview_navigation = {
             "root": root,
             "day": day,

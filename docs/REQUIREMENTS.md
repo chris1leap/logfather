@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Green line moves on click (Chris, 2026-09-11): clicking the CCTV row or
+  an event tick on the PikPak Replay timeline moves the green playhead to
+  that moment at once, before the clip has loaded; playback then takes
+  over from there.
 - PikPak Replay is one day (Chris, 2026-09-11): its calendar picks a
   single day, and when the Overview holds a span of days that selection is
   ignored on the way in: opening a system from the Overview keeps the
