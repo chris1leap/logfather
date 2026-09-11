@@ -75,6 +75,12 @@ class CollapsibleGroupBox(QGroupBox):
         self._arrow.setAutoRaise(True)
         self._arrow.setFixedSize(16, 14)
         self._arrow.setCursor(Qt.PointingHandCursor)
+        # A glyph, not the style's arrow: the app's stylesheet leaves the
+        # style arrow invisible (Chris, 2026-09-11).
+        self._arrow.setStyleSheet(
+            f"QToolButton {{ border: none; background: transparent; padding: 0; color: {theme.TEXT_MUTED}; font-size: 10px; }}"
+            f"QToolButton:hover {{ color: {theme.TEXT_BRIGHT}; }}"
+        )
         self._arrow.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
         stored = load_ui_state().get(self.COLLAPSED_KEY)
         collapsed = bool(stored.get(store_key)) if isinstance(stored, dict) else False
@@ -85,7 +91,7 @@ class CollapsibleGroupBox(QGroupBox):
         self._collapsed = bool(collapsed)
         self.body.setVisible(not self._collapsed)
         if self._arrow is not None:
-            self._arrow.setArrowType(Qt.DownArrow if self._collapsed else Qt.UpArrow)
+            self._arrow.setText("▼" if self._collapsed else "▲")
             self._arrow.setToolTip("Show the values" if self._collapsed else "Hide the values")
         if remember and self._store_key:
             stored = load_ui_state().get(self.COLLAPSED_KEY)
