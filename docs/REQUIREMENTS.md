@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Elastic key test (Chris, 2026-09-11): the Data sources test probed the
+  cluster root, which needs a monitor privilege the team's keys lack, so a
+  working key reported "Rejected (HTTP 403)". It now asks who the key
+  belongs to and runs a search over the log indices, reporting the owner
+  and the log lines in the last 24 hours.
 - Naming (Chris, 2026-09-11): the "System Replay" button reads "PikPak
   Replay", and the systems filter button on the Overview, Errors & Stops
   and Data windows reads "PikPaks" (with "(N hidden)"), its popup titled

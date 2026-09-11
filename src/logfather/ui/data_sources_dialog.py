@@ -44,18 +44,33 @@ def _test_cctv(path_text: str) -> str:
 
 
 def _test_elastic(url: str, api_key: str) -> str:
+    """Probe what the app really uses: who the key is, then a search over
+    the log indices. The cluster root endpoint needs a monitor privilege
+    the team's keys do not have, so it said 403 for a working key (Chris,
+    2026-09-11)."""
+    from logfather.data.elastic_loader import _normalize_index_id, _search_url
+
     if not url:
         return "No URL set."
     if not api_key:
         return "No API key set."
     base = url.strip().rstrip("/").replace(".kb.", ".es.")
-    resp = requests.get(base + "/", headers={"Authorization": f"ApiKey {api_key}"}, timeout=15)
-    if resp.status_code == 200:
-        version = ((resp.json() or {}).get("version") or {}).get("number", "")
-        return f"OK: Elasticsearch {version}".rstrip()
-    if resp.status_code in (401, 403):
-        return f"Rejected (HTTP {resp.status_code}): check the API key."
-    return f"HTTP {resp.status_code}."
+    headers = {"Authorization": f"ApiKey {api_key}"}
+    who = requests.get(base + "/_security/_authenticate", headers=headers, timeout=15)
+    if who.status_code in (401, 403):
+        return f"Rejected (HTTP {who.status_code}): check the API key."
+    if who.status_code != 200:
+        return f"HTTP {who.status_code} from the authenticate check."
+    owner = (who.json() or {}).get("full_name") or (who.json() or {}).get("username") or "unknown user"
+    body = {"size": 0, "track_total_hits": True,
+            "query": {"range": {"@timestamp": {"gte": "now-24h"}}}}
+    search = requests.post(_search_url(base, _normalize_index_id(None)), json=body, headers=headers, timeout=30)
+    if search.status_code in (401, 403):
+        return f"Key belongs to {owner}, but it cannot search the log indices (HTTP {search.status_code})."
+    if search.status_code != 200:
+        return f"Key belongs to {owner}; search failed with HTTP {search.status_code}."
+    total = (((search.json() or {}).get("hits") or {}).get("total") or {}).get("value", 0)
+    return f"OK: key belongs to {owner}; {total:,} log lines in the last 24 hours."
 
 
 def _test_grafana(url: str, token: str) -> str:
