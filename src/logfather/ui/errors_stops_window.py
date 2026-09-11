@@ -32,6 +32,7 @@ from logfather.data.elastic_schema import robot_id_from_folder
 from logfather.data.errors_stops import (
     ERROR_CATEGORY_ORDER,
     STOP_KIND_ORDER,
+    COUNTING_NOTE,
     ErrorsStopsData,
     day_list,
     categorize_error,
@@ -120,8 +121,9 @@ class ErrorsStopsWindow(QDialog):
         intro = QLabel(
             "Line stoppages and errors per day for the chosen systems and days. Stops are the "
             "emergency, protective, operator and caution states; errors are every error or "
-            "failure state, grouped by the part of the system that raised it. Hover a bar for "
-            "the breakdown. Each day shows one bar per system, so a system with far more "
+            "failure state, grouped by the part of the system that raised it. "
+            "How the numbers are calculated: " + COUNTING_NOTE + " "
+            "Hover a bar for the breakdown. Each day shows one bar per system, so a system with far more "
             "errors than the rest, or a sudden rise, stands out. Scroll the charts sideways; "
             "scrolling past either end loads more days."
         )

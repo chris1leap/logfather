@@ -4,8 +4,18 @@
 Stops are the state transitions that halt the line (emergency,
 protective, operator, caution). Errors are every ``state_name`` whose
 name says error or failure, grouped into a handful of categories so a
-day's total reads at a glance. Categorisation is pure logic (tested);
-fetching is two aggregation queries over the day range.
+day's total reads at a glance.
+
+Counting is per event, not per document (Chris, 2026-09-11): one failure
+is logged as a cascade of state changes a few hundred milliseconds apart
+(a controller node error, then crate_change_package_error, then the
+generic package_error; or already_stopped_error paired with
+planner_error). The state-change documents are fetched in time order and
+every document from the same system within EVENT_WINDOW of the first is
+folded into that event, which takes the first document's state. Stops and
+errors are clustered separately, so a stop and an error at the same
+moment stay one of each. Categorisation and clustering are pure logic
+(tested); fetching pages through the documents by time.
 """
 from __future__ import annotations
 
@@ -13,7 +23,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta, timezone
-from typing import Callable
+from typing import Callable, Iterable
 
 import requests
 
@@ -23,7 +33,19 @@ from logfather.data.elastic_loader import (
     _normalize_index_id,
     _search_url,
 )
+from logfather.data.elastic_schema import extract_hit_robot_id
 from logfather.data.settings_store import Settings
+
+# Documents from one system within this much of an event's first document
+# are the same event.
+EVENT_WINDOW = timedelta(seconds=2)
+FETCH_PAGE_SIZE = 10000
+# One sentence for the window, kept next to the rule it describes.
+COUNTING_NOTE = (
+    "One failure is logged as several state changes a few hundred milliseconds apart, so "
+    "documents from the same system within two seconds of the first are counted as one event, "
+    "named by the first state. Stops and errors are counted separately."
+)
 
 STOP_KINDS: dict[str, str] = {
     "hardware_emergency_stop": "Emergency stop",
@@ -145,13 +167,50 @@ class ErrorsStopsData:
         return out
 
 
+def cluster_events(
+    docs: Iterable[tuple[datetime, str, str]],
+    window: timedelta = EVENT_WINDOW,
+    local_day: Callable[[datetime], date] | None = None,
+) -> tuple[dict[date, dict[str, dict[str, int]]], dict[date, dict[str, dict[str, int]]]]:
+    """Fold time-ordered (timestamp, robot, state) documents into events.
+
+    A document starts a new event unless it is within ``window`` of the
+    first document of the open event for the same robot and table (stops
+    or errors). Each event counts once under its first document's state,
+    on the local day of that document. Returns (stops, errors), each
+    day -> robot -> state -> count.
+    """
+    to_day = local_day or (lambda ts: ts.astimezone().date())
+    stops: dict[date, dict[str, dict[str, int]]] = {}
+    errors: dict[date, dict[str, dict[str, int]]] = {}
+    open_start: dict[tuple[str, str], datetime] = {}
+    for ts, robot, state in docs:
+        if stop_kind(state):
+            table, out = "stops", stops
+        elif is_error_state(state):
+            table, out = "errors", errors
+        else:
+            continue
+        key = (table, robot)
+        start = open_start.get(key)
+        if start is not None and timedelta(0) <= ts - start <= window:
+            continue
+        open_start[key] = ts
+        states = out.setdefault(to_day(ts), {}).setdefault(robot, {})
+        states[state] = states.get(state, 0) + 1
+    return stops, errors
+
+
+def _parse_ts(value: object) -> datetime | None:
+    try:
+        ts = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
 def day_list(start_day: date, end_day: date) -> list[date]:
     return [start_day + timedelta(days=i) for i in range((end_day - start_day).days + 1)]
-
-
-def _tz_offset(now_local: datetime) -> str:
-    raw = now_local.strftime("%z") or "+0000"
-    return f"{raw[:3]}:{raw[3:]}"
 
 
 def fetch_errors_stops(
@@ -179,44 +238,67 @@ def fetch_errors_stops(
             {"terms": {"system_id.keyword": sorted(robot_ids)}},
         ], "minimum_should_match": 1}})
 
-    def run(label: str, state_filter: dict, include: str | None) -> dict[date, dict[str, dict[str, int]]]:
+    filters.append({"bool": {"should": [
+        {"terms": {"state_name.keyword": sorted(STOP_KINDS)}},
+        {"regexp": {"state_name.keyword": ".*(error|fail).*"}},
+    ], "minimum_should_match": 1}})
+
+    # Page through the state-change documents in time order. Pages are cut
+    # by timestamp (the next page starts at the last timestamp seen, and
+    # ids already taken at that instant are skipped) so no point-in-time
+    # or search_after tiebreaker field is needed.
+    docs: list[tuple[datetime, str, str]] = []
+    after_ts: str | None = None
+    seen_at_after: set[str] = set()
+    while True:
         if progress:
-            progress(f"Errors / Stops: counting {label}...")
-        state_terms = {"terms": {"field": "state_name.keyword", "size": 120}}
-        if include:
-            state_terms["terms"]["include"] = include
+            progress(f"Errors / Stops: reading state changes ({len(docs):,} so far)...")
+        page_filters = list(filters)
+        if after_ts is not None:
+            page_filters.append({"range": {"@timestamp_ros": {"gte": after_ts}}})
         body = {
-            "size": 0,
-            "query": {"bool": {"filter": filters + [state_filter]}},
-            "aggs": {"d": {"date_histogram": {"field": "@timestamp_ros", "calendar_interval": "1d", "time_zone": _tz_offset(now_local), "min_doc_count": 1},
-                           "aggs": {f"r{i}": {"terms": {"field": f, "size": 60}, "aggs": {"s": state_terms}}
-                                    for i, f in enumerate(("leap_robot_id.keyword", "system_id.keyword"))}}},
+            "size": FETCH_PAGE_SIZE,
+            "track_total_hits": False,
+            "sort": [{"@timestamp_ros": {"order": "asc", "format": "strict_date_optional_time_nanos"}}],
+            "_source": ["@timestamp_ros", "state_name", "leap_robot_id", "system_id"],
+            "query": {"bool": {"filter": page_filters}},
         }
         resp = requests.post(url, json=body, headers=headers, timeout=300)
         if resp.status_code != 200:
             raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-        out: dict[date, dict[str, dict[str, int]]] = {}
-        for b in resp.json()["aggregations"]["d"]["buckets"]:
-            try:
-                day = date.fromisoformat(b["key_as_string"][:10])
-            except ValueError:
+        hits = resp.json().get("hits", {}).get("hits", [])
+        new = 0
+        for hit in hits:
+            if hit.get("_id") in seen_at_after:
                 continue
-            for i in range(2):
-                for rb in b[f"r{i}"]["buckets"]:
-                    robot = str(rb["key"])
-                    if robot in _SKIP_IDS:
-                        continue
-                    states = out.setdefault(day, {}).setdefault(robot, {})
-                    for sb in rb["s"]["buckets"]:
-                        states[str(sb["key"])] = states.get(str(sb["key"]), 0) + sb["doc_count"]
-        return out
+            src = hit.get("_source") or {}
+            ts = _parse_ts(src.get("@timestamp_ros"))
+            robot = extract_hit_robot_id(src) or ""
+            state = str(src.get("state_name") or "").strip()
+            if ts is None or robot in _SKIP_IDS or not state:
+                continue
+            docs.append((ts, robot, state))
+            new += 1
+        if len(hits) < FETCH_PAGE_SIZE:
+            break
+        last_raw = _sort_key(hits[-1])
+        if last_raw is None or (last_raw == after_ts and new == 0):
+            break
+        after_ts = last_raw
+        seen_at_after = {str(h.get("_id")) for h in hits if _sort_key(h) == last_raw}
 
-    data.stops = run("line stoppages", {"terms": {"state_name.keyword": sorted(STOP_KINDS)}}, None)
-    data.errors = run("errors", {"regexp": {"state_name.keyword": ".*(error|fail).*"}}, ".*(error|fail).*")
-    # Stop states never count as errors even if a name matched both.
-    for robots in data.errors.values():
-        for states in robots.values():
-            for name in list(states):
-                if name in STOP_KINDS:
-                    states.pop(name)
+    if progress:
+        progress(f"Errors / Stops: grouping {len(docs):,} state changes into events...")
+    docs.sort(key=lambda d: d[0])
+    tz = now_local.tzinfo
+    data.stops, data.errors = cluster_events(docs, EVENT_WINDOW, lambda ts: ts.astimezone(tz).date())
     return data
+
+
+def _sort_key(hit: dict) -> str | None:
+    """The timestamp a page was cut at: the sort value, else the source field."""
+    sort_vals = hit.get("sort") or []
+    if sort_vals and sort_vals[0] is not None:
+        return str(sort_vals[0])
+    raw = (hit.get("_source") or {}).get("@timestamp_ros")
+    return str(raw) if raw is not None else None

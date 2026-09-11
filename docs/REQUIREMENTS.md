@@ -24,6 +24,19 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Errors & Stops counts events, not documents (Chris, 2026-09-11): one
+  failure is logged as a cascade of state changes a few hundred
+  milliseconds apart (controller node error, crate_change_package_error,
+  package_error; or already_stopped_error with planner_error), which the
+  per-document aggregation counted two or three times. The state-change
+  documents are now fetched in time order and every document from the same
+  system within two seconds of an event's first document is folded into
+  it, named by the first state; stops and errors are clustered separately.
+  Node-state and system-state documents are both kept, because most error
+  states (high_current_error, planner_error, the sensor reading errors) only
+  ever appear as node states. The window says at the top how the numbers
+  are calculated. PikPak 010 on 22 August now shows 6 crate change errors
+  instead of 12 plus 6 under System.
 - Condition counts no longer doubled (Chris, 2026-09-11): a free-text
   timeline condition such as "crate_change_package_error" also matched the
   state-change document that followed, which names the error in

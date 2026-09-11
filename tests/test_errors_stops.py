@@ -1,9 +1,10 @@
 """errors_stops pure logic: classification and the series/summaries."""
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from logfather.data.errors_stops import (
     ErrorsStopsData,
     categorize_error,
+    cluster_events,
     day_list,
     is_error_state,
     stop_kind,
@@ -93,3 +94,59 @@ def test_merge_takes_new_days_and_replaces_overlaps():
     assert data.errors[d2] == {"35-2300-007": {"planner_error": 9}}
     assert data.errors[d1] == {"35-2300-006": {"error": 4}}
     assert data.stops == {d1: {"35-2300-006": {"caution": 1}}}
+
+
+def _utc_day(ts):
+    return ts.astimezone(timezone.utc).date()
+
+
+def _t(seconds: float, day: int = 22) -> datetime:
+    return datetime(2026, 8, day, 5, 56, 38, tzinfo=timezone.utc) + timedelta(seconds=seconds)
+
+
+def test_cluster_folds_a_cascade_into_one_event_named_by_its_first_state():
+    # PikPak 010, 22 Aug: node error, package error, generic package_error within 200 ms.
+    docs = [
+        (_t(0.000), "35-2300-010", "controller_node_shift_crate_piston_error"),
+        (_t(0.048), "35-2300-010", "crate_change_package_error"),
+        (_t(0.173), "35-2300-010", "package_error"),
+    ]
+    stops, errors = cluster_events(docs, timedelta(seconds=2), _utc_day)
+    assert stops == {}
+    assert errors == {date(2026, 8, 22): {"35-2300-010": {"controller_node_shift_crate_piston_error": 1}}}
+
+
+def test_cluster_window_runs_from_the_first_document_not_the_last():
+    docs = [(_t(0), "r", "planner_error"), (_t(1.5), "r", "planner_error"), (_t(3.0), "r", "planner_error"), (_t(5.1), "r", "planner_error")]
+    _stops, errors = cluster_events(docs, timedelta(seconds=2), _utc_day)
+    # 0 and 1.5 s are one event; 3.0 s is more than 2 s after 0 so starts another; 5.1 s a third.
+    assert errors[date(2026, 8, 22)]["r"] == {"planner_error": 3}
+
+
+def test_cluster_keeps_pairs_more_than_two_seconds_apart_separate():
+    docs = []
+    for k in range(4):
+        docs.append((_t(k * 3.0), "r", "already_stopped_error"))
+        docs.append((_t(k * 3.0 + 0.001), "r", "planner_error"))
+    _stops, errors = cluster_events(docs, timedelta(seconds=2), _utc_day)
+    assert errors[date(2026, 8, 22)]["r"] == {"already_stopped_error": 4}
+
+
+def test_cluster_separates_systems_stops_and_errors_and_ignores_other_states():
+    docs = [
+        (_t(0.0), "a", "hardware_emergency_stop"),
+        (_t(0.1), "a", "already_stopped_error"),      # error at the same moment as the stop: both count
+        (_t(0.2), "a", "operator_stop_from_e_stop"),  # a second stop within the window: folded
+        (_t(0.3), "b", "already_stopped_error"),      # another system: its own event
+        (_t(0.4), "a", "pnp_executing"),              # neither a stop nor an error
+    ]
+    stops, errors = cluster_events(docs, timedelta(seconds=2), _utc_day)
+    assert stops == {date(2026, 8, 22): {"a": {"hardware_emergency_stop": 1}}}
+    assert errors == {date(2026, 8, 22): {"a": {"already_stopped_error": 1}, "b": {"already_stopped_error": 1}}}
+
+
+def test_cluster_uses_the_given_local_day():
+    docs = [(datetime(2026, 8, 22, 23, 30, tzinfo=timezone.utc), "r", "planner_error")]
+    plus_one = timezone(timedelta(hours=1))
+    _stops, errors = cluster_events(docs, timedelta(seconds=2), lambda ts: ts.astimezone(plus_one).date())
+    assert list(errors) == [date(2026, 8, 23)]
