@@ -390,9 +390,9 @@ class TimePicker(QWidget):
         baseline_y = self._baseline_y
         scale_y = self._scale_y
 
-        # Background track
-        self.scene.addRect(0, baseline_y - 10, total_minutes * ppm, 20, QPen(Qt.NoPen), QBrush(QColor("#2e2e2e")))
-        self._draw_day_rate_heat_strip(total_minutes * ppm)
+        # Background track (slimmer clip bars, Chris, 2026-09-11). The red
+        # pick-rate heat strip is no longer drawn: the Picks strip shows it.
+        self.scene.addRect(0, baseline_y - 7, total_minutes * ppm, 14, QPen(Qt.NoPen), QBrush(QColor("#2e2e2e")))
 
         # Time scale across the top (dynamic tick density).
         # Define step in minutes based on zoom.
@@ -529,7 +529,8 @@ class TimePicker(QWidget):
                 tick.setZValue(2)
                 self.scene.addItem(tick)
             else:
-                rect = VideoRectItem(QRectF(x, y_center - 12, width, 24), item, self)
+                bar_h = 24 if item.kind == "sku" else 14  # SKU boxes carry text; clip bars are slim
+                rect = VideoRectItem(QRectF(x, y_center - bar_h / 2, width, bar_h), item, self)
                 rect.setPen(QPen(QColor("#0b1a33") if item.kind == "video" else QColor("#444444")))
                 if item.kind == "video":
                     rect.setBrush(QBrush(self._color_for_video_item(item)))
@@ -554,7 +555,6 @@ class TimePicker(QWidget):
                     self._add_pen_icon(rect)
                 self._video_rects[id(item)] = rect
 
-        self._draw_selected_clip_rate_heat()
         self._draw_telemetry_track(track_map.get("telemetry"), day_start, ppm, total_minutes * ppm)
         # Reading strips under the tracks (Chris, 2026-09-08), one per
         # ticked family, for this system over the whole day.

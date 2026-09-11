@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- Slimmer clip bars, no pick-rate heat (Chris, 2026-09-11): the CCTV and
+  Additional CCTV bars on the PikPak Replay timeline are 14 px tall (SKU
+  boxes keep 24 px for their text), and the red pick-rate heat strip and
+  the heat overlay on the selected clip are no longer drawn, since the
+  Picks strip shows the rate.
 - View menu on the timeline (Chris, 2026-09-11): a "View" dropdown at the
   top right of the PikPak Replay chart shows or hides each bar: CCTV,
   Additional CCTV, SKU, Start / Stop / E-stop, Telemetry, and each
