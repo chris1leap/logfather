@@ -914,16 +914,14 @@ class VideoLogViewer(QWidget):
 
         self.sync_start_btn = QPushButton("Sync logs to current video (first log)")
         self.sync_start_btn.clicked.connect(self.sync_logs_to_current_video_first_log)
-        self.load_logs_btn = QPushButton("Load logs")
-        self.load_logs_btn.clicked.connect(self.load_pending_logs)
-        self.load_logs_btn.setEnabled(False)
+        # No "Load logs" button (Chris, 2026-09-11): the clip's logs load on
+        # their own when a clip opens.
 
         log_tab = QWidget()
         log_tab_layout = QVBoxLayout(log_tab)
         self.log_tab_layout = log_tab_layout
         log_tab_layout.addWidget(self.log_label)
         log_tab_layout.addWidget(self.log_list)
-        log_tab_layout.addWidget(self.load_logs_btn)
 
         settings_tab = QWidget()
         settings_tab_layout = QVBoxLayout(settings_tab)
@@ -1650,8 +1648,6 @@ class VideoLogViewer(QWidget):
         self.pending_start_iso = start_iso
         self.pending_end_iso = end_iso
         self._pending_log_request_key = (str(pikpak_path), str(start_iso), str(end_iso))
-        if hasattr(self, "load_logs_btn"):
-            self.load_logs_btn.setEnabled(True)
         if self.auto_load_clip_logs:
             self._pending_log_autoload_timer.start()
 
@@ -2033,8 +2029,6 @@ class VideoLogViewer(QWidget):
         self._active_log_request_key = None
         self._loaded_log_request_key = None
         self._pending_log_autoload_timer.stop()
-        if hasattr(self, "load_logs_btn"):
-            self.load_logs_btn.setEnabled(False)
         self.populate_log_list()
         self._reset_filter_state(show_busy=False)
         self._set_log_busy(False)

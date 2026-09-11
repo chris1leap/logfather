@@ -24,6 +24,8 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-11
 
+- No "Load logs" button (Chris, 2026-09-11): removed from the Logs tab on
+  PikPak Replay; a clip's logs load on their own when the clip opens.
 - Motor conditions reordered (Chris, 2026-09-11): "Motor overcurrent" is
   slot 13 and the umbrella for the other controller trips is slot 14,
   renamed "Motor other fault". A saved pair in the old order is swapped
