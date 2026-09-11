@@ -766,7 +766,17 @@ class VideoLogViewer(QWidget):
         play = getattr(self, "play_pause_btn", None)
         clock = getattr(self, "calc_label", None)
         if play is not None and clock is not None and play.parent() is self:
-            centre_x = self.video_label.geometry().center().x()
+            # Centred on the whole picture area: main plus the additional
+            # camera or analysis pane when they are showing (Chris,
+            # 2026-09-11).
+            panes = [w for w in (self.video_label, getattr(self, "secondary_video_label", None), getattr(self, "analysis_label", None))
+                     if w is not None and w.isVisible() and w.width() > 0]
+            if panes:
+                left = min(w.geometry().left() for w in panes)
+                right = max(w.geometry().right() for w in panes)
+                centre_x = (left + right) // 2
+            else:
+                centre_x = self.video_label.geometry().center().x()
             centre_y = clock.geometry().center().y()
             play.move(max(0, centre_x - play.width() // 2), max(0, centre_y - play.height() // 2))
             play.raise_()
@@ -1451,6 +1461,7 @@ class VideoLogViewer(QWidget):
             self.secondary_video_label.setVisible(True)
         else:
             self.secondary_video_label.setVisible(False)
+        QTimer.singleShot(0, self._place_view_menu)
 
     def _on_analysis_main_alpha_changed(self, v: int):
         a = v / 100.0
