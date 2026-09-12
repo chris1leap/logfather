@@ -29,7 +29,8 @@ Living record of agreed functionality: what is open, and what has shipped
   dragged the same way, saved per system under date_roi_by_key. The date
   in it is read once per clip (and again when the box is moved) and shown
   as "CCTV date: 10-09-2026 - matches the filename" in green, or in red
-  when it differs from the filename date.
+  when it differs from the filename date. The burnt-in date is always
+  DD/MM/YYYY, and only that form is accepted.
   "Date" and "Time" captions sit above the boxes; numbered instructions
   under the picture: 1. ensure the Date and Time boxes are in the correct
   place on the CCTV image; 2. press "Sync Time" to find the exact frames

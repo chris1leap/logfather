@@ -555,34 +555,31 @@ def ocr_time_from_frame(
     return text.strip()
 
 
-_DATE_DMY_RE = re.compile(r"(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})")
-_DATE_YMD_RE = re.compile(r"(\d{4})[/.\-](\d{1,2})[/.\-](\d{1,2})")
+_DATE_RE = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
 
 
 def parse_cctv_date(text: str):
-    """The date burnt into the picture, as a date, from an OCR string such
-    as "10/09/2026" or "2026-09-10" (day-month-year is tried first, as the
-    cameras write it). None when nothing plausible is there."""
+    """The date burnt into the picture, as a date. The cameras always write
+    it as DD/MM/YYYY (Chris, 2026-09-12): two digits, a slash, two digits,
+    a slash, four digits. None when that is not there or is not a real
+    date."""
     from datetime import date as _date
 
     cleaned = "".join(str(text or "").split())
-    for regex, order in ((_DATE_DMY_RE, "dmy"), (_DATE_YMD_RE, "ymd")):
-        match = regex.search(cleaned)
-        if not match:
-            continue
-        parts = [int(p) for p in match.groups()]
-        year, month, day = (parts[2], parts[1], parts[0]) if order == "dmy" else (parts[0], parts[1], parts[2])
-        try:
-            return _date(year, month, day)
-        except ValueError:
-            continue
-    return None
+    match = _DATE_RE.search(cleaned)
+    if not match:
+        return None
+    day, month, year = (int(p) for p in match.groups())
+    try:
+        return _date(year, month, day)
+    except ValueError:
+        return None
 
 
 def ocr_date_from_frame(frame_bgr: np.ndarray, *, roi: Roi) -> str:
     """One OCR pass over the date box: digits and separators only."""
     _ensure_tesseract()
-    cfg = OcrConfig(whitelist="0123456789/-.")
+    cfg = OcrConfig(whitelist="0123456789/")
     prepared = _preprocess_for_ocr(roi.crop(frame_bgr), cfg)
     config = f"--oem 3 --psm {cfg.psm} -c tessedit_char_whitelist={cfg.whitelist}"
     return pytesseract.image_to_string(prepared, config=config, lang=cfg.lang).strip()

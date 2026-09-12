@@ -186,18 +186,19 @@ def test_roi_to_ratios_clamps_to_the_roi_limits():
 
 # ---- the date box --------------------------------------------------------------
 
-def test_parse_cctv_date_reads_day_month_year_first():
+def test_parse_cctv_date_reads_dd_slash_mm_slash_yyyy():
     from datetime import date
     assert parse_cctv_date("10/09/2026") == date(2026, 9, 10)
-    assert parse_cctv_date(" 12-09-2026 ") == date(2026, 9, 12)
-    assert parse_cctv_date("2026-09-10") == date(2026, 9, 10)
-    assert parse_cctv_date("10/09/2026 10:31:01") == date(2026, 9, 10)
+    assert parse_cctv_date(" 12 / 09 / 2026 ") == date(2026, 9, 12)   # OCR spacing
+    assert parse_cctv_date("10/09/2026 10:31:01 THU") == date(2026, 9, 10)
 
 
-def test_parse_cctv_date_rejects_nonsense():
+def test_parse_cctv_date_accepts_only_the_camera_format():
     assert parse_cctv_date("") is None
-    assert parse_cctv_date("31/02/2026") is None
-    assert parse_cctv_date("103109") is None
+    assert parse_cctv_date("31/02/2026") is None       # not a real date
+    assert parse_cctv_date("12-09-2026") is None       # dashes are not the camera's format
+    assert parse_cctv_date("2026/09/12") is None       # year first is not either
+    assert parse_cctv_date("1/9/2026") is None         # always two digits
 
 
 def test_roi_settings_sections_are_independent(tmp_path):

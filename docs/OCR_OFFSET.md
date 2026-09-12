@@ -143,7 +143,8 @@ ratios), a live "OCR: 12:34:56 (valid)" readout, the Tesseract status,
 and a colour-coded history of every reading (green valid, red invalid,
 amber outlier). Every drag saves the ROI at once. A second, purple box
 (`date_roi_by_key`, default just left of the time box) is read once per
-clip with `ocr_date_from_frame` and `parse_cctv_date`; the window shows
+clip with `ocr_date_from_frame` and `parse_cctv_date` (the camera always
+writes `DD/MM/YYYY`, and only that form is accepted); the window shows
 whether the burnt-in date matches the filename date. It is a check only:
 the offset still uses the filename date.
 "Sync Time" in the dialog runs the same four-stage analysis with the
