@@ -24,6 +24,8 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- OCR window title (Chris, 2026-09-12): "Sync CCTV Time" instead of
+  "CCTV Time OCR".
 - Filename date and time in the OCR window (Chris, 2026-09-12): top left
   reads "Filename date: 12-09-2026" over "Filename time: 06h 54m 16s" from
   the clip's name; hovering either shows the full filename.

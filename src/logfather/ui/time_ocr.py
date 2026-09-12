@@ -610,7 +610,7 @@ class OcrVideoPlayer(QWidget):
         on_offset_approved=None,
     ):
         super().__init__()
-        self.setWindowTitle("CCTV Time OCR")
+        self.setWindowTitle("Sync CCTV Time")  # Chris, 2026-09-12
         self._roi_settings_path = settings_path
         self._roi_settings_key = settings_key
         self._auto_analyze = bool(auto_analyze)
