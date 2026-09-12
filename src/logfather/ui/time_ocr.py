@@ -893,6 +893,26 @@ class OcrVideoPlayer(QWidget):
         slider_row.addWidget(self.seek_slider, 1)
         slider_row.addWidget(self.last_frame_label)
         left_layout.addLayout(slider_row)
+        # Frame-step buttons under the slider, the same as the conveyor
+        # calibration window: -10, -1, +1, +10 (Chris, 2026-09-12).
+        from PySide6.QtCore import QSize
+        step_row = QHBoxLayout()
+        step_row.setSpacing(4)
+        step_row.addStretch(1)
+        minus = chr(0x2212)
+        for label, delta, tip in (
+            (f"{minus}10", -10, "Back 10 frames"),
+            (f"{minus}1", -1, "Back 1 frame"),
+            ("+1", 1, "Forward 1 frame"),
+            ("+10", 10, "Forward 10 frames"),
+        ):
+            btn = QPushButton(label)
+            btn.setFixedSize(QSize(66, 44))
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _checked=False, d=delta: self._scrub_by_frames(d))
+            step_row.addWidget(btn)
+        step_row.addStretch(1)
+        left_layout.addLayout(step_row)
         left_layout.addWidget(self.ocr_label)
         left_layout.addWidget(self.ocr_enabled_checkbox)
         left_layout.addWidget(self.tesseract_label)

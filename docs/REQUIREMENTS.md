@@ -24,6 +24,8 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Sync CCTV Time frame-step buttons (Chris, 2026-09-12): -10, -1, +1 and
+  +10 under the slider, sized like the conveyor calibration window's.
 - Sync CCTV Time slider labels (Chris, 2026-09-12): "Frame 1" to the left
   of the scrub slider, "Frame x" (the clip's last frame) to the right, and
   "Current frame (y)" above the slider, following the handle.
