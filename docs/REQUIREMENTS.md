@@ -24,10 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
-- Sync Time button (Chris, 2026-09-12): green after an automatic sync as
-  well as a cached or manual one (both cameras), and the main camera's
-  button now sits in the top bar to the left of Conveyor, shown with the
-  other viewer tools.
+- Sync button (Chris, 2026-09-12): a clock icon; after a successful sync
+  (automatic, cached or manual, both cameras) it turns green and reads the
+  offset to one decimal, e.g. "Sync: +1.3s"; with a clip open but no sync
+  it reads "Sync: ?" and breathes gently, and a press opens the OCR
+  window. The main camera's button sits in the top bar to the left of
+  Conveyor, shown with the other viewer tools.
 - Second camera plausibility check (Chris, 2026-09-12): the additional
   camera's OCR offset gets the same 15-minute plausibility check as the
   main camera at all four sites (cached on open, cached in the automatic

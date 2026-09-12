@@ -440,3 +440,20 @@ def punnet_icon(size: int = 24) -> QIcon:
     painter.drawRect(QRectF(s * 0.12, s * 0.52, s * 0.76, s * 0.06))
     painter.end()
     return QIcon(pm)
+
+
+def sync_icon(size: int = 24) -> QIcon:
+    """A clock face with hands: the camera-clock sync (the Sync button,
+    Chris, 2026-09-12)."""
+    pm, painter, s = _start(size)
+    pen = QPen(QColor(theme.TEXT_BRIGHT))
+    pen.setWidthF(s * 0.09)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    c = QPointF(s / 2, s / 2)
+    painter.drawEllipse(c, s * 0.36, s * 0.36)
+    painter.drawLine(c, QPointF(s * 0.50, s * 0.26))   # minute hand up
+    painter.drawLine(c, QPointF(s * 0.66, s * 0.58))   # hour hand to four o'clock
+    painter.end()
+    return QIcon(pm)

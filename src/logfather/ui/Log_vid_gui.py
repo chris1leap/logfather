@@ -37,6 +37,8 @@ from logfather.data.ocr_offset_store import OcrOffsetStore
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
 from logfather.core.time_alignment import plausible_ocr_offset, TimeAlignment
 from logfather.ui import theme
+from logfather.ui.icons import sync_icon
+from logfather.ui.pulse import Pulser
 from logfather.core.log_events import (
     LOCAL_TIMEZONE,
     MESSAGE_COLUMN,
@@ -508,9 +510,15 @@ class VideoLogViewer(QWidget):
         self.video_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.video_label.customContextMenuRequested.connect(self._copy_main_frame_to_clipboard)
         self.video_label.installEventFilter(self)
-        self.video_sync_btn = QPushButton("Sync Time")
+        self.video_sync_btn = QPushButton("Sync")
+        self.video_sync_btn.setIcon(sync_icon())
+        self.video_sync_btn.setIconSize(QSize(18, 18))
+        self.video_sync_btn.setToolTip("Sync the camera clock to the footage (OCR); shows the offset in use")
         self.video_sync_btn.setFixedWidth(135)
         self.video_sync_btn.setEnabled(False)
+        # "Sync: ?" breathes gently while a clip has no sync (Chris,
+        # 2026-09-12); a press opens the OCR window.
+        self._sync_pulser = Pulser(self)
         self.video_sync_btn.clicked.connect(self.open_ocr_roi_tool)
         self._main_sync_done = False
 
@@ -524,7 +532,9 @@ class VideoLogViewer(QWidget):
         self.secondary_video_label.installEventFilter(self)
         self.secondary_video_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.secondary_video_label.customContextMenuRequested.connect(self._copy_secondary_frame_to_clipboard)
-        self.secondary_sync_btn = QPushButton("Sync Time")
+        self.secondary_sync_btn = QPushButton("Sync")
+        self.secondary_sync_btn.setIcon(sync_icon())
+        self.secondary_sync_btn.setIconSize(QSize(18, 18))
         self.secondary_sync_btn.setFixedWidth(135)
         self.secondary_sync_btn.setEnabled(False)
         self.secondary_sync_btn.clicked.connect(self.open_secondary_ocr_tool)
@@ -1749,16 +1759,33 @@ class VideoLogViewer(QWidget):
         )
 
     def _update_sync_button_style(self):
+        """Green with the offset in the text once a sync is in force, e.g.
+        "Sync: +1.3s" (Chris, 2026-09-12); plain "Sync" otherwise."""
+        def label(done: bool, offset, clip_open: bool) -> str:
+            if done and offset is not None:
+                return f"Sync: {float(offset):+.1f}s"
+            return "Sync: ?" if clip_open else "Sync"
+
+        pulser = getattr(self, "_sync_pulser", None)
         if hasattr(self, "video_sync_btn"):
+            clip_open = self.cap is not None
+            self.video_sync_btn.setText(label(self._main_sync_done, self.ocr_offset_seconds, clip_open))
             if self._main_sync_done:
+                if pulser is not None:
+                    pulser.set_target(None)
                 self.video_sync_btn.setStyleSheet(theme.SYNC_DONE_BUTTON)
+            elif clip_open and pulser is not None:
+                if pulser.target() is not self.video_sync_btn:
+                    self.video_sync_btn.setStyleSheet("")
+                    pulser.set_target(self.video_sync_btn)
             else:
+                if pulser is not None:
+                    pulser.set_target(None)
                 self.video_sync_btn.setStyleSheet("")
         if hasattr(self, "secondary_sync_btn"):
-            if self._secondary_sync_done:
-                self.secondary_sync_btn.setStyleSheet(theme.SYNC_DONE_BUTTON)
-            else:
-                self.secondary_sync_btn.setStyleSheet("")
+            second_open = self.secondary_cap is not None
+            self.secondary_sync_btn.setText(label(self._secondary_sync_done, self.secondary_ocr_offset_seconds, second_open))
+            self.secondary_sync_btn.setStyleSheet(theme.SYNC_DONE_BUTTON if self._secondary_sync_done else "")
 
     def _set_filter_tabs_enabled(self, enabled: bool):
         if not hasattr(self, "right_tabs"):
