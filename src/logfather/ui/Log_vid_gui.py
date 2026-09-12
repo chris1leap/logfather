@@ -3262,6 +3262,20 @@ class VideoLogViewer(QWidget):
         self.current_frame = int(value)
         self.show_frame(self.current_frame)
 
+    def video_seconds_for_wall_time(self, wall_dt: datetime) -> float | None:
+        """The video second at which the camera clock reads `wall_dt`,
+        through the OCR-corrected start (Chris, 2026-09-12: a timeline
+        click used to seek by the filename time and landed the OCR offset
+        away from the moment the green clock then showed). None when no
+        OCR start or fps is known, so callers fall back to the filename."""
+        if self.video_start_dt is None or self.fps <= 0:
+            return None
+        start = _to_local_naive(self.video_start_dt)
+        target = _to_local_naive(wall_dt)
+        if start is None or target is None:
+            return None
+        return self.alignment.video_seconds_for_clock(start, target)
+
     def seek_to_seconds(self, seconds: float, pause: bool = True):
         if self.cap is None:
             # The clip may still be downloading; replay the seek once it opens.

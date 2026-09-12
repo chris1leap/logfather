@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Timeline click lands on the clicked moment (Chris, 2026-09-12): the
+  seek goes through the clip's OCR-corrected start
+  (`video_seconds_for_wall_time`), so the green clock reads the time that
+  was clicked; clips with no OCR offset still seek by the filename time.
 - Additional camera keeps its own OCR boxes (Chris, 2026-09-12): its Date
   and Time box positions are stored under "<PikPakNNN>/additional" in
   ocr_settings.json, separate from the main camera's, both in the Sync

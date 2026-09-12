@@ -2037,7 +2037,12 @@ class MainWindow(QWidget):
         target_dt = pending["target_dt"]
         clip_start_dt = ensure_utc(clip_item.start)
         clip_end_dt = ensure_utc(clip_item.end)
-        seek_seconds = (target_dt - clip_start_dt).total_seconds()
+        # Through the OCR-corrected clock when the clip has one, so the
+        # green clock then reads the clicked moment (Chris, 2026-09-12);
+        # by the filename time otherwise.
+        seek_seconds = self.viewer.video_seconds_for_wall_time(target_dt)
+        if seek_seconds is None:
+            seek_seconds = (target_dt - clip_start_dt).total_seconds()
         clip_duration_seconds = max(0.0, (clip_end_dt - clip_start_dt).total_seconds())
         if clip_duration_seconds > 0.0:
             seek_seconds = min(seek_seconds, clip_duration_seconds)

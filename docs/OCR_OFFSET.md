@@ -265,9 +265,12 @@ tools.
    `auto_ocr_open_on_missing` equal to `auto_ocr_sync`, and there is no
    separate checkbox, so visiting the settings with auto-sync on turns on
    the pop-up ROI tool for every clip without an offset.
-9. **A timeline click seeks by the filename time**
+9. ~~**A timeline click seeks by the filename time**
    (`_on_clip_opened_for_navigation`), so it lands `ocr_offset_seconds`
-   away from the moment the green clock then reports.
+   away from the moment the green clock then reports.~~ Fixed 2026-09-12:
+   the click asks the viewer for `video_seconds_for_wall_time`, which
+   inverts `clock_datetime` from the OCR-corrected start; the filename
+   time is only the fallback when no offset is known.
 10. **The store is written non-atomically** and any read error resets it to
     empty, losing every cached offset for that camera.
 11. (Partly fixed 2026-09-12.) `tests/test_time_ocr_engine.py` now covers
