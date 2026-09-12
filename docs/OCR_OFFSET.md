@@ -256,8 +256,11 @@ tools.
    empty sample list and raised on it, which stopped the four-stage scan
    at the first stage that read nothing; it now returns None so the next
    stage runs, matching the ROI tool's copy of the logic.
-7. **The ROI is shared by both cameras of a system**, so tuning it for the
-   additional camera overwrites the main camera's entry.
+7. ~~**The ROI is shared by both cameras of a system**, so tuning it for the
+   additional camera overwrites the main camera's entry.~~ Fixed
+   2026-09-12: the additional camera's boxes are keyed
+   `<PikPakNNN>/additional` (`additional_camera_roi_key`), falling back to
+   the main camera's entry only until it has one of its own.
 8. **The settings dialog couples the two flags**: every apply sets
    `auto_ocr_open_on_missing` equal to `auto_ocr_sync`, and there is no
    separate checkbox, so visiting the settings with auto-sync on turns on

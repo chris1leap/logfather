@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Additional camera keeps its own OCR boxes (Chris, 2026-09-12): its Date
+  and Time box positions are stored under "<PikPakNNN>/additional" in
+  ocr_settings.json, separate from the main camera's, both in the Sync
+  CCTV Time window and in the automatic sync. Until it has boxes of its
+  own it starts from the main camera's. The "Date (frame x)" caption in
+  the window is purple like the date box; the green/red verdict stays on
+  the "Camera date sync" line.
 - Date procedure (Chris, 2026-09-12), in the Sync CCTV Time window: A. use
   the date and time boxes as placed; B. read the date on frame 1; C. if
   it matches the filename date, skip to F; D. otherwise scan the clip for

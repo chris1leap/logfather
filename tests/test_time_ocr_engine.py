@@ -267,3 +267,20 @@ def test_frame_or_first_never_uses_numpy_truthiness():
     first = np.ones((4, 4, 3), dtype=np.uint8)
     assert OcrVideoPlayer._frame_or_first(Stub(first), fallback) is first
     assert OcrVideoPlayer._frame_or_first(Stub(None), fallback) is fallback
+
+
+def test_additional_camera_has_its_own_roi_entry(tmp_path):
+    """The additional camera's boxes live under "<id>/additional"; with no
+    entry yet it starts from the main camera's, and saving never touches
+    the main camera's entry."""
+    from logfather.ui.time_ocr import additional_camera_roi_key
+
+    path = tmp_path / "ocr_settings.json"
+    key = additional_camera_roi_key("PikPak007")
+    assert key == "PikPak007/additional"
+    save_roi_settings(path, "PikPak007", RoiSettings(0.22, 0.06, 0.013, 0.0))
+    assert load_roi_settings(path, key).width_ratio == 0.22  # fallback to the main camera
+    save_roi_settings(path, key, RoiSettings(0.3, 0.07, 0.02, 0.1))
+    assert load_roi_settings(path, key).width_ratio == 0.3
+    assert load_roi_settings(path, "PikPak007").width_ratio == 0.22
+    assert load_roi_settings(path, key, section="date_roi_by_key") is None

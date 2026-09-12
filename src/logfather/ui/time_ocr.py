@@ -377,9 +377,21 @@ class RoiSettings:
     x_offset_ratio: float
 
 
+ADDITIONAL_CAMERA_KEY_SUFFIX = "/additional"
+
+
+def additional_camera_roi_key(pikpak_id: str) -> str:
+    """The additional camera keeps its own Date and Time boxes under
+    "<PikPakNNN>/additional" (Chris, 2026-09-12); before this the two
+    cameras of a system shared one entry and overwrote each other."""
+    return f"{pikpak_id}{ADDITIONAL_CAMERA_KEY_SUFFIX}"
+
+
 def load_roi_settings(settings_path: Path, key: str | None, section: str = "roi_by_key") -> RoiSettings | None:
     """`section` is "roi_by_key" for the time box, "date_roi_by_key" for the
-    date box (Chris, 2026-09-12)."""
+    date box (Chris, 2026-09-12). An additional-camera key with no entry
+    of its own falls back to the main camera's boxes as a starting point;
+    saves always go to the key given."""
     if not key:
         return None
     if not settings_path.exists():
@@ -388,7 +400,12 @@ def load_roi_settings(settings_path: Path, key: str | None, section: str = "roi_
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    entry = data.get(section, {}).get(key)
+    section_data = data.get(section, {})
+    if not isinstance(section_data, dict):
+        return None
+    entry = section_data.get(key)
+    if not isinstance(entry, dict) and key.endswith(ADDITIONAL_CAMERA_KEY_SUFFIX):
+        entry = section_data.get(key[: -len(ADDITIONAL_CAMERA_KEY_SUFFIX)])
     if not isinstance(entry, dict):
         return None
     try:
@@ -1498,7 +1515,7 @@ class OcrVideoPlayer(QWidget):
         self.date_sync_label.show()
         self._add_history_entry(f"{change_frame + 1:>7}  date {initial} -> {new_date:%d/%m/%Y}", "valid" if agrees else None)
         self._show_synced_date_preview(change_frame, date_roi)
-        self.synced_date_caption.setStyleSheet("color: #2ecc71; font-weight: bold;" if agrees else "color: #ff7a70; font-weight: bold;")
+        self.synced_date_caption.setStyleSheet("color: #c77dff; font-weight: bold;")  # purple like the box (Chris, 2026-09-12)
         if self.cap is not None:
             self._read_and_show(self.date_sync_frame)
 

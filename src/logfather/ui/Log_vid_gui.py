@@ -74,7 +74,7 @@ from PySide6.QtWidgets import (
     QToolButton, QButtonGroup, QStyleOptionSlider, QStyle, QLCDNumber
 )
 
-from logfather.ui.time_ocr import analyze_video_offset, OcrVideoPlayer, parse_filename_datetime
+from logfather.ui.time_ocr import additional_camera_roi_key, analyze_video_offset, OcrVideoPlayer, parse_filename_datetime
 from logfather.ui.qt_worker import JobSlot
 
 SKIP_INITIAL_FRAME_RENDER = False
@@ -5097,7 +5097,7 @@ class VideoLogViewer(QWidget):
                 pass
         dlg = OcrVideoPlayer(
             settings_path=self.ocr_settings_path,
-            settings_key=pikpak_id,
+            settings_key=additional_camera_roi_key(pikpak_id),
             auto_analyze=auto_start,
             on_offset_approved=_on_offset_approved,
         )
@@ -5310,7 +5310,7 @@ class VideoLogViewer(QWidget):
             return analyze_video_offset(
                 str(video_path),
                 settings_path=settings_path,
-                settings_key=pikpak_id,
+                settings_key=additional_camera_roi_key(pikpak_id),
                 parent=None,
                 should_abort=job.interrupted,
                 on_stage=lambda label: job.emit_progress(("ocr-stage", label)),
