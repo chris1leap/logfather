@@ -24,6 +24,14 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Second camera plausibility check (Chris, 2026-09-12): the additional
+  camera's OCR offset gets the same 15-minute plausibility check as the
+  main camera at all four sites (cached on open, cached in the automatic
+  path, fresh automatic result, manual approve).
+- OCR engine unit tests (Chris, 2026-09-12): tests/test_time_ocr_engine.py
+  covers the filename stamp parser, clock-text validation, the midnight
+  rule, the ROI maths, the vote over samples and the crop preprocessing;
+  an empty sample list no longer raises inside the four-stage scan.
 - Conveyor and Track buttons (Chris, 2026-09-12): "Calibrate" reads
   "Conveyor" with a belt-and-rollers icon; "Track" has a punnet-of-tomatoes
   icon. Both painted in icons.py.

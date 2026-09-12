@@ -174,11 +174,11 @@ The key is `PikPakNNN:YYYYMMDDHHMMSS` from the clip path
 share one entry. Entries are written when an offset is applied and
 removed only by the plausibility check.
 
-Since 2026-09-12 the plausibility check runs at three places on the main
-camera: a cached offset at clip open and in the automatic path (a failing
-entry is deleted from the store and printed as `[ocr] cached offset ... is
-not plausible; dropped`), and a fresh automatic result (not saved). The
-manual tool refuses an implausible result with a warning. The picture's
+Since 2026-09-12 the plausibility check runs on both cameras: a cached
+offset at clip open and in the automatic path (a failing entry is deleted
+from the store and printed as `[ocr] cached offset ... is not plausible;
+dropped`), and a fresh automatic result (not saved). The manual tools
+refuse an implausible result with a warning. The picture's
 View menu shows the offset in use ("OCR offset: +7.9 s, +1 frames" or
 "none (clip start taken from the filename)"); clicking it opens the sync
 tools.
@@ -213,8 +213,10 @@ tools.
    and the median accepts it. That produced the -24,774 s offsets found on
    2026-09-12 for two PikPak 007 clips. The 15-minute limit now catches
    hour-scale errors; a misread minute digit (up to 9 minutes) still passes.
-2. **The second camera has no plausibility check**, on cached or fresh
-   offsets, so a bad reading there silently desyncs the second picture.
+2. (Fixed 2026-09-12.) The second camera now runs the same plausibility
+   check at its four sites: cached offsets on open and in the automatic
+   path are dropped from its store, a fresh automatic result is ignored,
+   and the manual tool refuses it with a warning.
 3. **Midnight is handled one way only.** A camera clock behind the filename
    across midnight yields an offset of about +86,385 s, which is now
    rejected rather than corrected.
@@ -223,9 +225,10 @@ tools.
 5. **After a successful automatic run the Sync Time button stays grey**:
    the automatic path applies the offset without setting `_main_sync_done`,
    unlike the cached and manual paths.
-6. **`_estimate_start_from_samples` has no guard for an empty sample
-   list** and would raise on it; the interactive copy of the same logic in
-   the ROI tool does have the guard, so the two have diverged.
+6. (Fixed 2026-09-12.) `_estimate_start_from_samples` had no guard for an
+   empty sample list and raised on it, which stopped the four-stage scan
+   at the first stage that read nothing; it now returns None so the next
+   stage runs, matching the ROI tool's copy of the logic.
 7. **The ROI is shared by both cameras of a system**, so tuning it for the
    additional camera overwrites the main camera's entry.
 8. **The settings dialog couples the two flags**: every apply sets
@@ -237,9 +240,10 @@ tools.
    away from the moment the green clock then reports.
 10. **The store is written non-atomically** and any read error resets it to
     empty, losing every cached offset for that camera.
-11. **The OCR engine has no unit tests**: the filename parser, the time
-    validator, the midnight rule, the voting and the frame-offset check are
-    untested.
+11. (Partly fixed 2026-09-12.) `tests/test_time_ocr_engine.py` now covers
+    the filename parser, the time validator, the midnight rule, the ROI
+    maths, the vote over samples and the crop preprocessing. The
+    frame-offset check and the Tesseract call remain untested.
 
 ## 8. Where to look
 

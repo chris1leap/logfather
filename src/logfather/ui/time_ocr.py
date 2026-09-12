@@ -1652,6 +1652,8 @@ def _estimate_start_from_samples(
     transition = _estimate_start_from_transitions(samples)
     if transition is not None:
         return transition[0]
+    if not samples:
+        return None  # nothing read: the caller moves on to the next stage (2026-09-12)
     inferred = []
     for frame_idx, video_t, ocr_dt, ocr_text in samples:
         inferred.append((ocr_dt - timedelta(seconds=video_t), ocr_text))

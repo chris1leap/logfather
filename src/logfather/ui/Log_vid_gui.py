@@ -4685,6 +4685,11 @@ class VideoLogViewer(QWidget):
             except Exception:
                 self.secondary_ocr_offset_seconds = None
                 self.secondary_ocr_frame_offset = 0
+            if self.secondary_ocr_offset_seconds is not None and not plausible_ocr_offset(self.secondary_ocr_offset_seconds):
+                print(f"[ocr] cached additional-camera offset {self.secondary_ocr_offset_seconds:.0f}s for {key} is not plausible; dropped", flush=True)
+                self.secondary_offset_store.remove(key)
+                self.secondary_ocr_offset_seconds = None
+                self.secondary_ocr_frame_offset = 0
             if self.secondary_ocr_offset_seconds is not None:
                 filename_dt = self.secondary_video_filename_dt
                 if filename_dt is None:
@@ -5027,6 +5032,9 @@ class VideoLogViewer(QWidget):
         dlg = None
 
         def _on_offset_approved(video_start_dt, offset_seconds, frame_offset):
+            if not plausible_ocr_offset(offset_seconds):
+                QMessageBox.warning(self, "OCR offset", f"An offset of {float(offset_seconds) / 60:+.0f} minutes is not plausible for the additional camera (the clock and the filename differ by seconds). Not applied.")
+                return
             try:
                 self.secondary_ocr_offset_seconds = float(offset_seconds)
                 self.secondary_ocr_frame_offset = int(frame_offset)
@@ -5216,6 +5224,11 @@ class VideoLogViewer(QWidget):
             except Exception:
                 self.secondary_ocr_offset_seconds = None
                 self.secondary_ocr_frame_offset = 0
+            if self.secondary_ocr_offset_seconds is not None and not plausible_ocr_offset(self.secondary_ocr_offset_seconds):
+                print(f"[ocr] cached additional-camera offset {self.secondary_ocr_offset_seconds:.0f}s is not plausible; dropped", flush=True)
+                self.secondary_offset_store.remove(key)
+                self.secondary_ocr_offset_seconds = None
+                self.secondary_ocr_frame_offset = 0
             if self.secondary_ocr_offset_seconds is not None:
                 filename_dt = parse_filename_datetime(key_path)
                 if filename_dt is None:
@@ -5274,6 +5287,9 @@ class VideoLogViewer(QWidget):
                     "Additional CCTV OCR failed",
                     "OCR sync failed for the additional CCTV clip.",
                 )
+                return
+            if not plausible_ocr_offset(result.offset_seconds):
+                print(f"[ocr] automatic additional-camera offset {result.offset_seconds:.0f}s is not plausible; ignored", flush=True)
                 return
             self.secondary_ocr_offset_seconds = result.offset_seconds
             self.secondary_ocr_frame_offset = result.frame_offset
