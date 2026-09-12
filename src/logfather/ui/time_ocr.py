@@ -757,11 +757,6 @@ class OcrVideoPlayer(QWidget):
         self.date_preview = QLabel("Date preview")
         self.date_preview.setAlignment(Qt.AlignCenter)
         self.date_preview.setMinimumSize(260, 80)
-        self.date_sync_box = QLabel("Camera date sync: not checked yet")
-        self.date_sync_box.setWordWrap(True)
-        self.date_sync_box.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.date_sync_box.setMinimumHeight(84)
-        self.date_sync_box.setStyleSheet("border: 1px solid #c77dff; border-radius: 6px; padding: 6px; font-size: 13px;")
         # The date as it reads once the camera has synced, large, labelled
         # with the frame it happened on (Chris, 2026-09-12).
         self.synced_date_caption = QLabel("Synced date")
@@ -816,6 +811,11 @@ class OcrVideoPlayer(QWidget):
         self.filename_date_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.cctv_date_label = QLabel("CCTV date: \u2013")
         self.cctv_date_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        # One line under it once the camera's date sync is found (Chris,
+        # 2026-09-12); hidden otherwise.
+        self.date_sync_label = QLabel("")
+        self.date_sync_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.date_sync_label.hide()
         self.cctv_date_label.setToolTip("The date read once from the purple box, compared with the filename date")
         self.filename_time_label = QLabel("Filename time: –")
         self.filename_time_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -823,6 +823,7 @@ class OcrVideoPlayer(QWidget):
         left_layout.addWidget(self.filename_date_label)
         left_layout.addWidget(self.filename_time_label)
         left_layout.addWidget(self.cctv_date_label)
+        left_layout.addWidget(self.date_sync_label)
         left_layout.addWidget(self.video_label, 1)
         left_layout.addWidget(self.seek_slider)
         left_layout.addWidget(self.ocr_label)
@@ -846,7 +847,6 @@ class OcrVideoPlayer(QWidget):
         root_layout = QHBoxLayout()
         root_layout.addLayout(left_layout, 1)
         right_layout = QVBoxLayout()
-        right_layout.addWidget(self.date_sync_box)
         right_layout.addWidget(self.synced_date_caption)
         right_layout.addWidget(self.synced_date_preview)
         right_layout.addWidget(self.date_preview_caption)
@@ -934,7 +934,8 @@ class OcrVideoPlayer(QWidget):
         self.cctv_date = None
         self.date_sync_frame = None
         self.cctv_synced_date = None
-        self.date_sync_box.setText("Camera date sync: not checked yet")
+        self.date_sync_label.setText("")
+        self.date_sync_label.hide()
         self.synced_date_caption.hide()
         self.synced_date_preview.hide()
         self._synced_date_pixmap = None
@@ -1275,7 +1276,7 @@ class OcrVideoPlayer(QWidget):
             self.cctv_date_label.setStyleSheet("color: #2ecc71;")
             self.date_sync_frame = 0
             self.cctv_synced_date = self.cctv_date
-            self.date_sync_box.setText(f"Camera date sync: {self.cctv_date:%d/%m/%Y} from the first frame, matching the filename. The clock is read from the start of the clip.")
+            self.date_sync_label.hide()
         else:
             self.cctv_date_label.setText(f"CCTV date: {shown} - DIFFERS from the filename ({self.filename_dt:%d-%m-%Y})")
             self.cctv_date_label.setStyleSheet("color: #ff7a70; font-weight: bold;")
@@ -1309,21 +1310,17 @@ class OcrVideoPlayer(QWidget):
         if change is None:
             self.date_sync_frame = None
             self.cctv_synced_date = None
-            self.date_sync_box.setText(
-                f"Camera date sync: the date stayed {initial} for the whole clip ({self.frame_count} frames scanned). "
-                "The camera clock never synced, so its time cannot be trusted for this clip."
-            )
-            self.date_sync_box.setStyleSheet("border: 1px solid #ff7a70; border-radius: 6px; padding: 6px; font-size: 13px; color: #ff7a70;")
+            self.date_sync_label.setText(f"Camera date sync: none - the date stayed {initial} for the whole clip")
+            self.date_sync_label.setStyleSheet("color: #ff7a70; font-weight: bold;")
+            self.date_sync_label.show()
             return
         change_frame, _initial_date, new_date = change
         self.date_sync_frame = int(change_frame)
         self.cctv_synced_date = new_date
-        seconds = change_frame / self.fps
-        self.date_sync_box.setText(
-            f"Camera date sync: {initial} -> {new_date:%d/%m/%Y} at frame {change_frame + 1} ({seconds:.1f} s into the clip). "
-            f"{change_frame} frames before the camera synced. The clip is dated {new_date:%d/%m/%Y} and the clock is read from that frame."
-        )
-        self.date_sync_box.setStyleSheet("border: 1px solid #2ecc71; border-radius: 6px; padding: 6px; font-size: 13px; color: #2ecc71;")
+        self.date_sync_label.setText(f"Camera date sync: {initial} -> {new_date:%d/%m/%Y} (frame {change_frame + 1})")
+        self.date_sync_label.setStyleSheet("color: #2ecc71;")
+        self.date_sync_label.setToolTip(f"{change_frame} frames ({change_frame / self.fps:.1f} s) before the camera synced; the clip is dated {new_date:%d/%m/%Y} and the clock is read from that frame")
+        self.date_sync_label.show()
         self._add_history_entry(f"{change_frame + 1:>7}  date {initial} -> {new_date:%d/%m/%Y}", "valid")
         self._show_synced_date_preview(change_frame, date_roi)
         if self.cap is not None:

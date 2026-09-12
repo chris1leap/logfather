@@ -27,9 +27,7 @@ Living record of agreed functionality: what is open, and what has shipped
 - Camera date sync (Chris, 2026-09-12): when the burnt-in date on the
   first frame is 01/01/1970 or differs from the filename, the Sync CCTV
   Time window scans the clip (a date read every second, then frame by
-  frame) for the frame where the date changes. A large box on the right
-  reports the old and new dates, the frame and time of the change and how
-  many frames the camera took to sync, or that it never synced. The clip
+  frame) for the frame where the date changes. A line under the CCTV date reads "Camera date sync: 01/01/1970 -> 12/09/2026 (frame 34)" (hover for the frames and seconds it took), or in red that no sync was found. The clip
   is then dated by the new date and the clock is read from that frame,
   both in the window and in the automatic sync (which uses the saved date
   box).
