@@ -30,10 +30,12 @@ Living record of agreed functionality: what is open, and what has shipped
   the frame where the date changes from frame 1's; E. show that frame's
   date in the "Date (frame x)" panel and mark it green when it matches
   the filename date, red when not (or red "none" when it never changes);
-  F. the clock checks carry on from that frame; G. dragging the date box
-  waits two seconds and then reruns from A; H. the date and time box
-  locations are then stored (ocr_settings.json, per camera). A "?" button
-  at the top of the window opens a flowchart of these steps.
+  F. the clock checks carry on from that frame; G. dragging either box
+  waits two seconds and then reruns from A (including F); H. the date and
+  time box locations are then stored (ocr_settings.json, per camera). A
+  "?" button at the top of the window opens a flowchart of these steps.
+  Fixed 2026-09-12: the procedure had crashed on every window open
+  (numpy array used with `or`), so nothing ran until v0.439.
 - Date box re-read after dragging stops (Chris, 2026-09-12): the purple
   box's date is read again two seconds after the last drag, not on every
   move, so another corner can be pulled first.

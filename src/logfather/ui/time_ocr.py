@@ -927,7 +927,7 @@ class OcrVideoPlayer(QWidget):
         ("D", "No: check the date on each frame against the previous frame", None),
         ("E", "Date changed: show it as Date (frame x); green if it matches the filename, red if not", None),
         ("F", "Yes / then: carry on with the time checks (Sync Time reads the clock from that frame)", None),
-        ("G", "Date box moved? Wait two seconds, then start again from A", "loop"),
+        ("G", "Date or Time box moved? Wait two seconds, then start again from A", "loop"),
         ("H", "Store the new Date and Time box locations", None),
     )
 
@@ -1181,7 +1181,7 @@ class OcrVideoPlayer(QWidget):
         self.video_label.set_picture(QPixmap.fromImage(qimg), self._view_rect(frame_w, frame_h, both), roi, date_roi)
         if not self._date_checked:
             self._date_checked = True
-            self._check_cctv_date(self._first_frame() or frame_bgr)
+            self._check_cctv_date(self._frame_or_first(frame_bgr))
         roi_bgr = roi.crop(frame_bgr)
         roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
         rh, rw, rch = roi_rgb.shape
@@ -1350,12 +1350,14 @@ class OcrVideoPlayer(QWidget):
         self._date_recheck_timer.start()
 
     def _recheck_date_after_drag(self) -> None:
-        """Step G: the date box changed, so run the whole procedure again,
-        then H: store where the boxes now are."""
+        """Step G: a box changed, so run the whole procedure again from A
+        (the date steps, then F, the clock checks), then H: store where
+        the boxes now are."""
         if self._last_frame is None or self._closing:
             return
-        self._check_cctv_date(self._first_frame() or self._last_frame)
+        self._check_cctv_date(self._frame_or_first(self._last_frame))
         self._rerender()
+        self._analyze_first_10s()
         self._store_box_locations()
 
     def _store_box_locations(self) -> None:
@@ -1367,6 +1369,12 @@ class OcrVideoPlayer(QWidget):
                 save_roi_settings(self._roi_settings_path, self._roi_settings_key, self._date_ratios, section="date_roi_by_key")
             except Exception:
                 pass
+
+    def _frame_or_first(self, fallback: np.ndarray) -> np.ndarray:
+        """Frame 1 when it can be read, else `fallback`. (`a or b` on
+        numpy arrays raises, which silently killed the date procedure.)"""
+        first = self._first_frame()
+        return fallback if first is None else first
 
     def _first_frame(self) -> np.ndarray | None:
         """Frame 1 of the open clip, cached for the clip's lifetime."""
@@ -1395,7 +1403,7 @@ class OcrVideoPlayer(QWidget):
         E. show that frame's date in the "Date (frame x)" panel and compare
            it with the filename date: green when they agree, red when not;
         F. the clock checks carry on as before, reading from that frame;
-        G. a moved date box waits two seconds and reruns from A;
+        G. a moved date or time box waits two seconds and reruns from A;
         H. the date and time box locations are stored.
         """
         # A + B: frame 1, the date box as placed
@@ -1540,10 +1548,10 @@ class OcrVideoPlayer(QWidget):
         self._dragged_frame_size = (frame_w, frame_h)
         self._roi_ratios = roi_to_ratios(roi, frame_w, frame_h)
         self._update_roi_label()
-        self._save_roi_settings()
         self._rerender()
         if self.ocr_enabled_checkbox.isChecked() and self.ocr_available:
             self._update_ocr(self._last_frame)
+        self._date_recheck_timer.start()
 
     def _on_ocr_toggle(self, _state: int):
         if self.cap is None:

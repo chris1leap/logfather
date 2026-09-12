@@ -250,3 +250,20 @@ def test_locate_date_change_skips_unreadable_frames():
 
     change = locate_date_change(read_date, 1000, 25)
     assert change is not None and change[2] == new and 100 <= change[0] <= 101
+
+
+def test_frame_or_first_never_uses_numpy_truthiness():
+    """`first or fallback` on arrays raises ValueError; the helper must not."""
+    from logfather.ui.time_ocr import OcrVideoPlayer
+
+    class Stub:
+        def __init__(self, first):
+            self._first = first
+
+        def _first_frame(self):
+            return self._first
+
+    fallback = np.zeros((4, 4, 3), dtype=np.uint8)
+    first = np.ones((4, 4, 3), dtype=np.uint8)
+    assert OcrVideoPlayer._frame_or_first(Stub(first), fallback) is first
+    assert OcrVideoPlayer._frame_or_first(Stub(None), fallback) is fallback
