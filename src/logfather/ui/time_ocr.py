@@ -937,6 +937,7 @@ class OcrVideoPlayer(QWidget):
         self.date_sync_box.setText("Camera date sync: not checked yet")
         self.synced_date_caption.hide()
         self.synced_date_preview.hide()
+        self._synced_date_pixmap = None
         self.cctv_date_label.setText("CCTV date: \u2013")
         self.cctv_date_label.setStyleSheet("")
         if self.cap is not None:
@@ -1340,12 +1341,23 @@ class OcrVideoPlayer(QWidget):
         rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         qimg = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
-        self.synced_date_preview.setPixmap(
-            QPixmap.fromImage(qimg).scaled(self.synced_date_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
-        self.synced_date_caption.setText(f"Frame {change_frame + 1}")
+        # Keep the full crop and scale it to the same size as the other two
+        # previews once shown (the hidden label had no size to scale to,
+        # so the picture came out cropped; Chris, 2026-09-12).
+        self._synced_date_pixmap = QPixmap.fromImage(qimg)
+        self.synced_date_caption.setText(f"Date (frame {change_frame + 1})")
         self.synced_date_caption.show()
         self.synced_date_preview.show()
+        self._rescale_synced_date_preview()
+
+    def _rescale_synced_date_preview(self) -> None:
+        pm = getattr(self, "_synced_date_pixmap", None)
+        if pm is None or pm.isNull():
+            return
+        target = self.date_preview.size()
+        if target.width() < 260 or target.height() < 80:
+            target = self.date_preview.minimumSize()
+        self.synced_date_preview.setPixmap(pm.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _update_roi_label(self):
         r = self._roi_ratios
@@ -1439,6 +1451,7 @@ class OcrVideoPlayer(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._rerender()
+        self._rescale_synced_date_preview()
 
     def _analyze_first_10s(self):
         if self.cap is None:
