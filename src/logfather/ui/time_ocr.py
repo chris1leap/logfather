@@ -681,9 +681,12 @@ class OcrVideoPlayer(QWidget):
 
         # Top left: the clip's filename time, hovering shows the full name
         # (Chris, 2026-09-12).
+        self.filename_date_label = QLabel("Filename date: –")
+        self.filename_date_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.filename_time_label = QLabel("Filename time: –")
         self.filename_time_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         left_layout = QVBoxLayout()
+        left_layout.addWidget(self.filename_date_label)
         left_layout.addWidget(self.filename_time_label)
         left_layout.addWidget(self.video_label, 1)
         left_layout.addWidget(self.seek_slider)
@@ -726,10 +729,13 @@ class OcrVideoPlayer(QWidget):
     def _update_filename_time_label(self) -> None:
         dt = self.filename_dt
         if dt is None:
+            self.filename_date_label.setText("Filename date: not found in the name")
             self.filename_time_label.setText("Filename time: not found in the name")
         else:
+            self.filename_date_label.setText(f"Filename date: {dt:%d-%m-%Y}")
             self.filename_time_label.setText(f"Filename time: {dt:%H}h {dt:%M}m {dt:%S}s")
         name = Path(self.current_video_path).name if self.current_video_path else ""
+        self.filename_date_label.setToolTip(name)
         self.filename_time_label.setToolTip(name)
 
     def _open_video_dialog(self):
