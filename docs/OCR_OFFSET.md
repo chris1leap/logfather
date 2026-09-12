@@ -141,17 +141,31 @@ box dragged on the picture by its corners, edges or middle
 (`RoiEditorLabel`; `roi_to_ratios` turns the box back into the saved
 ratios), a live "OCR: 12:34:56 (valid)" readout, the Tesseract status,
 and a colour-coded history of every reading (green valid, red invalid,
-amber outlier). Every drag saves the ROI at once. A second, purple box
-(`date_roi_by_key`, default just left of the time box) is read once per
-clip with `ocr_date_from_frame` and `parse_cctv_date` (the camera always
-writes `DD/MM/YYYY`; slashes the OCR reads as 7 are tolerated by reading
-the ten characters by position). When the first frame's date is the
-camera's unset default (01/01/1970) or differs from the filename,
-`find_date_change_frame` / `locate_date_change` scan the clip for the
-frame where the date changes (one read a second, then a bisection). The
-window reports the change and how many frames the camera took to sync,
-and the clock is then read from that frame on the synced date; the
-automatic sync does the same when a date box is saved for the system.
+amber outlier). A second, purple box (`date_roi_by_key`, default just
+left of the time box) carries the date. The window follows a fixed
+procedure (Chris, 2026-09-12; the "?" button at the top draws it as a
+flowchart, `_draw_help_flowchart`):
+
+- **A.** use the Date and Time boxes as placed;
+- **B.** read frame 1's date with `ocr_date_from_frame` and
+  `parse_cctv_date` (the camera always writes `DD/MM/YYYY`; slashes the
+  OCR reads as 7 are tolerated by reading the ten characters by position);
+- **C.** compare it with the filename date; a match means the camera was
+  synced from the start, so skip to F;
+- **D.** otherwise `find_date_change_frame` / `locate_date_change` scan
+  the clip for the frame where the date changes from frame 1's (one read a
+  second, then every frame between the last old and first new reading);
+- **E.** that frame's date is shown in the "Date (frame x)" panel and
+  judged against the filename date: green when they agree, red when not,
+  and red "none" when the date never changes;
+- **F.** the clock checks read from that frame on the synced date;
+- **G.** dragging the date box waits two seconds (`_date_recheck_timer`)
+  and reruns from A;
+- **H.** the Date and Time box ratios are then stored in
+  `ocr_settings.json` for the camera (`_store_box_locations`).
+
+The automatic sync when a clip opens does the same date scan when a date
+box is saved for the system.
 "Sync Time" in the dialog runs the same four-stage analysis with the
 sliders' ROI and applies the result through `_on_offset_approved`, which
 stores it and re-syncs the logs. The approval dialog that exists in the
