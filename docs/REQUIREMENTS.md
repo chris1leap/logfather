@@ -24,6 +24,16 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Date procedure (Chris, 2026-09-12), in the Sync CCTV Time window: A. use
+  the date and time boxes as placed; B. read the date on frame 1; C. if
+  it matches the filename date, skip to F; D. otherwise scan the clip for
+  the frame where the date changes from frame 1's; E. show that frame's
+  date in the "Date (frame x)" panel and mark it green when it matches
+  the filename date, red when not (or red "none" when it never changes);
+  F. the clock checks carry on from that frame; G. dragging the date box
+  waits two seconds and then reruns from A; H. the date and time box
+  locations are then stored (ocr_settings.json, per camera). A "?" button
+  at the top of the window opens a flowchart of these steps.
 - Date box re-read after dragging stops (Chris, 2026-09-12): the purple
   box's date is read again two seconds after the last drag, not on every
   move, so another corner can be pulled first.

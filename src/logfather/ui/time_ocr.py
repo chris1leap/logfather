@@ -818,6 +818,11 @@ class OcrVideoPlayer(QWidget):
 
         # Top left: the clip's filename time, hovering shows the full name
         # (Chris, 2026-09-12).
+        # A "?" at the top opens a flowchart of the steps (Chris, 2026-09-12).
+        self.help_btn = QPushButton("?")
+        self.help_btn.setFixedSize(26, 26)
+        self.help_btn.setToolTip("How the date and time sync works")
+        self.help_btn.clicked.connect(self._show_help_flowchart)
         self.filename_date_label = QLabel("Filename date: –")
         self.filename_date_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.cctv_date_label = QLabel("CCTV date: \u2013")
@@ -831,7 +836,11 @@ class OcrVideoPlayer(QWidget):
         self.filename_time_label = QLabel("Filename time: –")
         self.filename_time_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         left_layout = QVBoxLayout()
-        left_layout.addWidget(self.filename_date_label)
+        top_row = QHBoxLayout()
+        top_row.addWidget(self.filename_date_label)
+        top_row.addStretch(1)
+        top_row.addWidget(self.help_btn)
+        left_layout.addLayout(top_row)
         left_layout.addWidget(self.filename_time_label)
         left_layout.addWidget(self.cctv_date_label)
         left_layout.addWidget(self.date_sync_label)
@@ -910,6 +919,90 @@ class OcrVideoPlayer(QWidget):
         name = Path(self.current_video_path).name if self.current_video_path else ""
         self.filename_date_label.setToolTip(name)
         self.filename_time_label.setToolTip(name)
+
+    HELP_STEPS = (
+        ("A", "Load the Date and Time boxes as placed on the picture", None),
+        ("B", "Read the date on frame 1", None),
+        ("C", "Does the frame 1 date match the filename date?", "decision"),
+        ("D", "No: check the date on each frame against the previous frame", None),
+        ("E", "Date changed: show it as Date (frame x); green if it matches the filename, red if not", None),
+        ("F", "Yes / then: carry on with the time checks (Sync Time reads the clock from that frame)", None),
+        ("G", "Date box moved? Wait two seconds, then start again from A", "loop"),
+        ("H", "Store the new Date and Time box locations", None),
+    )
+
+    def _show_help_flowchart(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Sync CCTV Time - how it works")
+        layout = QVBoxLayout(dlg)
+        pic = QLabel()
+        pic.setPixmap(self._draw_help_flowchart())
+        layout.addWidget(pic)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.accept)
+        layout.addWidget(close, 0, Qt.AlignRight)
+        dlg.exec()
+
+    def _draw_help_flowchart(self) -> QPixmap:
+        """The steps as boxes down the page; C is a diamond whose Yes edge
+        skips to F, and G loops back to A."""
+        width, box_h, gap = 620, 46, 22
+        rows = len(self.HELP_STEPS)
+        height = 30 + rows * (box_h + gap) + 20
+        pm = QPixmap(width, height)
+        pm.fill(QColor("#0d1116"))
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.Antialiasing)
+        font = painter.font()
+        font.setPointSize(10)
+        painter.setFont(font)
+        left, box_w = 40, width - 120
+        centres = []
+        for i, (letter, text, kind) in enumerate(self.HELP_STEPS):
+            top = 30 + i * (box_h + gap)
+            rect = QRect(left, top, box_w, box_h)
+            colour = QColor("#c77dff") if letter in ("B", "D", "E") else (QColor("#00ff5a") if letter == "F" else QColor("#9aa0a6"))
+            painter.setPen(QPen(colour, 2))
+            painter.setBrush(QBrush(QColor("#151b22")))
+            if kind == "decision":
+                from PySide6.QtGui import QPolygonF
+                from PySide6.QtCore import QPointF
+                cx, cy = rect.center().x(), rect.center().y()
+                painter.drawPolygon(QPolygonF([QPointF(cx, top - 10), QPointF(rect.right() + 24, cy), QPointF(cx, rect.bottom() + 10), QPointF(rect.left() - 24, cy)]))
+            else:
+                painter.drawRoundedRect(rect, 8, 8)
+            painter.setPen(QColor("#ecf0f4"))
+            painter.drawText(rect.adjusted(12, 0, -12, 0), Qt.AlignVCenter | Qt.AlignLeft | Qt.TextWordWrap, f"{letter}.  {text}")
+            centres.append((rect.center().x(), top, rect.bottom()))
+            if i > 0:
+                _px, _pt, prev_bottom = centres[i - 1]
+                painter.setPen(QPen(QColor("#9aa0a6"), 2))
+                painter.drawLine(rect.center().x(), prev_bottom + 6, rect.center().x(), top - 6)
+                painter.drawLine(rect.center().x(), top - 6, rect.center().x() - 5, top - 12)
+                painter.drawLine(rect.center().x(), top - 6, rect.center().x() + 5, top - 12)
+        # C's Yes edge down the right-hand side to F, G's loop up the left to A
+        c_cx, c_top, c_bottom = centres[2]
+        f_cx, f_top, f_bottom = centres[5]
+        x_right = left + box_w + 50
+        painter.setPen(QPen(QColor("#00ff5a"), 2))
+        painter.drawLine(left + box_w + 20, (c_top + c_bottom) // 2, x_right, (c_top + c_bottom) // 2)
+        painter.drawLine(x_right, (c_top + c_bottom) // 2, x_right, (f_top + f_bottom) // 2)
+        painter.drawLine(x_right, (f_top + f_bottom) // 2, left + box_w + 4, (f_top + f_bottom) // 2)
+        painter.drawText(left + box_w + 24, (c_top + c_bottom) // 2 - 6, "Yes")
+        painter.setPen(QPen(QColor("#9aa0a6"), 2))
+        painter.drawText(c_cx + 8, c_bottom + 16, "No")
+        g_cx, g_top, g_bottom = centres[6]
+        painter.drawText(g_cx + 8, g_bottom + 16, "No")
+        painter.setPen(QPen(QColor("#f0ad4e"), 2))
+        painter.drawText(left - 26, (g_top + g_bottom) // 2 - 6, "Yes")
+        a_cx, a_top, a_bottom = centres[0]
+        x_left = 14
+        painter.setPen(QPen(QColor("#f0ad4e"), 2))
+        painter.drawLine(left, (g_top + g_bottom) // 2, x_left, (g_top + g_bottom) // 2)
+        painter.drawLine(x_left, (g_top + g_bottom) // 2, x_left, (a_top + a_bottom) // 2)
+        painter.drawLine(x_left, (a_top + a_bottom) // 2, left - 2, (a_top + a_bottom) // 2)
+        painter.end()
+        return pm
 
     def _open_video_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -1253,15 +1346,27 @@ class OcrVideoPlayer(QWidget):
         self._dragged_date_roi = Roi(roi.x, roi.y, roi.w, roi.h)
         self._dragged_frame_size = (frame_w, frame_h)
         self._date_ratios = roi_to_ratios(roi, frame_w, frame_h)
-        if self._roi_settings_path and self._roi_settings_key:
-            save_roi_settings(self._roi_settings_path, self._roi_settings_key, self._date_ratios, section="date_roi_by_key")
         self._rerender()
         self._date_recheck_timer.start()
 
     def _recheck_date_after_drag(self) -> None:
+        """Step G: the date box changed, so run the whole procedure again,
+        then H: store where the boxes now are."""
         if self._last_frame is None or self._closing:
             return
         self._check_cctv_date(self._first_frame() or self._last_frame)
+        self._rerender()
+        self._store_box_locations()
+
+    def _store_box_locations(self) -> None:
+        """Step H: save the date and time box positions (as ratios of the
+        frame) to ocr_settings.json for this camera."""
+        self._save_roi_settings()
+        if self._roi_settings_path and self._roi_settings_key and self._date_ratios is not None:
+            try:
+                save_roi_settings(self._roi_settings_path, self._roi_settings_key, self._date_ratios, section="date_roi_by_key")
+            except Exception:
+                pass
 
     def _first_frame(self) -> np.ndarray | None:
         """Frame 1 of the open clip, cached for the clip's lifetime."""
@@ -1277,56 +1382,78 @@ class OcrVideoPlayer(QWidget):
         return frame
 
     def _check_cctv_date(self, frame_bgr: np.ndarray) -> None:
-        """Read the date box once and compare it with the filename date."""
+        """The date procedure (Chris, 2026-09-12), run when a clip opens and
+        again two seconds after the date box was last dragged:
+
+        A. use the date and time boxes as placed;
+        B. read the date on frame 1;
+        C. compare it with the filename date - a match means the camera was
+           synced from the start, so skip to F;
+        D. otherwise scan the clip for the frame where the date changes
+           from what frame 1 showed (one read a second, then every frame
+           between the last old and the first new reading);
+        E. show that frame's date in the "Date (frame x)" panel and compare
+           it with the filename date: green when they agree, red when not;
+        F. the clock checks carry on as before, reading from that frame;
+        G. a moved date box waits two seconds and reruns from A;
+        H. the date and time box locations are stored.
+        """
+        # A + B: frame 1, the date box as placed
+        first = self._first_frame()
+        if first is None:
+            first = frame_bgr
+        self.date_sync_frame = None
+        self.cctv_synced_date = None
+        self.date_sync_label.hide()
+        self.synced_date_caption.hide()
+        self.synced_date_preview.hide()
         if not self.ocr_available:
             self.cctv_date_label.setText("CCTV date: OCR not available")
             self.cctv_date_label.setStyleSheet("")
             return
-        frame_h, frame_w = frame_bgr.shape[:2]
+        frame_h, frame_w = first.shape[:2]
         try:
-            text = ocr_date_from_frame(frame_bgr, roi=self._current_date_roi(frame_w, frame_h))
+            text = ocr_date_from_frame(first, roi=self._current_date_roi(frame_w, frame_h))
         except Exception as exc:
             self.cctv_date_label.setText(f"CCTV date: OCR error: {exc}")
             self.cctv_date_label.setStyleSheet("")
             return
         self.cctv_date = parse_cctv_date(text)
+        filename_date = self.filename_dt.date() if self.filename_dt is not None else None
+        # C: frame 1 against the filename
         if self.cctv_date is None:
-            self.cctv_date_label.setText(f"CCTV date: not read ({text.strip() or 'blank'}) - drag the purple box onto the date")
+            self.cctv_date_label.setText(f"CCTV date: not read on frame 1 ({text.strip() or 'blank'})")
             self.cctv_date_label.setStyleSheet("color: #9aa0a6;")
-            return
-        shown = self.cctv_date.strftime("%d-%m-%Y")
-        if self.cctv_date == _epoch_date():
-            # 01/01/1970 is the camera's factory default: the date was never
-            # set, though the time of day still runs (Chris, 2026-09-12).
-            self.cctv_date_label.setText("CCTV date: 01/01/1970 on the first frame - the camera had not synced yet")
-            self.cctv_date_label.setStyleSheet("color: #f0ad4e;")
-            self._scan_for_date_sync()
-            return
-        if self.filename_dt is None:
-            self.cctv_date_label.setText(f"CCTV date: {shown}")
-            self.cctv_date_label.setStyleSheet("")
-        elif self.cctv_date == self.filename_dt.date():
-            self.cctv_date_label.setText(f"CCTV date: {shown} - matches the filename")
+        elif filename_date is not None and self.cctv_date == filename_date:
+            self.cctv_date_label.setText(f"CCTV date: {self.cctv_date:%d/%m/%Y} on frame 1 - matches the filename")
             self.cctv_date_label.setStyleSheet("color: #2ecc71;")
             self.date_sync_frame = 0
             self.cctv_synced_date = self.cctv_date
-            self.date_sync_label.hide()
+            return  # F
+        elif self.cctv_date == _epoch_date():
+            self.cctv_date_label.setText("CCTV date: 01/01/1970 on frame 1 - the camera had not synced yet")
+            self.cctv_date_label.setStyleSheet("color: #f0ad4e;")
+        elif filename_date is None:
+            self.cctv_date_label.setText(f"CCTV date: {self.cctv_date:%d/%m/%Y} on frame 1 (no filename date to compare)")
+            self.cctv_date_label.setStyleSheet("")
+            return
         else:
-            self.cctv_date_label.setText(f"CCTV date: {shown} - DIFFERS from the filename ({self.filename_dt:%d-%m-%Y})")
-            self.cctv_date_label.setStyleSheet("color: #ff7a70; font-weight: bold;")
-            self._scan_for_date_sync()
+            self.cctv_date_label.setText(f"CCTV date: {self.cctv_date:%d/%m/%Y} on frame 1 - differs from the filename ({filename_date:%d/%m/%Y})")
+            self.cctv_date_label.setStyleSheet("color: #f0ad4e;")
+        # D + E
+        self._scan_for_date_sync(filename_date)
 
-    def _scan_for_date_sync(self) -> None:
-        """Frame by frame (a coarse read a second, then a bisection), find
-        where the burnt-in date changes; the clock is read from there and
-        the clip is dated by the new date (Chris, 2026-09-12)."""
-        if self.cap is None or self.fps <= 0 or self.frame_count <= 0 or not self.ocr_available:
+    def _scan_for_date_sync(self, filename_date) -> None:
+        """Steps D and E: find the frame where the burnt-in date changes
+        from frame 1's, show it, and judge it against the filename date."""
+        if self.cap is None or self.fps <= 0 or self.frame_count <= 0:
             return
-        frame_h, frame_w = self._last_frame.shape[:2] if self._last_frame is not None else (0, 0)
-        if frame_w <= 0:
+        first = self._first_frame()
+        if first is None:
             return
+        frame_h, frame_w = first.shape[:2]
         date_roi = self._current_date_roi(frame_w, frame_h)
-        progress = QProgressDialog("Scanning for the camera's date sync...", None, 0, max(1, self.frame_count), self)
+        progress = QProgressDialog("Checking each frame for the camera's date change...", None, 0, max(1, self.frame_count), self)
         progress.setWindowTitle("Camera date")
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
@@ -1342,21 +1469,28 @@ class OcrVideoPlayer(QWidget):
             progress.close()
         initial = self.cctv_date.strftime("%d/%m/%Y") if self.cctv_date else "unreadable"
         if change is None:
-            self.date_sync_frame = None
-            self.cctv_synced_date = None
             self.date_sync_label.setText(f"Camera date sync: none - the date stayed {initial} for the whole clip")
             self.date_sync_label.setStyleSheet("color: #ff7a70; font-weight: bold;")
+            self.date_sync_label.setToolTip("The camera never synced its date in this clip, so its clock cannot be trusted here")
             self.date_sync_label.show()
             return
         change_frame, _initial_date, new_date = change
         self.date_sync_frame = int(change_frame)
         self.cctv_synced_date = new_date
-        self.date_sync_label.setText(f"Camera date sync: {initial} -> {new_date:%d/%m/%Y} (frame {change_frame + 1})")
-        self.date_sync_label.setStyleSheet("color: #2ecc71;")
-        self.date_sync_label.setToolTip(f"{change_frame} frames ({change_frame / self.fps:.1f} s) before the camera synced; the clip is dated {new_date:%d/%m/%Y} and the clock is read from that frame")
+        agrees = filename_date is not None and new_date == filename_date
+        if agrees:
+            verdict = "matches the filename"
+        elif filename_date is not None:
+            verdict = f"does NOT match the filename ({filename_date:%d/%m/%Y})"
+        else:
+            verdict = "no filename date to compare"
+        self.date_sync_label.setText(f"Camera date sync: {initial} -> {new_date:%d/%m/%Y} (frame {change_frame + 1}) - {verdict}")
+        self.date_sync_label.setStyleSheet("color: #2ecc71;" if agrees else "color: #ff7a70; font-weight: bold;")
+        self.date_sync_label.setToolTip(f"{change_frame} frames ({change_frame / self.fps:.1f} s) before the camera synced; the clock is read from that frame on {new_date:%d/%m/%Y}")
         self.date_sync_label.show()
-        self._add_history_entry(f"{change_frame + 1:>7}  date {initial} -> {new_date:%d/%m/%Y}", "valid")
+        self._add_history_entry(f"{change_frame + 1:>7}  date {initial} -> {new_date:%d/%m/%Y}", "valid" if agrees else None)
         self._show_synced_date_preview(change_frame, date_roi)
+        self.synced_date_caption.setStyleSheet("color: #2ecc71; font-weight: bold;" if agrees else "color: #ff7a70; font-weight: bold;")
         if self.cap is not None:
             self._read_and_show(self.date_sync_frame)
 
