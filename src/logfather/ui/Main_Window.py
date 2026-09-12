@@ -446,6 +446,9 @@ class MainWindow(QWidget):
         # The main camera's Sync Time button sits in the top bar, left of
         # Conveyor (Chris, 2026-09-12); it used to live in the sync strip.
         self.viewer.video_sync_btn.setFixedWidth(110)
+        strip = self.viewer.video_sync_btn.parentWidget()
+        if strip is not None and strip.layout() is not None:
+            strip.layout().removeWidget(self.viewer.video_sync_btn)
         top_controls.addWidget(self.viewer.video_sync_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.calibrate_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
