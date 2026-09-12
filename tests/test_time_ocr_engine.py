@@ -85,10 +85,10 @@ def test_combine_does_not_roll_back_a_clock_behind_the_filename_across_midnight(
 
 def test_roi_top_center_time_defaults_and_clamps():
     roi = Roi.top_center_time(1920, 1080)
-    assert (roi.w, roi.h) == (int(1920 * 0.22), int(1080 * 0.06))
-    assert roi.x == int((1920 - roi.w) / 2) and roi.y == int(1080 * 0.013)
+    assert (roi.w, roi.h) == (round(1920 * 0.22), round(1080 * 0.06))
+    assert roi.x == round((1920 - roi.w) / 2) and roi.y == round(1080 * 0.013)
     wide = Roi.top_center_time(1920, 1080, width_ratio=5.0, height_ratio=0.0, y_offset_ratio=2.0)
-    assert wide.w == 1920 and wide.h == int(1080 * 0.01) and wide.y == int(1080 * 0.9)
+    assert wide.w == 1920 and wide.h == round(1080 * 0.01) and wide.y == round(1080 * 0.9)
 
 
 def test_roi_x_offset_shifts_the_box():
@@ -172,7 +172,7 @@ def test_roi_to_ratios_round_trips_through_top_center_time():
     ratios = roi_to_ratios(roi, frame_w, frame_h)
     back = Roi.top_center_time(frame_w, frame_h, width_ratio=ratios.width_ratio, height_ratio=ratios.height_ratio,
                                y_offset_ratio=ratios.y_offset_ratio, x_offset_ratio=ratios.x_offset_ratio)
-    assert abs(back.x - roi.x) <= 1 and abs(back.y - roi.y) <= 1 and abs(back.w - roi.w) <= 1 and abs(back.h - roi.h) <= 1
+    assert (back.x, back.y, back.w, back.h) == (roi.x, roi.y, roi.w, roi.h)
 
 
 def test_roi_to_ratios_clamps_to_the_roi_limits():

@@ -73,10 +73,10 @@ class Roi:
         height_ratio = max(0.01, min(1.0, float(height_ratio)))
         y_offset_ratio = max(0.0, min(0.9, float(y_offset_ratio)))
 
-        w = max(1, int(frame_w * width_ratio))
-        h = max(1, int(frame_h * height_ratio))
-        x = max(0, int((frame_w - w) / 2))
-        y = max(0, int(frame_h * y_offset_ratio))
+        w = max(1, int(round(frame_w * width_ratio)))
+        h = max(1, int(round(frame_h * height_ratio)))
+        x = max(0, int(round((frame_w - w) / 2)))
+        y = max(0, int(round(frame_h * y_offset_ratio)))
         return cls(x=x, y=y, w=w, h=h)
 
     def crop(self, frame_bgr: np.ndarray) -> np.ndarray:
@@ -107,7 +107,7 @@ class Roi:
         )
         if abs(x_offset_ratio) < 1e-6:
             return roi
-        shift = int(frame_w * x_offset_ratio)
+        shift = int(round(frame_w * x_offset_ratio))
         return cls(x=roi.x + shift, y=roi.y, w=roi.w, h=roi.h)
 
 
@@ -636,6 +636,10 @@ class OcrVideoPlayer(QWidget):
         # shift under the box while it is dragged (Chris, 2026-09-12); it
         # is chosen again when the zoom tick changes or a clip opens.
         self._zoom_view: QRect | None = None
+        # The box as dragged, in frame pixels: used as-is so the far corners
+        # never shift from ratio rounding (Chris, 2026-09-12).
+        self._dragged_roi: Roi | None = None
+        self._dragged_frame_size: tuple[int, int] | None = None
 
         self.ocr_label = QLabel("OCR: (not running)")
         self.ocr_label.setAlignment(Qt.AlignCenter)
@@ -765,6 +769,8 @@ class OcrVideoPlayer(QWidget):
 
     def open_video(self, path: str):
         self._zoom_view = None
+        self._dragged_roi = None
+        self._dragged_frame_size = None
         if self.cap is not None:
             self.cap.release()
             self.cap = None
@@ -979,6 +985,8 @@ class OcrVideoPlayer(QWidget):
         self.ocr_history.scrollToBottom()
 
     def _current_roi(self, frame_w: int, frame_h: int) -> Roi:
+        if self._dragged_roi is not None and self._dragged_frame_size == (frame_w, frame_h):
+            return self._dragged_roi
         r = self._roi_ratios
         return Roi.top_center_time(
             frame_w,
@@ -1001,6 +1009,8 @@ class OcrVideoPlayer(QWidget):
         if self._last_frame is None:
             return
         frame_h, frame_w = self._last_frame.shape[:2]
+        self._dragged_roi = Roi(roi.x, roi.y, roi.w, roi.h)
+        self._dragged_frame_size = (frame_w, frame_h)
         self._roi_ratios = roi_to_ratios(roi, frame_w, frame_h)
         self._update_roi_label()
         self._save_roi_settings()

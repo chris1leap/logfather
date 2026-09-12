@@ -34,7 +34,9 @@ Living record of agreed functionality: what is open, and what has shipped
   (a "Zoom to the clock area" tick shows the whole frame instead); the
   zoomed band stays put while the box is dragged, and is chosen afresh
   when the tick changes or a clip opens. The live OCR readout follows the
-  box as it moves.
+  box as it moves. Dragging a corner moves only that corner and its two
+  neighbours: the box is kept exactly as dragged while the window is
+  open, and the ratio maths rounds rather than truncates.
 - Drift tool in the top bar (Chris, 2026-09-12): the Drift caption,
   slider and readout sit in the top bar to the left of Sync, always
   visible with the other viewer tools, instead of inside the sync strip.
