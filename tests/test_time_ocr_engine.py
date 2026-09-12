@@ -17,6 +17,7 @@ from logfather.ui.time_ocr import (
     _preprocess_for_ocr,
     _time_text_to_seconds,
     parse_filename_datetime,
+    roi_to_ratios,
 )
 
 BASE = datetime(2026, 9, 12, 6, 54, 16)
@@ -161,3 +162,19 @@ def test_preprocess_scales_and_binarises():
     assert set(np.unique(out).tolist()) <= {0, 255}
     # invert=True turns the light digits black on white for Tesseract
     assert out[20, 80] == 0 and out[2, 2] == 255
+
+
+# ---- the dragged box back to ratios -----------------------------------------
+
+def test_roi_to_ratios_round_trips_through_top_center_time():
+    frame_w, frame_h = 1920, 1080
+    roi = Roi(x=700, y=30, w=500, h=70)
+    ratios = roi_to_ratios(roi, frame_w, frame_h)
+    back = Roi.top_center_time(frame_w, frame_h, width_ratio=ratios.width_ratio, height_ratio=ratios.height_ratio,
+                               y_offset_ratio=ratios.y_offset_ratio, x_offset_ratio=ratios.x_offset_ratio)
+    assert abs(back.x - roi.x) <= 1 and abs(back.y - roi.y) <= 1 and abs(back.w - roi.w) <= 1 and abs(back.h - roi.h) <= 1
+
+
+def test_roi_to_ratios_clamps_to_the_roi_limits():
+    ratios = roi_to_ratios(Roi(x=0, y=1075, w=2, h=1), 1920, 1080)
+    assert ratios.width_ratio == 0.01 and ratios.height_ratio == 0.01 and ratios.y_offset_ratio == 0.9

@@ -135,10 +135,13 @@ clip then runs on the filename time.
 
 ### The Sync Time button (manual ROI tool)
 
-`open_ocr_roi_tool` opens `OcrVideoPlayer`: a scrubbable frame, four ROI
-sliders (1 % steps), a live "OCR: 12:34:56 (valid)" readout, the
-Tesseract status, and a colour-coded history of every reading (green
-valid, red invalid, amber outlier). Moving a slider saves the ROI at once.
+`open_ocr_roi_tool` opens `OcrVideoPlayer`: a scrubbable frame zoomed to
+the band around the clock (a tick shows the whole frame), the green OCR
+box dragged on the picture by its corners, edges or middle
+(`RoiEditorLabel`; `roi_to_ratios` turns the box back into the saved
+ratios), a live "OCR: 12:34:56 (valid)" readout, the Tesseract status,
+and a colour-coded history of every reading (green valid, red invalid,
+amber outlier). Every drag saves the ROI at once.
 "Sync Time" in the dialog runs the same four-stage analysis with the
 sliders' ROI and applies the result through `_on_offset_approved`, which
 stores it and re-syncs the logs. The approval dialog that exists in the

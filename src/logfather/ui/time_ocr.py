@@ -18,8 +18,8 @@ import numpy as np
 import shutil
 import subprocess
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QImage, QPixmap
+from PySide6.QtCore import Qt, QTimer, QRect, QPoint, Signal
+from PySide6.QtGui import QColor, QImage, QPixmap, QPainter, QPen, QBrush
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -129,6 +129,192 @@ class ScrubbableLabel(QLabel):
         elif delta < 0:
             self._scrub_callback(1)
         event.accept()
+
+
+def roi_to_ratios(roi: "Roi", frame_w: int, frame_h: int) -> "RoiSettings":
+    """The inverse of Roi.top_center_time: the ratios that reproduce a box
+    given in frame pixels (Chris, 2026-09-12: the box is dragged on the
+    picture now, the ratios are what gets saved)."""
+    frame_w = max(1, int(frame_w))
+    frame_h = max(1, int(frame_h))
+    w = max(1, int(roi.w))
+    h = max(1, int(roi.h))
+    width_ratio = max(0.01, min(1.0, w / frame_w))
+    height_ratio = max(0.01, min(1.0, h / frame_h))
+    y_offset_ratio = max(0.0, min(0.9, roi.y / frame_h))
+    centred_x = (frame_w - w) / 2
+    x_offset_ratio = (roi.x - centred_x) / frame_w
+    return RoiSettings(width_ratio, height_ratio, y_offset_ratio, x_offset_ratio)
+
+
+class RoiEditorLabel(ScrubbableLabel):
+    """The OCR window's picture: shows a region of the frame (zoomed to the
+    clock by default) with the OCR box drawn over it, and lets the box be
+    dragged by its edges, corners or middle (Chris, 2026-09-12: sliders
+    were far harder). Emits roi_changed with the box in frame pixels."""
+
+    roi_changed = Signal(object)  # Roi, frame pixels
+    HANDLE = 8
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self._frame: QPixmap | None = None
+        self._view = QRect()
+        self._roi: Roi | None = None
+        self._drag: tuple[str, QPoint, Roi] | None = None
+        self.setMouseTracking(True)
+
+    def set_picture(self, frame: QPixmap | None, view: QRect, roi: Roi | None) -> None:
+        self._frame = frame
+        self._view = QRect(view)
+        self._roi = roi
+        if frame is None:
+            self.setText("Open a video to start")
+        else:
+            self.setText("")
+        self.update()
+
+    # ---- geometry
+    def _placement(self) -> tuple[float, float, float] | None:
+        """(scale, x0, y0): the displayed view rect in label pixels."""
+        if self._frame is None or self._view.width() <= 0 or self._view.height() <= 0:
+            return None
+        scale = min(self.width() / self._view.width(), self.height() / self._view.height())
+        if scale <= 0:
+            return None
+        x0 = (self.width() - self._view.width() * scale) / 2
+        y0 = (self.height() - self._view.height() * scale) / 2
+        return scale, x0, y0
+
+    def _to_label(self, fx: float, fy: float) -> tuple[float, float]:
+        scale, x0, y0 = self._placement()
+        return x0 + (fx - self._view.x()) * scale, y0 + (fy - self._view.y()) * scale
+
+    def _to_frame(self, lx: float, ly: float) -> tuple[float, float]:
+        scale, x0, y0 = self._placement()
+        return self._view.x() + (lx - x0) / scale, self._view.y() + (ly - y0) / scale
+
+    def _roi_label_rect(self):
+        if self._roi is None or self._placement() is None:
+            return None
+        x1, y1 = self._to_label(self._roi.x, self._roi.y)
+        x2, y2 = self._to_label(self._roi.x + self._roi.w, self._roi.y + self._roi.h)
+        return QRect(int(round(x1)), int(round(y1)), max(1, int(round(x2 - x1))), max(1, int(round(y2 - y1))))
+
+    def _hit(self, pos: QPoint) -> str | None:
+        rect = self._roi_label_rect()
+        if rect is None:
+            return None
+        m = self.HANDLE
+        near_l = abs(pos.x() - rect.left()) <= m
+        near_r = abs(pos.x() - rect.right()) <= m
+        near_t = abs(pos.y() - rect.top()) <= m
+        near_b = abs(pos.y() - rect.bottom()) <= m
+        inside_x = rect.left() - m <= pos.x() <= rect.right() + m
+        inside_y = rect.top() - m <= pos.y() <= rect.bottom() + m
+        if near_l and near_t and inside_x and inside_y:
+            return "tl"
+        if near_r and near_t and inside_x and inside_y:
+            return "tr"
+        if near_l and near_b and inside_x and inside_y:
+            return "bl"
+        if near_r and near_b and inside_x and inside_y:
+            return "br"
+        if near_l and inside_y:
+            return "l"
+        if near_r and inside_y:
+            return "r"
+        if near_t and inside_x:
+            return "t"
+        if near_b and inside_x:
+            return "b"
+        if rect.contains(pos):
+            return "move"
+        return None
+
+    _CURSORS = {"tl": Qt.SizeFDiagCursor, "br": Qt.SizeFDiagCursor, "tr": Qt.SizeBDiagCursor, "bl": Qt.SizeBDiagCursor,
+                "l": Qt.SizeHorCursor, "r": Qt.SizeHorCursor, "t": Qt.SizeVerCursor, "b": Qt.SizeVerCursor, "move": Qt.SizeAllCursor}
+
+    # ---- painting
+    def paintEvent(self, event):
+        if self._frame is None or self._placement() is None:
+            super().paintEvent(event)
+            return
+        scale, x0, y0 = self._placement()
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#000000"))
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        target = QRect(int(round(x0)), int(round(y0)), int(round(self._view.width() * scale)), int(round(self._view.height() * scale)))
+        painter.drawPixmap(target, self._frame, self._view)
+        rect = self._roi_label_rect()
+        if rect is not None:
+            pen = QPen(QColor("#00ff5a"))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(rect)
+            painter.setBrush(QBrush(QColor("#00ff5a")))
+            painter.setPen(QPen(QColor("#003a14"), 1))
+            h = self.HANDLE
+            for cx, cy in ((rect.left(), rect.top()), (rect.right(), rect.top()), (rect.left(), rect.bottom()), (rect.right(), rect.bottom()),
+                           (rect.center().x(), rect.top()), (rect.center().x(), rect.bottom()), (rect.left(), rect.center().y()), (rect.right(), rect.center().y())):
+                painter.drawRect(QRect(int(cx - h / 2), int(cy - h / 2), h, h))
+        painter.end()
+
+    # ---- mouse
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._roi is not None:
+            hit = self._hit(event.position().toPoint())
+            if hit:
+                self._drag = (hit, event.position().toPoint(), Roi(self._roi.x, self._roi.y, self._roi.w, self._roi.h))
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        pos = event.position().toPoint()
+        if self._drag is None:
+            hit = self._hit(pos) if self._roi is not None else None
+            self.setCursor(self._CURSORS.get(hit, Qt.ArrowCursor))
+            super().mouseMoveEvent(event)
+            return
+        kind, start, base = self._drag
+        placement = self._placement()
+        if placement is None:
+            return
+        scale = placement[0]
+        dx = (pos.x() - start.x()) / scale
+        dy = (pos.y() - start.y()) / scale
+        fw, fh = self._frame.width(), self._frame.height()
+        x, y, w, h = base.x, base.y, base.w, base.h
+        if kind == "move":
+            x, y = x + dx, y + dy
+        else:
+            if "l" in kind:
+                x, w = x + dx, w - dx
+            if "r" in kind:
+                w = w + dx
+            if "t" in kind:
+                y, h = y + dy, h - dy
+            if "b" in kind:
+                h = h + dy
+        w = max(8.0, w)
+        h = max(4.0, h)
+        x = max(0.0, min(fw - w, x))
+        y = max(0.0, min(fh - h, y))
+        self._roi = Roi(int(round(x)), int(round(y)), int(round(w)), int(round(h)))
+        self.update()
+        self.roi_changed.emit(self._roi)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._drag is not None and event.button() == Qt.LeftButton:
+            self._drag = None
+            if self._roi is not None:
+                self.roi_changed.emit(self._roi)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 @dataclass(frozen=True)
@@ -440,10 +626,12 @@ class OcrVideoPlayer(QWidget):
         self.estimated_start_dt: datetime | None = None
         self.time_frame_offset = 1
 
-        self.video_label = ScrubbableLabel("Open a video to start")
+        self.video_label = RoiEditorLabel("Open a video to start")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setMinimumSize(640, 360)
         self.video_label.set_scrub_callback(self._scrub_by_frames)
+        self.video_label.roi_changed.connect(self._on_roi_dragged)
+        self._last_frame: np.ndarray | None = None
 
         self.ocr_label = QLabel("OCR: (not running)")
         self.ocr_label.setAlignment(Qt.AlignCenter)
@@ -478,10 +666,12 @@ class OcrVideoPlayer(QWidget):
         if self._roi_settings_path and self._roi_settings_key:
             saved_roi = load_roi_settings(self._roi_settings_path, self._roi_settings_key)
         roi = saved_roi or default_roi
-        self.width_slider = self._make_ratio_slider(roi.width_ratio)
-        self.height_slider = self._make_ratio_slider(roi.height_ratio)
-        self.y_offset_slider = self._make_ratio_slider(roi.y_offset_ratio)
-        self.x_offset_slider = self._make_ratio_slider(roi.x_offset_ratio, signed=True)
+        # The box is dragged on the picture (Chris, 2026-09-12); these ratios
+        # are the saved form, kept in step with every drag.
+        self._roi_ratios = RoiSettings(roi.width_ratio, roi.height_ratio, roi.y_offset_ratio, roi.x_offset_ratio)
+        self.zoom_checkbox = QCheckBox("Zoom to the clock area")
+        self.zoom_checkbox.setChecked(True)
+        self.zoom_checkbox.setToolTip("Show just the top of the picture around the OCR box; untick to see the whole frame")
         self._roi_label = QLabel("")
         self._update_roi_label()
 
@@ -494,14 +684,11 @@ class OcrVideoPlayer(QWidget):
         left_layout.addWidget(self.offset_label)
         left_layout.addWidget(self.time_label)
         left_layout.addWidget(self.status_label)
-        left_layout.addWidget(QLabel("ROI width"))
-        left_layout.addWidget(self.width_slider)
-        left_layout.addWidget(QLabel("ROI height"))
-        left_layout.addWidget(self.height_slider)
-        left_layout.addWidget(QLabel("ROI Y offset"))
-        left_layout.addWidget(self.y_offset_slider)
-        left_layout.addWidget(QLabel("ROI X offset"))
-        left_layout.addWidget(self.x_offset_slider)
+        hint = QLabel("Drag the green box onto the clock: pull a corner or edge to resize, the middle to move.")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setWordWrap(True)
+        left_layout.addWidget(hint)
+        left_layout.addWidget(self.zoom_checkbox)
         left_layout.addWidget(self._roi_label)
         left_layout.addWidget(self.sync_btn)
 
@@ -523,10 +710,7 @@ class OcrVideoPlayer(QWidget):
         QTimer.singleShot(0, self._update_tesseract_status)
         self._closing = False
 
-        self.width_slider.valueChanged.connect(self._on_roi_changed)
-        self.height_slider.valueChanged.connect(self._on_roi_changed)
-        self.y_offset_slider.valueChanged.connect(self._on_roi_changed)
-        self.x_offset_slider.valueChanged.connect(self._on_roi_changed)
+        self.zoom_checkbox.stateChanged.connect(lambda _s: self._rerender())
         self._load_roi_settings()
         self.ocr_enabled_checkbox.stateChanged.connect(self._on_ocr_toggle)
 
@@ -645,53 +829,34 @@ class OcrVideoPlayer(QWidget):
         self.seek_slider.setValue(frame_index)
         self.seek_slider.blockSignals(False)
 
+    def _view_rect(self, frame_w: int, frame_h: int, roi: Roi) -> QRect:
+        """The part of the frame shown: the whole frame, or a band around
+        the clock (wide enough to drag comfortably) when zoomed."""
+        if not self.zoom_checkbox.isChecked():
+            return QRect(0, 0, frame_w, frame_h)
+        view_w = int(max(frame_w * 0.5, roi.w * 3.0))
+        view_h = int(max(frame_h * 0.18, roi.h * 5.0))
+        view_w = min(frame_w, view_w)
+        view_h = min(frame_h, view_h)
+        cx = roi.x + roi.w / 2
+        x = int(max(0, min(frame_w - view_w, cx - view_w / 2)))
+        y = int(max(0, min(frame_h - view_h, roi.y - roi.h * 1.5)))
+        return QRect(x, y, view_w, view_h)
+
+    def _rerender(self) -> None:
+        if self._last_frame is not None and not self._closing:
+            self._show_frame(self._last_frame)
+
     def _show_frame(self, frame_bgr: np.ndarray):
         if self._closing:
             return
-        display_frame = frame_bgr.copy()
-        roi = self._current_roi(display_frame.shape[1], display_frame.shape[0])
-        cv2.rectangle(
-            display_frame,
-            (roi.x, roi.y),
-            (roi.x + roi.w, roi.y + roi.h),
-            (0, 255, 0),
-            2,
-        )
-        overlay_text = self._current_actual_time_str()
-        if overlay_text:
-            text_size = cv2.getTextSize(
-                overlay_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1
-            )[0]
-            text_x = max(0, roi.x + (roi.w - text_size[0]) // 2)
-            text_y = min(display_frame.shape[0] - 10, roi.y + roi.h + 20)
-            cv2.putText(
-                display_frame,
-                overlay_text,
-                (text_x, text_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (0, 0, 0),
-                3,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                display_frame,
-                overlay_text,
-                (text_x, text_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (255, 255, 255),
-                1,
-                cv2.LINE_AA,
-            )
-        frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+        self._last_frame = frame_bgr
+        frame_h, frame_w = frame_bgr.shape[:2]
+        roi = self._current_roi(frame_w, frame_h)
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         h, w, ch = frame_rgb.shape
-        bytes_per_line = ch * w
-        qimg = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
-        pixmap = QPixmap.fromImage(qimg)
-        self.video_label.setPixmap(
-            pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
+        qimg = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
+        self.video_label.set_picture(QPixmap.fromImage(qimg), self._view_rect(frame_w, frame_h, roi), roi)
         roi_bgr = roi.crop(frame_bgr)
         roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
         rh, rw, rch = roi_rgb.shape
@@ -779,41 +944,35 @@ class OcrVideoPlayer(QWidget):
         self.ocr_history.addItem(item)
         self.ocr_history.scrollToBottom()
 
-    def _make_ratio_slider(self, value: float, *, signed: bool = False) -> QSlider:
-        slider = QSlider(Qt.Horizontal)
-        slider.setRange(-50, 50) if signed else slider.setRange(0, 50)
-        slider.setValue(int(round(value * 100)))
-        slider.setSingleStep(1)
-        slider.setPageStep(5)
-        return slider
-
-    def _slider_ratio(self, slider: QSlider) -> float:
-        return float(slider.value()) / 100.0
-
     def _current_roi(self, frame_w: int, frame_h: int) -> Roi:
+        r = self._roi_ratios
         return Roi.top_center_time(
             frame_w,
             frame_h,
-            width_ratio=self._slider_ratio(self.width_slider),
-            height_ratio=self._slider_ratio(self.height_slider),
-            y_offset_ratio=self._slider_ratio(self.y_offset_slider),
-            x_offset_ratio=self._slider_ratio(self.x_offset_slider),
+            width_ratio=r.width_ratio,
+            height_ratio=r.height_ratio,
+            y_offset_ratio=r.y_offset_ratio,
+            x_offset_ratio=r.x_offset_ratio,
         )
 
     def _update_roi_label(self):
+        r = self._roi_ratios
         self._roi_label.setText(
-            "ROI ratios: "
-            f"w={self._slider_ratio(self.width_slider):.3f} "
-            f"h={self._slider_ratio(self.height_slider):.3f} "
-            f"y={self._slider_ratio(self.y_offset_slider):.3f} "
-            f"x={self._slider_ratio(self.x_offset_slider):+.3f}"
+            f"OCR box: w={r.width_ratio:.3f} h={r.height_ratio:.3f} y={r.y_offset_ratio:.3f} x={r.x_offset_ratio:+.3f} of the frame"
         )
 
-    def _on_roi_changed(self, _value: int):
+    def _on_roi_dragged(self, roi: Roi) -> None:
+        """The box was dragged on the picture: keep the ratios, save, and
+        redraw the preview from the frame already on screen."""
+        if self._last_frame is None:
+            return
+        frame_h, frame_w = self._last_frame.shape[:2]
+        self._roi_ratios = roi_to_ratios(roi, frame_w, frame_h)
         self._update_roi_label()
         self._save_roi_settings()
-        if self.cap is not None:
-            self._read_and_show(self.current_frame)
+        self._rerender()
+        if self.ocr_enabled_checkbox.isChecked() and self.ocr_available:
+            self._update_ocr(self._last_frame)
 
     def _on_ocr_toggle(self, _state: int):
         if self.cap is None:
@@ -848,10 +1007,7 @@ class OcrVideoPlayer(QWidget):
         if self._roi_settings_path and self._roi_settings_key:
             settings = load_roi_settings(self._roi_settings_path, self._roi_settings_key)
             if settings:
-                self._set_slider_ratio(self.width_slider, settings.width_ratio)
-                self._set_slider_ratio(self.height_slider, settings.height_ratio)
-                self._set_slider_ratio(self.y_offset_slider, settings.y_offset_ratio)
-                self._set_slider_ratio(self.x_offset_slider, settings.x_offset_ratio)
+                self._roi_ratios = settings
                 self._update_roi_label()
                 return
         path = self._settings_path()
@@ -861,19 +1017,16 @@ class OcrVideoPlayer(QWidget):
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return
-        self._set_slider_ratio(self.width_slider, data.get("width_ratio"))
-        self._set_slider_ratio(self.height_slider, data.get("height_ratio"))
-        self._set_slider_ratio(self.y_offset_slider, data.get("y_offset_ratio"))
-        self._set_slider_ratio(self.x_offset_slider, data.get("x_offset_ratio"))
+        r = self._roi_ratios
+        vals = []
+        for name, current in (("width_ratio", r.width_ratio), ("height_ratio", r.height_ratio), ("y_offset_ratio", r.y_offset_ratio), ("x_offset_ratio", r.x_offset_ratio)):
+            value = data.get(name)
+            vals.append(float(value) if isinstance(value, (int, float)) else current)
+        self._roi_ratios = RoiSettings(*vals)
         self._update_roi_label()
 
     def _save_roi_settings(self) -> None:
-        settings = RoiSettings(
-            width_ratio=self._slider_ratio(self.width_slider),
-            height_ratio=self._slider_ratio(self.height_slider),
-            y_offset_ratio=self._slider_ratio(self.y_offset_slider),
-            x_offset_ratio=self._slider_ratio(self.x_offset_slider),
-        )
+        settings = self._roi_ratios
         if self._roi_settings_path and self._roi_settings_key:
             save_roi_settings(self._roi_settings_path, self._roi_settings_key, settings)
             return
@@ -889,15 +1042,9 @@ class OcrVideoPlayer(QWidget):
         except Exception:
             pass
 
-    def _set_slider_ratio(self, slider: QSlider, value: object) -> None:
-        if not isinstance(value, (int, float)):
-            return
-        slider.setValue(int(round(float(value) * 100)))
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.cap is not None:
-            self._read_and_show(self.current_frame)
+        self._rerender()
 
     def _analyze_first_10s(self):
         if self.cap is None:
