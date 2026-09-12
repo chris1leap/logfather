@@ -738,6 +738,10 @@ class OcrVideoPlayer(QWidget):
         # The date is re-read two seconds after the last drag of the purple
         # box, not on every move (Chris, 2026-09-12: dragging kept
         # recalculating; the user may still want to pull another corner).
+        # Frame 1 of the clip, read once: the date check and the "Date
+        # (frame 1)" preview always use it, wherever the scrubber is
+        # (Chris, 2026-09-12).
+        self._first_frame_cache: np.ndarray | None = None
         self._date_recheck_timer = QTimer(self)
         self._date_recheck_timer.setSingleShot(True)
         self._date_recheck_timer.setInterval(2000)
@@ -941,6 +945,7 @@ class OcrVideoPlayer(QWidget):
         self._second_start_frame = {}
         self._history_items = {}
         self._date_checked = False
+        self._first_frame_cache = None
         self.cctv_date = None
         self.date_sync_frame = None
         self.cctv_synced_date = None
@@ -1083,7 +1088,7 @@ class OcrVideoPlayer(QWidget):
         self.video_label.set_picture(QPixmap.fromImage(qimg), self._view_rect(frame_w, frame_h, both), roi, date_roi)
         if not self._date_checked:
             self._date_checked = True
-            self._check_cctv_date(frame_bgr)
+            self._check_cctv_date(self._first_frame() or frame_bgr)
         roi_bgr = roi.crop(frame_bgr)
         roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
         rh, rw, rch = roi_rgb.shape
@@ -1095,15 +1100,16 @@ class OcrVideoPlayer(QWidget):
         # The date preview is the first frame's, read once; the time preview
         # follows the frame on screen (Chris, 2026-09-12).
         self.time_preview_caption.setText(f"Time (frame {self.current_frame + 1})")
-        if not self._date_checked or self.current_frame == 0 or self._dragged_date_roi is not None:
-            date_bgr = date_roi.crop(frame_bgr)
+        if self.current_frame == 0 or self._dragged_date_roi is not None or self.date_preview.pixmap() is None or self.date_preview.pixmap().isNull():
+            first = self._first_frame()
+            date_bgr = date_roi.crop(first if first is not None else frame_bgr)
             date_rgb = cv2.cvtColor(date_bgr, cv2.COLOR_BGR2RGB)
             dh, dw, dch = date_rgb.shape
             date_qimg = QImage(date_rgb.data, dw, dh, dch * dw, QImage.Format_RGB888).copy()
             self.date_preview.setPixmap(
                 QPixmap.fromImage(date_qimg).scaled(self.date_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
-            self.date_preview_caption.setText(f"Date (frame {self.current_frame + 1})")
+            self.date_preview_caption.setText("Date (frame 1)")
 
     def _update_ocr(self, frame_bgr: np.ndarray):
         if not self.ocr_available or not self.ocr_enabled_checkbox.isChecked():
@@ -1255,7 +1261,20 @@ class OcrVideoPlayer(QWidget):
     def _recheck_date_after_drag(self) -> None:
         if self._last_frame is None or self._closing:
             return
-        self._check_cctv_date(self._last_frame)
+        self._check_cctv_date(self._first_frame() or self._last_frame)
+
+    def _first_frame(self) -> np.ndarray | None:
+        """Frame 1 of the open clip, cached for the clip's lifetime."""
+        if self._first_frame_cache is not None:
+            return self._first_frame_cache
+        if self.cap is None:
+            return None
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, frame = self.cap.read()
+        if not ret or frame is None:
+            return None
+        self._first_frame_cache = frame
+        return frame
 
     def _check_cctv_date(self, frame_bgr: np.ndarray) -> None:
         """Read the date box once and compare it with the filename date."""
