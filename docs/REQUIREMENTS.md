@@ -36,6 +36,9 @@ Living record of agreed functionality: what is open, and what has shipped
   DD/MM/YYYY, and only that form is accepted.
   A burnt-in date of 01/01/1970 is the camera's unset default and is
   reported as such in amber rather than as a mismatch.
+  Tesseract reads the camera font's slashes as 7 (or drops them), so
+  the ten characters are also read by position and eight bare digits as
+  DDMMYYYY.
   "Date" and "Time" captions sit above the boxes; numbered instructions
   under the picture: 1. ensure the Date and Time boxes are in the correct
   place on the CCTV image; 2. press "Sync Time" to find the exact frames

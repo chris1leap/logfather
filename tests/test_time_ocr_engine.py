@@ -193,12 +193,20 @@ def test_parse_cctv_date_reads_dd_slash_mm_slash_yyyy():
     assert parse_cctv_date("10/09/2026 10:31:01 THU") == date(2026, 9, 10)
 
 
-def test_parse_cctv_date_accepts_only_the_camera_format():
+def test_parse_cctv_date_survives_slashes_read_as_sevens_or_dropped():
+    from datetime import date
+    assert parse_cctv_date("0170171970") == date(1970, 1, 1)      # both slashes read as 7
+    assert parse_cctv_date("10709/2026") == date(2026, 9, 10)     # one slash read as 7
+    assert parse_cctv_date("10092026") == date(2026, 9, 10)       # slashes dropped
+    assert parse_cctv_date("01/01/1970") == date(1970, 1, 1)
+
+
+def test_parse_cctv_date_rejects_what_cannot_be_the_camera_format():
     assert parse_cctv_date("") is None
     assert parse_cctv_date("31/02/2026") is None       # not a real date
-    assert parse_cctv_date("12-09-2026") is None       # dashes are not the camera's format
-    assert parse_cctv_date("2026/09/12") is None       # year first is not either
-    assert parse_cctv_date("1/9/2026") is None         # always two digits
+    assert parse_cctv_date("2026/09/12") is None       # year first: positions give month 26
+    assert parse_cctv_date("1/9/2026") is None         # too short for the fixed layout
+    assert parse_cctv_date("103109") is None
 
 
 def test_roi_settings_sections_are_independent(tmp_path):

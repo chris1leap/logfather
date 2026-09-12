@@ -560,20 +560,34 @@ _DATE_RE = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
 
 def parse_cctv_date(text: str):
     """The date burnt into the picture, as a date. The cameras always write
-    it as DD/MM/YYYY (Chris, 2026-09-12): two digits, a slash, two digits,
-    a slash, four digits. None when that is not there or is not a real
-    date."""
+    DD/MM/YYYY (Chris, 2026-09-12). Tesseract tends to read the slashes in
+    the camera's font as a 7 (or drop them), so after the exact form the
+    ten characters are read by position, whatever sits where the slashes
+    should be, and eight bare digits are read as DDMMYYYY. None when no
+    real date comes out."""
     from datetime import date as _date
 
-    cleaned = "".join(str(text or "").split())
+    cleaned = "".join(ch for ch in str(text or "") if ch.isdigit() or ch == "/")
+
+    def build(day: str, month: str, year: str):
+        try:
+            return _date(int(year), int(month), int(day))
+        except ValueError:
+            return None
+
     match = _DATE_RE.search(cleaned)
-    if not match:
-        return None
-    day, month, year = (int(p) for p in match.groups())
-    try:
-        return _date(year, month, day)
-    except ValueError:
-        return None
+    if match:
+        found = build(*match.groups())
+        if found is not None:
+            return found
+    if len(cleaned) == 10 and cleaned[0:2].isdigit() and cleaned[3:5].isdigit() and cleaned[6:10].isdigit():
+        found = build(cleaned[0:2], cleaned[3:5], cleaned[6:10])
+        if found is not None:
+            return found
+    digits = "".join(ch for ch in cleaned if ch.isdigit())
+    if len(digits) == 8:
+        return build(digits[0:2], digits[2:4], digits[4:8])
+    return None
 
 
 def _epoch_date():
