@@ -343,7 +343,9 @@ class TimePicker(QWidget):
         self._cursor_marker_inner = None
         self._playhead_line = None
         self._playhead_label = None
-        self._playhead_time = None
+        # The playhead time survives a day load or Refresh (Chris,
+        # 2026-09-12: the green line vanished after Refresh until playback
+        # moved); the indicator hides itself if the day differs.
         self._track_positions = {}
         self._selected_video_item = None
         self._target_rate_day_buckets = []

@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Green line survives Refresh (Chris, 2026-09-12): loading or refreshing
+  a day on PikPak Replay no longer forgets the viewer's time, so the green
+  playhead is drawn again as soon as the timeline appears instead of
+  waiting for the video to move.
 - Click anywhere to set the time (Chris, 2026-09-12): a click on the
   PikPak Replay chart that is not on a clip, SKU box or event tick moves
   the green playhead to that moment at once and opens the clip covering
