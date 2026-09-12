@@ -284,3 +284,48 @@ def test_additional_camera_has_its_own_roi_entry(tmp_path):
     assert load_roi_settings(path, key).width_ratio == 0.3
     assert load_roi_settings(path, "PikPak007").width_ratio == 0.22
     assert load_roi_settings(path, key, section="date_roi_by_key") is None
+
+
+# ---- the readings table's second-boundary search --------------------------------
+
+def _clock_at_25fps(frame: int) -> str:
+    return f"00:00:{frame // 25:02d}"
+
+
+def test_find_second_boundaries_finds_every_tick_exactly():
+    from logfather.ui.time_ocr import find_second_boundaries
+    reads: list[int] = []
+
+    def read_text(frame):
+        reads.append(frame)
+        return _clock_at_25fps(frame)
+
+    found = find_second_boundaries(read_text, 0, 100, 5)
+    assert found == [(25, "00:00:01"), (50, "00:00:02"), (75, "00:00:03"), (100, "00:00:04")]
+    assert len(reads) < 101  # coarse reads plus bisection, not every frame
+
+
+def test_find_second_boundaries_survives_unreadable_frames():
+    from logfather.ui.time_ocr import find_second_boundaries
+
+    def read_text(frame):
+        if frame in (20, 24, 26, 27):
+            return None
+        return _clock_at_25fps(frame)
+
+    assert find_second_boundaries(read_text, 0, 49, 5)[0] == (25, "00:00:01")
+
+
+def test_find_second_boundaries_ignores_skips_and_misreads():
+    from logfather.ui.time_ocr import find_second_boundaries
+
+    def read_text(frame):
+        if frame == 30:
+            return "00:00:07"  # a misread inside the second
+        if frame < 25:
+            return "00:00:00"
+        if frame < 50:
+            return "00:00:01"
+        return "00:00:05"  # the clock jumped, not a tick
+
+    assert find_second_boundaries(read_text, 0, 74, 5) == [(25, "00:00:01")]

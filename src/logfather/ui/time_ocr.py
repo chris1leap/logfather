@@ -50,6 +50,9 @@ except Exception:  # pragma: no cover - optional dependency
 OCR_SYNC_FAST_SECONDS = 1
 OCR_SYNC_FALLBACK_SECONDS = 3
 OCR_SYNC_COARSE_STEP_SECONDS = 0.2
+# The readings table lists every second change in this many seconds after
+# the sync frame (Chris, 2026-09-12).
+OCR_TABLE_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -181,7 +184,23 @@ class RoiEditorLabel(ScrubbableLabel):
             self.setText("Open a video to start")
         else:
             self.setText("")
+        self._fit_height_to_view()
         self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_height_to_view()
+
+    def _fit_height_to_view(self) -> None:
+        """Keep the label exactly as tall as its view at this width, so no
+        black band sits between the picture and the slider under it
+        (Chris, 2026-09-12)."""
+        if self._frame is None or self._view.width() <= 0 or self._view.height() <= 0:
+            return
+        wanted = int(round(self.width() * self._view.height() / self._view.width()))
+        wanted = max(1, wanted)
+        if abs(self.height() - wanted) > 1 or self.minimumHeight() != wanted or self.maximumHeight() != wanted:
+            self.setFixedHeight(wanted)
 
     # ---- geometry
     def _placement(self) -> tuple[float, float, float] | None:
@@ -736,7 +755,8 @@ class OcrVideoPlayer(QWidget):
 
         self.video_label = RoiEditorLabel("Open a video to start")
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setMinimumSize(640, 360)
+        self.video_label.setMinimumWidth(640)
+        self.video_label.setMinimumHeight(120)
         self.video_label.set_scrub_callback(self._scrub_by_frames)
         self.video_label.roi_changed.connect(self._on_box_dragged)
         self._last_frame: np.ndarray | None = None
@@ -885,7 +905,7 @@ class OcrVideoPlayer(QWidget):
         left_layout.addWidget(self.filename_time_label)
         left_layout.addWidget(self.cctv_date_label)
         left_layout.addWidget(self.date_sync_label)
-        left_layout.addWidget(self.video_label, 1)
+        left_layout.addWidget(self.video_label)
         left_layout.addWidget(self.current_frame_strip)
         slider_row = QHBoxLayout()
         slider_row.setContentsMargins(0, 0, 0, 0)
@@ -915,10 +935,11 @@ class OcrVideoPlayer(QWidget):
         left_layout.addLayout(step_row)
         left_layout.addWidget(self.ocr_label)
         left_layout.addWidget(self.ocr_enabled_checkbox)
-        left_layout.addWidget(self.tesseract_label)
-        left_layout.addWidget(self.offset_label)
-        left_layout.addWidget(self.time_label)
-        left_layout.addWidget(self.status_label)
+        # Tesseract path, Offset, Time and Frame lines removed from the
+        # window (Chris, 2026-09-12); the labels keep their text for the
+        # code that reads it and stay hidden.
+        for hidden in (self.tesseract_label, self.offset_label, self.time_label, self.status_label):
+            hidden.hide()
         hint = QLabel(
             "1. Ensure the Date and Time boxes are in the correct place on the CCTV image "
             "(drag a corner or edge to resize, the middle to move).\n"
@@ -927,6 +948,7 @@ class OcrVideoPlayer(QWidget):
         hint.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hint.setWordWrap(True)
         left_layout.addWidget(hint)
+        left_layout.addStretch(1)
         left_layout.addWidget(self.zoom_checkbox)
         left_layout.addWidget(self._roi_label)
         left_layout.addWidget(self.sync_btn)
@@ -947,15 +969,16 @@ class OcrVideoPlayer(QWidget):
         mono.setStyleHint(QFont.Monospace)
         self.ocr_history.setFont(mono)
         history_header = QLabel(f"{'Frame':>7}  {'Exact time':<10}  FPS")
-        # Frames per second for a second whose first and last frames are
-        # both known exactly (Chris, 2026-09-12): the rows where the clock
-        # ticks give the boundaries; scroll frame by frame to find them.
-        self._frame_texts: dict[int, str] = {}
-        self._second_start_frame: dict[str, int] = {}
-        self._history_items: dict[int, object] = {}
+        # The readings table (Chris, 2026-09-12): every second change in
+        # the OCR_TABLE_SECONDS after the sync frame, found once by the
+        # clock checks, with the frames each second lasted. Scrolling only
+        # moves the green highlight (the last change at or before the
+        # current frame); it never adds rows.
+        self._readings: list[tuple[int, str, int | None]] = []
+        self._highlighted_row = -1
         history_header.setFont(mono)
         history_header.setStyleSheet("font-weight: bold;")
-        history_header.setToolTip("Each frame you scroll to, and the clock read from it")
+        history_header.setToolTip(f"Every second change in the {OCR_TABLE_SECONDS} s after the sync frame; green = the last change at or before the current frame")
         right_layout.addWidget(history_header)
         right_layout.addWidget(self.ocr_history, 1)
         root_layout.addLayout(right_layout)
@@ -1101,9 +1124,8 @@ class OcrVideoPlayer(QWidget):
         self._dragged_roi = None
         self._dragged_date_roi = None
         self._dragged_frame_size = None
-        self._frame_texts = {}
-        self._second_start_frame = {}
-        self._history_items = {}
+        self._readings = []
+        self._highlighted_row = -1
         self._date_checked = False
         self._first_frame_cache = None
         self.cctv_date = None
@@ -1184,6 +1206,7 @@ class OcrVideoPlayer(QWidget):
         self.seek_slider.setValue(int(frame_index))
         self.seek_slider.blockSignals(False)
         self._place_current_frame_label()
+        self._highlight_reading(int(frame_index))
 
     def _place_current_frame_label(self) -> None:
         if self.cap is None or self.frame_count <= 0:
@@ -1312,40 +1335,7 @@ class OcrVideoPlayer(QWidget):
         valid = _is_valid_time_text(text)
         suffix = " (valid)" if valid else ""
         self.ocr_label.setText(f"OCR: {text or '(blank)'}{suffix}")
-        if text != self.last_ocr_text:
-            self._add_history_entry(
-                f"{self.current_frame + 1:>7}  {text or '(blank)':<10}",
-                "valid" if valid else None,
-            )
-            self._history_items[self.current_frame] = self.ocr_history.item(self.ocr_history.count() - 1)
-            self.last_ocr_text = text
-            if self.ocr_history.count() > 500:
-                self.ocr_history.takeItem(0)
-        if valid:
-            self._note_second_boundary(self.current_frame, text)
-
-    def _note_second_boundary(self, frame_idx: int, text: str) -> None:
-        """A clock change between two consecutive frames marks the first
-        frame of a second; two consecutive boundaries give the frames in
-        that second, shown as FPS on the row where the second began."""
-        self._frame_texts[frame_idx] = text
-        prev_text = self._frame_texts.get(frame_idx - 1)
-        secs = _time_text_to_seconds(text)
-        if prev_text is None or secs is None:
-            return
-        prev_secs = _time_text_to_seconds(prev_text)
-        if prev_secs is None or secs != (prev_secs + 1) % 86400:
-            return
-        self._second_start_frame[text] = frame_idx
-        start = self._second_start_frame.get(prev_text)
-        if start is None:
-            return
-        fps = frame_idx - start
-        item = self._history_items.get(start)
-        if item is not None:
-            base = item.text()[:19]
-            item.setText(f"{base}  {fps:>3}")
-        self._add_history_entry(f"{'':>7}  {prev_text} lasted {fps} frames", "valid")
+        self.last_ocr_text = text
 
     def _update_status(self):
         self.status_label.setText(f"Frame: {self.current_frame + 1}/{self.frame_count}")
@@ -1388,19 +1378,83 @@ class OcrVideoPlayer(QWidget):
         else:
             self.tesseract_label.setText("Tesseract: not configured")
 
-    def _add_history_entry(self, text: str, status: str | None = None) -> None:
-        item = QListWidgetItem(text)
-        if status == "valid":
+    def _build_readings_table(self) -> None:
+        """Fill the Frame / Exact time / FPS table: every second change in
+        the OCR_TABLE_SECONDS after the sync frame, read once."""
+        self.ocr_history.clear()
+        self._readings = []
+        self._highlighted_row = -1
+        if self.cap is None or self.fps <= 0 or self.frame_count <= 0 or not self.ocr_available:
+            return
+        first = self._first_frame()
+        if first is None:
+            return
+        roi = self._current_roi(first.shape[1], first.shape[0])
+        start = int(self.date_sync_frame or 0)
+        end = min(self.frame_count - 1, start + int(math.ceil(OCR_TABLE_SECONDS * self.fps)))
+        if end <= start:
+            return
+        step = max(1, int(round(self.fps * OCR_SYNC_COARSE_STEP_SECONDS)))
+        progress = QProgressDialog("Reading the clock at every second change...", None, 0, end - start, self)
+        progress.setWindowTitle("Readings")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        cache: dict[int, str | None] = {}
+
+        def read_text(frame_idx: int) -> str | None:
+            if frame_idx in cache:
+                return cache[frame_idx]
+            progress.setValue(max(progress.value(), min(end - start, frame_idx - start)))
+            QApplication.processEvents()
+            text = None
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                try:
+                    candidate = _normalize_ocr_text(ocr_time_from_frame(frame, roi=roi))
+                except Exception:
+                    candidate = ""
+                if _is_valid_time_text(candidate):
+                    text = candidate
+            cache[frame_idx] = text
+            return text
+
+        try:
+            boundaries = find_second_boundaries(read_text, start, end, step)
+        finally:
+            progress.close()
+        for i, (frame_idx, text) in enumerate(boundaries):
+            fps = boundaries[i + 1][0] - frame_idx if i + 1 < len(boundaries) else None
+            self._readings.append((frame_idx, text, fps))
+            self.ocr_history.addItem(QListWidgetItem(f"{frame_idx + 1:>7}  {text:<10}  {fps if fps is not None else '':>3}"))
+        if not boundaries:
+            self.ocr_history.addItem(QListWidgetItem(f"(no second change read in frames {start + 1}-{end + 1})"))
+        self._highlight_reading(self.current_frame)
+
+    def _highlight_reading(self, frame_index: int) -> None:
+        """Green on the row whose second change is the closest at or before
+        the frame on screen; every other row plain."""
+        if not self._readings:
+            return
+        row = -1
+        for i, (frame_idx, _text, _fps) in enumerate(self._readings):
+            if frame_idx <= frame_index:
+                row = i
+            else:
+                break
+        if row == self._highlighted_row:
+            return
+        if 0 <= self._highlighted_row < self.ocr_history.count():
+            old = self.ocr_history.item(self._highlighted_row)
+            old.setBackground(QBrush())
+            old.setForeground(QBrush())
+        if 0 <= row < self.ocr_history.count():
+            item = self.ocr_history.item(row)
             item.setBackground(QColor("#2d6a2d"))
             item.setForeground(QColor("#ffffff"))
-        elif status == "invalid":
-            item.setBackground(QColor("#7a1f1f"))
-            item.setForeground(QColor("#ffffff"))
-        elif status == "outlier":
-            item.setBackground(QColor("#8a6d1f"))
-            item.setForeground(QColor("#ffffff"))
-        self.ocr_history.addItem(item)
-        self.ocr_history.scrollToBottom()
+            self.ocr_history.scrollToItem(item)
+        self._highlighted_row = row
 
     def _current_roi(self, frame_w: int, frame_h: int) -> Roi:
         if self._dragged_roi is not None and self._dragged_frame_size == (frame_w, frame_h):
@@ -1590,7 +1644,6 @@ class OcrVideoPlayer(QWidget):
         self.date_sync_label.setStyleSheet("color: #2ecc71;" if agrees else "color: #ff7a70; font-weight: bold;")
         self.date_sync_label.setToolTip(f"{change_frame} frames ({change_frame / self.fps:.1f} s) before the camera synced; the clock is read from that frame on {new_date:%d/%m/%Y}")
         self.date_sync_label.show()
-        self._add_history_entry(f"{change_frame + 1:>7}  date {initial} -> {new_date:%d/%m/%Y}", "valid" if agrees else None)
         self._show_synced_date_preview(change_frame, date_roi)
         self.synced_date_caption.setStyleSheet("color: #c77dff; font-weight: bold;")  # purple like the box (Chris, 2026-09-12)
         if self.cap is not None:
@@ -1722,6 +1775,15 @@ class OcrVideoPlayer(QWidget):
         self._rescale_synced_date_preview()
 
     def _analyze_first_10s(self):
+        """Step F: the clock checks, then the readings table, then back to
+        the frame that was on screen."""
+        self._run_sync_analysis()
+        if self._closing or self.cap is None:
+            return
+        self._build_readings_table()
+        self._read_and_show(self.current_frame)
+
+    def _run_sync_analysis(self):
         if self.cap is None:
             return
         if not self.ocr_enabled_checkbox.isChecked():
@@ -1757,19 +1819,13 @@ class OcrVideoPlayer(QWidget):
                 if outliers:
                     for outlier_start, outlier_text in outliers:
                         delta = (outlier_start - median_start).total_seconds()
-                        self._add_history_entry(
-                            f"disregarded sample {outlier_text} (offset {delta:+.2f}s)",
-                            "outlier",
-                        )
+                        print(f"[ocr] disregarded sample {outlier_text} (offset {delta:+.2f}s)", flush=True)
                 return inliers[len(inliers) // 2][0]
             best_start, median_start, outliers = transition_result
             if outliers:
                 for outlier_start, outlier_text in outliers:
                     delta = (outlier_start - median_start).total_seconds()
-                    self._add_history_entry(
-                        f"disregarded transition {outlier_text} (offset {delta:+.2f}s)",
-                        "outlier",
-                    )
+                    print(f"[ocr] disregarded transition {outlier_text} (offset {delta:+.2f}s)", flush=True)
             return best_start
 
         fast_seconds = OCR_SYNC_FAST_SECONDS
@@ -1899,10 +1955,6 @@ class OcrVideoPlayer(QWidget):
                 continue
             text = _normalize_ocr_text(raw_text)
             if not _is_valid_time_text(text):
-                self._add_history_entry(
-                    f"{frame_idx + 1}: {text or '(blank)'} (invalid)",
-                    "invalid",
-                )
                 continue
             ocr_dt = self._combine_date_and_time(filename_dt, text)
             if self.fps > 0:
@@ -1911,7 +1963,6 @@ class OcrVideoPlayer(QWidget):
                 pos_msec = self.cap.get(cv2.CAP_PROP_POS_MSEC)
                 video_t = pos_msec / 1000.0 if pos_msec and pos_msec > 0 else 0.0
             samples.append((frame_idx, video_t, ocr_dt, text))
-            self._add_history_entry(f"{frame_idx + 1}: {text} (sample)", "valid")
         progress.setValue(max_frames)
         progress.close()
         return samples
@@ -2177,6 +2228,47 @@ def locate_date_change(read_date, frame_count: int, step: int):
         prev_frame = frame
         frame += step
     return None
+
+
+def find_second_boundaries(read_text, start_frame: int, end_frame: int, step: int) -> list[tuple[int, str]]:
+    """Every frame in [start_frame, end_frame] where the burnt-in clock
+    ticks to the next second, as (first frame of the new second, its
+    text). `read_text(frame)` returns a valid HH:MM:SS or None. Reads
+    every `step` frames, then bisects between the last old and the first
+    new reading; an unreadable or odd reading inside the gap falls back to
+    a frame-by-frame walk of the gap (Chris, 2026-09-12)."""
+    step = max(1, int(step))
+    start_frame, end_frame = int(start_frame), int(end_frame)
+    frames = list(range(start_frame, end_frame + 1, step))
+    if frames and frames[-1] != end_frame:
+        frames.append(end_frame)
+    found: list[tuple[int, str]] = []
+    prev: tuple[int, str] | None = None
+    for frame in frames:
+        text = read_text(frame)
+        if text is None:
+            continue
+        if prev is not None and text != prev[1]:
+            prev_secs = _time_text_to_seconds(prev[1])
+            secs = _time_text_to_seconds(text)
+            if prev_secs is not None and secs is not None and secs == (prev_secs + 1) % 86400:
+                lo, hi = prev[0], frame
+                while hi - lo > 1:
+                    mid = (lo + hi) // 2
+                    mid_text = read_text(mid)
+                    if mid_text == text:
+                        hi = mid
+                    elif mid_text == prev[1]:
+                        lo = mid
+                    else:
+                        for walk in range(lo + 1, hi + 1):
+                            if read_text(walk) == text:
+                                hi = walk
+                                break
+                        break
+                found.append((hi, text))
+        prev = (frame, text)
+    return found
 
 
 def find_date_change_frame(cap, fps: float, frame_count: int, date_roi: Roi, *, should_abort=None, on_progress=None):

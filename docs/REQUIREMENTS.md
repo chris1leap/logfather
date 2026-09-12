@@ -24,6 +24,19 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Sync CCTV Time tidy-up (Chris, 2026-09-12): the Tesseract path, Offset,
+  Time and Frame lines under "Enable OCR" are gone, and the picture is
+  exactly as tall as the zoomed band at the window's width, so no black
+  band sits between it and the slider (spare height goes to the bottom of
+  the column).
+- Sync CCTV Time readings table (Chris, 2026-09-12): the Frame / Exact
+  time / FPS list is built once by the clock checks (step F): every
+  second change in the 10 s after the sync frame (coarse reads every
+  0.2 s, then a bisection to the exact frame, `find_second_boundaries`),
+  with the frames each second lasted. Scrolling never adds rows; the row
+  whose change is the closest at or before the current frame is green and
+  the rest plain. The analysis's disregarded/invalid notes go to the
+  console instead of the list.
 - Sync CCTV Time frame-step buttons (Chris, 2026-09-12): -10, -1, +1 and
   +10 under the slider, sized like the conveyor calibration window's.
 - Sync CCTV Time slider labels (Chris, 2026-09-12): "Frame 1" to the left
