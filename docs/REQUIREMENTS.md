@@ -28,8 +28,10 @@ Living record of agreed functionality: what is open, and what has shipped
   four ROI sliders are gone; the green box is dragged on the frame by its
   corners, edges or middle, saved as the same ratios as before (to full
   precision now). The picture opens zoomed to the band around the clock
-  (a "Zoom to the clock area" tick shows the whole frame instead), and
-  the live OCR readout follows the box as it moves.
+  (a "Zoom to the clock area" tick shows the whole frame instead); the
+  zoomed band stays put while the box is dragged, and is chosen afresh
+  when the tick changes or a clip opens. The live OCR readout follows the
+  box as it moves.
 - Drift tool in the top bar (Chris, 2026-09-12): the Drift caption,
   slider and readout sit in the top bar to the left of Sync, always
   visible with the other viewer tools, instead of inside the sync strip.

@@ -632,6 +632,10 @@ class OcrVideoPlayer(QWidget):
         self.video_label.set_scrub_callback(self._scrub_by_frames)
         self.video_label.roi_changed.connect(self._on_roi_dragged)
         self._last_frame: np.ndarray | None = None
+        # The zoomed view is fixed once chosen so the picture does not
+        # shift under the box while it is dragged (Chris, 2026-09-12); it
+        # is chosen again when the zoom tick changes or a clip opens.
+        self._zoom_view: QRect | None = None
 
         self.ocr_label = QLabel("OCR: (not running)")
         self.ocr_label.setAlignment(Qt.AlignCenter)
@@ -710,7 +714,7 @@ class OcrVideoPlayer(QWidget):
         QTimer.singleShot(0, self._update_tesseract_status)
         self._closing = False
 
-        self.zoom_checkbox.stateChanged.connect(lambda _s: self._rerender())
+        self.zoom_checkbox.stateChanged.connect(self._on_zoom_toggled)
         self._load_roi_settings()
         self.ocr_enabled_checkbox.stateChanged.connect(self._on_ocr_toggle)
 
@@ -740,6 +744,7 @@ class OcrVideoPlayer(QWidget):
         super().closeEvent(event)
 
     def open_video(self, path: str):
+        self._zoom_view = None
         if self.cap is not None:
             self.cap.release()
             self.cap = None
@@ -829,11 +834,18 @@ class OcrVideoPlayer(QWidget):
         self.seek_slider.setValue(frame_index)
         self.seek_slider.blockSignals(False)
 
+    def _on_zoom_toggled(self, _state: int) -> None:
+        self._zoom_view = None
+        self._rerender()
+
     def _view_rect(self, frame_w: int, frame_h: int, roi: Roi) -> QRect:
         """The part of the frame shown: the whole frame, or a band around
-        the clock (wide enough to drag comfortably) when zoomed."""
+        the clock (wide enough to drag comfortably) when zoomed. The band
+        is chosen once and kept while the box is dragged."""
         if not self.zoom_checkbox.isChecked():
             return QRect(0, 0, frame_w, frame_h)
+        if self._zoom_view is not None and self._zoom_view.width() <= frame_w and self._zoom_view.height() <= frame_h:
+            return self._zoom_view
         view_w = int(max(frame_w * 0.5, roi.w * 3.0))
         view_h = int(max(frame_h * 0.18, roi.h * 5.0))
         view_w = min(frame_w, view_w)
@@ -841,7 +853,8 @@ class OcrVideoPlayer(QWidget):
         cx = roi.x + roi.w / 2
         x = int(max(0, min(frame_w - view_w, cx - view_w / 2)))
         y = int(max(0, min(frame_h - view_h, roi.y - roi.h * 1.5)))
-        return QRect(x, y, view_w, view_h)
+        self._zoom_view = QRect(x, y, view_w, view_h)
+        return self._zoom_view
 
     def _rerender(self) -> None:
         if self._last_frame is not None and not self._closing:
