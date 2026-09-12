@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Date box re-read after dragging stops (Chris, 2026-09-12): the purple
+  box's date is read again two seconds after the last drag, not on every
+  move, so another corner can be pulled first.
 - Camera date sync (Chris, 2026-09-12): when the burnt-in date on the
   first frame is 01/01/1970 or differs from the filename, the Sync CCTV
   Time window scans the clip (a date read every second, then frame by

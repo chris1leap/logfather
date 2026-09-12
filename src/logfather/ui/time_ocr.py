@@ -735,6 +735,13 @@ class OcrVideoPlayer(QWidget):
         # compared with the filename date.
         self._dragged_date_roi: Roi | None = None
         self._date_checked = False
+        # The date is re-read two seconds after the last drag of the purple
+        # box, not on every move (Chris, 2026-09-12: dragging kept
+        # recalculating; the user may still want to pull another corner).
+        self._date_recheck_timer = QTimer(self)
+        self._date_recheck_timer.setSingleShot(True)
+        self._date_recheck_timer.setInterval(2000)
+        self._date_recheck_timer.timeout.connect(self._recheck_date_after_drag)
         self.cctv_date: "date | None" = None
         # Where the camera's date changed in this clip (Chris, 2026-09-12):
         # the clock is read from there, on the date it changed to.
@@ -1243,6 +1250,11 @@ class OcrVideoPlayer(QWidget):
         if self._roi_settings_path and self._roi_settings_key:
             save_roi_settings(self._roi_settings_path, self._roi_settings_key, self._date_ratios, section="date_roi_by_key")
         self._rerender()
+        self._date_recheck_timer.start()
+
+    def _recheck_date_after_drag(self) -> None:
+        if self._last_frame is None or self._closing:
+            return
         self._check_cctv_date(self._last_frame)
 
     def _check_cctv_date(self, frame_bgr: np.ndarray) -> None:
