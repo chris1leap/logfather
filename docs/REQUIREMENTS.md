@@ -24,6 +24,11 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Sync CCTV Time slider labels (Chris, 2026-09-12): "Frame 1" to the left
+  of the scrub slider, "Frame x" (the clip's last frame) to the right, and
+  "Current frame (y)" above the slider, following the handle.
+- The Sync CCTV Time help button is the pixel-art question block used by
+  the other windows (Chris, 2026-09-12).
 - OCR offset store never loses offsets (Chris, 2026-09-12): writes go to a
   temporary file beside the store and are renamed into place (atomic), and
   a file that fails to parse is moved aside as `<name>.corrupt-<stamp>`

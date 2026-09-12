@@ -814,6 +814,19 @@ class OcrVideoPlayer(QWidget):
         self.seek_slider = QSlider(Qt.Horizontal)
         self.seek_slider.setRange(0, 0)
         self.seek_slider.sliderMoved.connect(self._on_slider_moved)
+        # Frame labels around the slider (Chris, 2026-09-12): "Frame 1" on
+        # the left, "Frame x" (the last frame) on the right, and "Current
+        # frame (y)" riding above the handle.
+        self.first_frame_label = QLabel("Frame 1")
+        self.last_frame_label = QLabel("Frame \u2013")
+        self.first_frame_label.setStyleSheet("color: #9aa0a6;")
+        self.last_frame_label.setStyleSheet("color: #9aa0a6;")
+        self.current_frame_strip = QWidget()
+        self.current_frame_strip.setFixedHeight(18)
+        self.current_frame_label = QLabel("Current frame (1)", self.current_frame_strip)
+        self.current_frame_label.setStyleSheet("color: #ecf0f4; font-weight: bold;")
+        self.current_frame_label.adjustSize()
+        self.current_frame_label.hide()
 
         default_roi = RoiSettings(0.22, 0.06, 0.013, 0.0)
         saved_roi = None
@@ -836,8 +849,19 @@ class OcrVideoPlayer(QWidget):
         # Top left: the clip's filename time, hovering shows the full name
         # (Chris, 2026-09-12).
         # A "?" at the top opens a flowchart of the steps (Chris, 2026-09-12).
-        self.help_btn = QPushButton("?")
-        self.help_btn.setFixedSize(26, 26)
+        # The same pixel-art question block as the other windows (Chris).
+        from PySide6.QtCore import QSize
+        from PySide6.QtWidgets import QToolButton
+        from logfather.ui.icons import question_block_icon
+        self.help_btn = QToolButton()
+        self.help_btn.setIcon(question_block_icon(32))
+        self.help_btn.setIconSize(QSize(32, 32))
+        self.help_btn.setFixedSize(36, 36)
+        self.help_btn.setCursor(Qt.PointingHandCursor)
+        self.help_btn.setStyleSheet(
+            "QToolButton { border: none; background: transparent; padding: 0; }"
+            "QToolButton:hover { background: rgba(255, 255, 255, 0.08); border-radius: 6px; }"
+        )
         self.help_btn.setToolTip("How the date and time sync works")
         self.help_btn.clicked.connect(self._show_help_flowchart)
         self.filename_date_label = QLabel("Filename date: –")
@@ -862,7 +886,13 @@ class OcrVideoPlayer(QWidget):
         left_layout.addWidget(self.cctv_date_label)
         left_layout.addWidget(self.date_sync_label)
         left_layout.addWidget(self.video_label, 1)
-        left_layout.addWidget(self.seek_slider)
+        left_layout.addWidget(self.current_frame_strip)
+        slider_row = QHBoxLayout()
+        slider_row.setContentsMargins(0, 0, 0, 0)
+        slider_row.addWidget(self.first_frame_label)
+        slider_row.addWidget(self.seek_slider, 1)
+        slider_row.addWidget(self.last_frame_label)
+        left_layout.addLayout(slider_row)
         left_layout.addWidget(self.ocr_label)
         left_layout.addWidget(self.ocr_enabled_checkbox)
         left_layout.addWidget(self.tesseract_label)
@@ -1094,6 +1124,8 @@ class OcrVideoPlayer(QWidget):
         self.ocr_enabled_checkbox.setChecked(True)
         self.seek_slider.setRange(0, max(0, self.frame_count - 1))
         self.seek_slider.setValue(0)
+        self.last_frame_label.setText(f"Frame {max(1, self.frame_count)}")
+        self._place_current_frame_label()
         self.sync_btn.setEnabled(True)
         self.playing = False
         self.timer.stop()
@@ -1125,9 +1157,36 @@ class OcrVideoPlayer(QWidget):
             return
         self._read_and_show(self.current_frame)
 
+    def _sync_slider(self, frame_index: int) -> None:
+        """Move the slider to the frame without firing sliderMoved, and
+        put "Current frame (y)" above the handle."""
+        self.seek_slider.blockSignals(True)
+        self.seek_slider.setValue(int(frame_index))
+        self.seek_slider.blockSignals(False)
+        self._place_current_frame_label()
+
+    def _place_current_frame_label(self) -> None:
+        if self.cap is None or self.frame_count <= 0:
+            self.current_frame_label.hide()
+            return
+        label = self.current_frame_label
+        label.setText(f"Current frame ({self.seek_slider.value() + 1})")
+        label.adjustSize()
+        span = max(1, self.seek_slider.maximum() - self.seek_slider.minimum())
+        fraction = (self.seek_slider.value() - self.seek_slider.minimum()) / span
+        handle_w = 16
+        slider_left = self.seek_slider.x()
+        track_w = max(0, self.seek_slider.width() - handle_w)
+        centre = slider_left + handle_w / 2 + fraction * track_w
+        x = int(round(centre - label.width() / 2))
+        x = max(0, min(self.current_frame_strip.width() - label.width(), x))
+        label.move(x, 0)
+        label.show()
+
     def _on_slider_moved(self, value: int):
         if self.cap is None:
             return
+        self._place_current_frame_label()
         self.playing = False
         if hasattr(self, "play_btn"):
             self.play_btn.setText("Play")
@@ -1152,9 +1211,7 @@ class OcrVideoPlayer(QWidget):
         self._show_frame(frame)
         self._update_ocr(frame)
         self._update_status()
-        self.seek_slider.blockSignals(True)
-        self.seek_slider.setValue(frame_index)
-        self.seek_slider.blockSignals(False)
+        self._sync_slider(frame_index)
 
     def _on_zoom_toggled(self, _state: int) -> None:
         self._zoom_view = None
@@ -1639,6 +1696,7 @@ class OcrVideoPlayer(QWidget):
             pass
 
     def resizeEvent(self, event):
+        QTimer.singleShot(0, self._place_current_frame_label)
         super().resizeEvent(event)
         self._rerender()
         self._rescale_synced_date_preview()
@@ -1810,9 +1868,7 @@ class OcrVideoPlayer(QWidget):
             self.current_frame = frame_idx
             self._show_frame(frame)
             self._update_status()
-            self.seek_slider.blockSignals(True)
-            self.seek_slider.setValue(frame_idx)
-            self.seek_slider.blockSignals(False)
+            self._sync_slider(frame_idx)
             progress.setValue(frame_idx + 1)
             QApplication.processEvents()
             if roi is None:
