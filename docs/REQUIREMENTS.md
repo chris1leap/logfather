@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Sync Time button (Chris, 2026-09-12): green after an automatic sync as
+  well as a cached or manual one (both cameras), and the main camera's
+  button now sits in the top bar to the left of Conveyor, shown with the
+  other viewer tools.
 - Second camera plausibility check (Chris, 2026-09-12): the additional
   camera's OCR offset gets the same 15-minute plausibility check as the
   main camera at all four sites (cached on open, cached in the automatic

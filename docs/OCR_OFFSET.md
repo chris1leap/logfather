@@ -222,9 +222,9 @@ tools.
    rejected rather than corrected.
 4. **Only `HH:MM:SS` in 24-hour form is accepted.** A 12-hour clock, a date
    in the same region, or a different separator fails every frame.
-5. **After a successful automatic run the Sync Time button stays grey**:
-   the automatic path applies the offset without setting `_main_sync_done`,
-   unlike the cached and manual paths.
+5. (Fixed 2026-09-12.) After a successful automatic run the Sync Time
+   button now goes green like the cached and manual paths; the button
+   itself moved to the top bar, left of Conveyor.
 6. (Fixed 2026-09-12.) `_estimate_start_from_samples` had no guard for an
    empty sample list and raised on it, which stopped the four-stage scan
    at the first stage that read nothing; it now returns None so the next

@@ -5197,6 +5197,9 @@ class VideoLogViewer(QWidget):
             self.video_start_dt = result.video_start_dt
             self.offset_store.set(key, result.offset_seconds, result.frame_offset)
             self._apply_auto_sync_if_possible()
+            # The button goes green after an automatic sync too (Chris, 2026-09-12).
+            self._main_sync_done = True
+            self._update_sync_button_style()
 
         self._ocr_sync_slot.start(
             _analyze,
@@ -5298,6 +5301,8 @@ class VideoLogViewer(QWidget):
                 key, result.offset_seconds, result.frame_offset, source="additional"
             )
             self._refresh_secondary_after_sync()
+            self._secondary_sync_done = True
+            self._update_sync_button_style()
 
         self._ocr_secondary_sync_slot.start(
             _analyze,

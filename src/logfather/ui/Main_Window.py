@@ -443,6 +443,10 @@ class MainWindow(QWidget):
             self.addAction(action)
 
         top_controls.addStretch(1)
+        # The main camera's Sync Time button sits in the top bar, left of
+        # Conveyor (Chris, 2026-09-12); it used to live in the sync strip.
+        self.viewer.video_sync_btn.setFixedWidth(110)
+        top_controls.addWidget(self.viewer.video_sync_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.calibrate_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
         top_controls.addWidget(self.buffer_toggle, 0, Qt.AlignRight)
@@ -1825,6 +1829,7 @@ class MainWindow(QWidget):
         in_viewer = self.content_stack.currentWidget() is self.viewer
         show = in_viewer and self._viewer_tools_available
         self.calibrate_btn.setVisible(show)
+        self.viewer.video_sync_btn.setVisible(show)
         self.track_toggle.setVisible(show)
         self.buffer_toggle.setVisible(show)
         # The Customer/Line/System label describes the viewer's selection;
