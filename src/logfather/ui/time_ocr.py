@@ -847,10 +847,13 @@ class OcrVideoPlayer(QWidget):
         root_layout = QHBoxLayout()
         root_layout.addLayout(left_layout, 1)
         right_layout = QVBoxLayout()
-        right_layout.addWidget(self.synced_date_caption)
-        right_layout.addWidget(self.synced_date_preview)
+        # Order (Chris, 2026-09-12): Date (frame 1), then Date (frame x)
+        # only when the first frame's date differed from the filename and
+        # a sync was found, then Time (frame y).
         right_layout.addWidget(self.date_preview_caption)
         right_layout.addWidget(self.date_preview)
+        right_layout.addWidget(self.synced_date_caption)
+        right_layout.addWidget(self.synced_date_preview)
         right_layout.addWidget(self.time_preview_caption)
         right_layout.addWidget(self.roi_preview)
         mono = QFont("Consolas")

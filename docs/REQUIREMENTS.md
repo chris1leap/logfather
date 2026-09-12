@@ -31,8 +31,10 @@ Living record of agreed functionality: what is open, and what has shipped
   is then dated by the new date and the clock is read from that frame,
   both in the window and in the automatic sync (which uses the saved date
   box).
-  A large preview of the date box from the sync frame appears under the
-  report, labelled "Date (frame x)", the same size as the other previews.
+  On the right the previews run Date (frame 1), then Date (frame x) from
+  the sync frame (shown only when the first frame's date differed from
+  the filename and a sync was found), then Time (frame y), all the same
+  size.
 - Date and Time previews (Chris, 2026-09-12): the right-hand side of the
   Sync CCTV Time window shows a large view of the purple date box above
   the green time box, labelled "Date (frame 1)" (the first frame's date,
