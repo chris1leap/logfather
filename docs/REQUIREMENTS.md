@@ -24,6 +24,10 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- OCR offset store never loses offsets (Chris, 2026-09-12): writes go to a
+  temporary file beside the store and are renamed into place (atomic), and
+  a file that fails to parse is moved aside as `<name>.corrupt-<stamp>`
+  with a console note instead of being silently replaced by an empty store.
 - Timeline click lands on the clicked moment (Chris, 2026-09-12): the
   seek goes through the clip's OCR-corrected start
   (`video_seconds_for_wall_time`), so the green clock reads the time that

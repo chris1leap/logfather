@@ -271,8 +271,12 @@ tools.
    the click asks the viewer for `video_seconds_for_wall_time`, which
    inverts `clock_datetime` from the OCR-corrected start; the filename
    time is only the fallback when no offset is known.
-10. **The store is written non-atomically** and any read error resets it to
-    empty, losing every cached offset for that camera.
+10. ~~**The store is written non-atomically** and any read error resets it to
+    empty, losing every cached offset for that camera.~~ Fixed 2026-09-12:
+    `_save` writes `<name>.tmp-<pid>` and `os.replace`s it over the store;
+    `_load` moves an unreadable file to `<name>.corrupt-<stamp>` (kept for
+    recovery) and starts fresh, so no write ever clobbers the old content.
+    Covered by `tests/test_ocr_offset_store.py`.
 11. (Partly fixed 2026-09-12.) `tests/test_time_ocr_engine.py` now covers
     the filename parser, the time validator, the midnight rule, the ROI
     maths, the vote over samples and the crop preprocessing. The
