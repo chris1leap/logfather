@@ -726,9 +726,18 @@ class OcrVideoPlayer(QWidget):
         self.ocr_history.setMinimumWidth(260)
         self.ocr_history.setUniformItemSizes(True)
         self.last_ocr_text: str | None = None
-        self.roi_preview = QLabel("ROI preview")
+        self.roi_preview = QLabel("Time preview")
         self.roi_preview.setAlignment(Qt.AlignCenter)
         self.roi_preview.setMinimumSize(260, 80)
+        # A large view of the purple date box above the time box (Chris,
+        # 2026-09-12), each labelled.
+        self.date_preview = QLabel("Date preview")
+        self.date_preview.setAlignment(Qt.AlignCenter)
+        self.date_preview.setMinimumSize(260, 80)
+        self.date_preview_caption = QLabel("Date")
+        self.date_preview_caption.setStyleSheet("color: #c77dff; font-weight: bold;")
+        self.time_preview_caption = QLabel("Time")
+        self.time_preview_caption.setStyleSheet("color: #00ff5a; font-weight: bold;")
 
         self.time_label = QLabel("Time: 00:00:00.000")
         self.time_label.setAlignment(Qt.AlignCenter)
@@ -800,6 +809,9 @@ class OcrVideoPlayer(QWidget):
         root_layout = QHBoxLayout()
         root_layout.addLayout(left_layout, 1)
         right_layout = QVBoxLayout()
+        right_layout.addWidget(self.date_preview_caption)
+        right_layout.addWidget(self.date_preview)
+        right_layout.addWidget(self.time_preview_caption)
         right_layout.addWidget(self.roi_preview)
         mono = QFont("Consolas")
         mono.setStyleHint(QFont.Monospace)
@@ -1022,6 +1034,13 @@ class OcrVideoPlayer(QWidget):
         roi_pixmap = QPixmap.fromImage(roi_qimg)
         self.roi_preview.setPixmap(
             roi_pixmap.scaled(self.roi_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+        date_bgr = date_roi.crop(frame_bgr)
+        date_rgb = cv2.cvtColor(date_bgr, cv2.COLOR_BGR2RGB)
+        dh, dw, dch = date_rgb.shape
+        date_qimg = QImage(date_rgb.data, dw, dh, dch * dw, QImage.Format_RGB888).copy()
+        self.date_preview.setPixmap(
+            QPixmap.fromImage(date_qimg).scaled(self.date_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         )
 
     def _update_ocr(self, frame_bgr: np.ndarray):

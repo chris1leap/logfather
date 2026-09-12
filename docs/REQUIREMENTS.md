@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Date and Time previews (Chris, 2026-09-12): the right-hand side of the
+  Sync CCTV Time window shows a large view of the purple date box above
+  the green time box, each labelled "Date" and "Time" in its colour.
 - CCTV date box (Chris, 2026-09-12): a second, purple box in the Sync
   CCTV Time window, by default to the left of the green time box and
   dragged the same way, saved per system under date_roi_by_key. The date
