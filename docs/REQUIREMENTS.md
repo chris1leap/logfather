@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Filename time in the OCR window (Chris, 2026-09-12): top left reads
+  "Filename time: 06h 54m 16s" from the clip's name; hovering shows the
+  full filename.
 - OCR box dragged on the picture (Chris, 2026-09-12): the OCR window's
   four ROI sliders are gone; the green box is dragged on the frame by its
   corners, edges or middle, saved as the same ratios as before (to full
