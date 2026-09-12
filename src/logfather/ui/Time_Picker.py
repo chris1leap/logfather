@@ -163,6 +163,7 @@ class TimePicker(QWidget):
     time_selected = Signal(object)  # TimelineItem
     items_changed = Signal()
     event_clicked = Signal(object)  # a condition-track event: open the footage at its time
+    moment_clicked = Signal(object)  # a click on empty chart: the moment under the pointer (Chris, 2026-09-12)
 
     def __init__(self, load_func: Optional[Callable[[Path, date], Iterable[Path]]] = None,
                  extra_loaders: Optional[list[Callable[[Path, date, Optional[datetime]], Iterable[TimelineItem]]]] = None,
@@ -1189,11 +1190,24 @@ class TimePicker(QWidget):
                 return True
             if event.type() == QEvent.MouseButtonPress and self._day_start is not None:
                 pos = self._event_viewport_pos(event)
+                self._press_pos = pos
                 if pos is not None and self._ppm:
                     minute = max(0.0, min(24 * 60.0, self.view.mapToScene(pos).x() / self._ppm))
                     self.last_click_time = self._day_start + timedelta(minutes=minute)
             if self._signals.handle_resize(event):
                 return True
+            if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._day_start is not None:
+                # A click anywhere on the chart that is not on a clip, SKU
+                # box or event tick sets the time (Chris, 2026-09-12).
+                pos = self._event_viewport_pos(event)
+                press = getattr(self, "_press_pos", None)
+                if pos is not None and press is not None and (pos - press).manhattanLength() < 4 and self._ppm:
+                    hit = self.view.itemAt(pos)
+                    while hit is not None and not isinstance(hit.data(0), TimelineItem):
+                        hit = hit.parentItem()
+                    if hit is None:
+                        minute = max(0.0, min(24 * 60.0, self.view.mapToScene(pos).x() / self._ppm))
+                        self.moment_clicked.emit(self._day_start + timedelta(minutes=minute))
             if event.type() == QEvent.MouseMove:
                 self._update_cursor_indicator(event)
         return super().eventFilter(obj, event)

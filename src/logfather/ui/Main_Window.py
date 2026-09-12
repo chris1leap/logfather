@@ -611,6 +611,7 @@ class MainWindow(QWidget):
         # Settings button removed from DatePicker UI
         self.time_picker.time_selected.connect(self.on_time_chosen)
         self.time_picker.event_clicked.connect(self._on_timeline_event_clicked)
+        self.time_picker.moment_clicked.connect(self._on_timeline_moment_clicked)
         self.time_picker.items_changed.connect(self._sync_viewer_sku_overlay)
         self.time_picker.items_changed.connect(self._on_items_changed_for_navigation)
         self.viewer.clip_opened.connect(self._on_clip_opened_for_navigation)
@@ -1928,6 +1929,35 @@ class MainWindow(QWidget):
             "root": root,
             "day": day,
             "target_dt": ensure_utc(item.start),
+            "stage": "load_timeline",
+        }
+        self._overview_nav_failsafe.start()
+        self._on_items_changed_for_navigation()
+
+    def _on_timeline_moment_clicked(self, moment) -> None:
+        """A click on empty chart sets the time (Chris, 2026-09-12): the
+        playhead moves at once, and the clip covering that moment opens
+        there when there is one."""
+        if not isinstance(moment, datetime):
+            return
+        moment = ensure_utc(moment)
+        self.time_picker.set_playhead_datetime(moment)
+        root = self.time_picker.current_root
+        day = self.time_picker._current_date
+        if not isinstance(root, Path) or day is None:
+            return
+        covering = next(
+            (it for it in (getattr(self.time_picker, "_items", []) or [])
+             if it.kind == "video" and isinstance(it.payload, Path) and isinstance(it.start, datetime) and isinstance(it.end, datetime)
+             and ensure_utc(it.start) <= moment < ensure_utc(it.end)),
+            None,
+        )
+        if covering is None:
+            return
+        self._pending_overview_navigation = {
+            "root": root,
+            "day": day,
+            "target_dt": moment,
             "stage": "load_timeline",
         }
         self._overview_nav_failsafe.start()

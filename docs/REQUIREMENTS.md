@@ -22,6 +22,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ## Shipped
 
+### 2026-09-12
+
+- Click anywhere to set the time (Chris, 2026-09-12): a click on the
+  PikPak Replay chart that is not on a clip, SKU box or event tick moves
+  the green playhead to that moment at once and opens the clip covering
+  it there, if there is one.
+
 ### 2026-09-11
 
 - Playhead through every bar (Chris, 2026-09-11): the green line on the
