@@ -449,6 +449,7 @@ class MainWindow(QWidget):
         strip = self.viewer.video_sync_btn.parentWidget()
         if strip is not None and strip.layout() is not None:
             strip.layout().removeWidget(self.viewer.video_sync_btn)
+        top_controls.addWidget(self.viewer.drift_tool, 0, Qt.AlignRight)
         top_controls.addWidget(self.viewer.video_sync_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.calibrate_btn, 0, Qt.AlignRight)
         top_controls.addWidget(self.track_toggle, 0, Qt.AlignRight)
@@ -1833,6 +1834,7 @@ class MainWindow(QWidget):
         show = in_viewer and self._viewer_tools_available
         self.calibrate_btn.setVisible(show)
         self.viewer.video_sync_btn.setVisible(show)
+        self.viewer.drift_tool.setVisible(show)
         self.track_toggle.setVisible(show)
         self.buffer_toggle.setVisible(show)
         # The Customer/Line/System label describes the viewer's selection;

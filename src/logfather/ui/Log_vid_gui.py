@@ -1061,9 +1061,17 @@ class VideoLogViewer(QWidget):
         sync_strip_layout.setContentsMargins(0, 0, 0, 0)
         sync_strip_layout.addWidget(self.video_sync_btn)
         sync_strip_layout.addSpacing(8)
-        sync_strip_layout.addWidget(self.offset_caption)
-        sync_strip_layout.addWidget(self.offset_slider)
-        sync_strip_layout.addWidget(self.offset_display)
+        # The drift tool lives in the main window's top bar, left of Sync,
+        # so it is always visible (Chris, 2026-09-12): caption, slider and
+        # readout in one small widget the main window mounts.
+        self.drift_tool = QWidget()
+        drift_layout = QHBoxLayout(self.drift_tool)
+        drift_layout.setContentsMargins(0, 0, 0, 0)
+        drift_layout.setSpacing(4)
+        self.offset_slider.setFixedWidth(150)
+        drift_layout.addWidget(self.offset_caption)
+        drift_layout.addWidget(self.offset_slider)
+        drift_layout.addWidget(self.offset_display)
         sync_strip_layout.addSpacing(6)
         sync_strip_layout.addWidget(self.close_gap_caption)
         sync_strip_layout.addWidget(self.close_gap_slider)

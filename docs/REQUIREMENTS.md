@@ -24,6 +24,9 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Drift tool in the top bar (Chris, 2026-09-12): the Drift caption,
+  slider and readout sit in the top bar to the left of Sync, always
+  visible with the other viewer tools, instead of inside the sync strip.
 - Sync button (Chris, 2026-09-12): a clock icon; after a successful sync
   (automatic, cached or manual, both cameras) it turns green and reads the
   offset to one decimal, e.g. "Sync: +1.3s"; with a clip open but no sync
