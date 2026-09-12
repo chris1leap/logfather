@@ -992,7 +992,12 @@ class OcrVideoPlayer(QWidget):
         self._readings: list[tuple[int, str, int | None]] = []
         self._highlighted_row = -1
         history_header.setFont(mono)
-        history_header.setStyleSheet("font-weight: bold;")
+        # Same weight as the rows: bold Consolas is wider per character, so
+        # the Exact time and FPS headings drifted right of their values
+        # (Chris, 2026-09-12). The left inset matches the list frame and
+        # item padding so the columns line up.
+        history_header.setStyleSheet("color: #ecf0f4;")
+        history_header.setContentsMargins(self.ocr_history.frameWidth() + 3, 0, 0, 0)
         history_header.setToolTip(f"Every second change in the {OCR_TABLE_SECONDS} s after the sync frame, then a drift check every {OCR_TABLE_INTERVAL_SECONDS} s: the frame the second began on and how many frames it lasted; green = the last row at or before the current frame")
         right_layout.addWidget(history_header)
         right_layout.addWidget(self.ocr_history, 1)

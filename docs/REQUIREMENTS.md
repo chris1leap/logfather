@@ -44,7 +44,8 @@ Living record of agreed functionality: what is open, and what has shipped
   counted on a final line. Scrolling never adds rows; the row closest at
   or before the current frame is green and the rest plain. The
   analysis's disregarded/invalid notes go to the console instead of the
-  list.
+  list. Header and rows share the same regular-weight monospace font and
+  left inset so the columns line up (2026-09-12).
 - Sync CCTV Time frame-step buttons (Chris, 2026-09-12): -10, -1, +1 and
   +10 under the slider, sized like the conveyor calibration window's.
 - Sync CCTV Time slider labels (Chris, 2026-09-12): "Frame 1" to the left
