@@ -36,7 +36,7 @@ from logfather.core.retention import FOOTAGE_DELETED_NOTICE, footage_expired
 from logfather.paths import REPO_ROOT
 from logfather.ui.day_popup import DayPopup
 from logfather.ui.system_filter import SystemPickerPopup, funnel_icon
-from logfather.ui.icons import refresh_icon, calendar_icon
+from logfather.ui.icons import refresh_icon, calendar_icon, conveyor_icon, punnet_icon
 from logfather.ui.window_placement import show_over_parent
 from logfather.ui.gear_menu import build_gear_button
 from logfather.ui.day_selection import DaySelection
@@ -373,12 +373,20 @@ class MainWindow(QWidget):
         top_controls.addWidget(self.current_system_label, 0, Qt.AlignLeft)
         self.current_system_label.setVisible(False)
         self.calibrate_btn = QToolButton()
-        self.calibrate_btn.setText("Calibrate")
+        self.calibrate_btn.setText("Conveyor")  # was "Calibrate" (Chris, 2026-09-12)
+        self.calibrate_btn.setIcon(conveyor_icon())
+        self.calibrate_btn.setIconSize(QSize(18, 18))
+        self.calibrate_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.calibrate_btn.setToolTip("Conveyor calibration: the tracking line the product overlays follow")
         self.calibrate_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.calibrate_btn.clicked.connect(self._overlay_controller.open_calibration_dialog)
 
         self.track_toggle = QToolButton()
         self.track_toggle.setText("Track")
+        self.track_toggle.setIcon(punnet_icon())
+        self.track_toggle.setIconSize(QSize(18, 18))
+        self.track_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.track_toggle.setToolTip("Draw the tracked products on the picture")
         self.track_toggle.setCheckable(True)
         self.track_toggle.setChecked(True)
         self.track_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)

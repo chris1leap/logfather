@@ -397,3 +397,46 @@ def refresh_icon(size: int = 24) -> QIcon:
     painter.drawPolygon(QPolygonF([QPointF(tip_x, tip_y), QPointF(tip_x - s * 0.22, tip_y - s * 0.02), QPointF(tip_x - s * 0.04, tip_y + s * 0.20)]))
     painter.end()
     return QIcon(pm)
+
+
+def conveyor_icon(size: int = 24) -> QIcon:
+    """A conveyor: a belt over three rollers (the Conveyor button, Chris,
+    2026-09-12)."""
+    pm, painter, s = _start(size)
+    pen = QPen(QColor(theme.TEXT_BRIGHT))
+    pen.setWidthF(s * 0.09)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawLine(QPointF(s * 0.12, s * 0.42), QPointF(s * 0.88, s * 0.42))
+    painter.drawLine(QPointF(s * 0.12, s * 0.70), QPointF(s * 0.88, s * 0.70))
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    for cx in (0.24, 0.50, 0.76):
+        painter.drawEllipse(QPointF(s * cx, s * 0.56), s * 0.09, s * 0.09)
+    # a box riding the belt
+    painter.drawRoundedRect(QRectF(s * 0.36, s * 0.16, s * 0.28, s * 0.20), s * 0.03, s * 0.03)
+    painter.end()
+    return QIcon(pm)
+
+
+def punnet_icon(size: int = 24) -> QIcon:
+    """A punnet of tomatoes: three red fruit in a light tray (the Track
+    button, Chris, 2026-09-12)."""
+    from PySide6.QtGui import QPolygonF
+
+    pm, painter, s = _start(size)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#e74c3c"))
+    for cx in (0.30, 0.50, 0.70):
+        painter.drawEllipse(QPointF(s * cx, s * 0.46), s * 0.13, s * 0.13)
+    painter.setBrush(QColor("#2ecc71"))
+    for cx in (0.30, 0.50, 0.70):
+        painter.drawEllipse(QPointF(s * cx, s * 0.33), s * 0.045, s * 0.03)
+    # the tray: a shallow trapezoid, lighter front face
+    painter.setBrush(QColor(theme.TEXT_BRIGHT))
+    painter.drawPolygon(QPolygonF([QPointF(s * 0.12, s * 0.52), QPointF(s * 0.88, s * 0.52), QPointF(s * 0.80, s * 0.84), QPointF(s * 0.20, s * 0.84)]))
+    painter.setBrush(QColor(theme.TEXT_MUTED))
+    painter.drawRect(QRectF(s * 0.12, s * 0.52, s * 0.76, s * 0.06))
+    painter.end()
+    return QIcon(pm)

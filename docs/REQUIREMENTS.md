@@ -24,6 +24,12 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Conveyor and Track buttons (Chris, 2026-09-12): "Calibrate" reads
+  "Conveyor" with a belt-and-rollers icon; "Track" has a punnet-of-tomatoes
+  icon. Both painted in icons.py.
+- OCR offset write-up (Chris, 2026-09-12): docs/OCR_OFFSET.md explains the
+  offset, the time maths, how the clock is read and voted, the three entry
+  points, the stores, what depends on it, and the known weaknesses.
 - Implausible OCR offsets rejected (Chris, 2026-09-12): the green line
   and clock were missing for today's clip because an automatic OCR read
   had stored an offset of -24,774 s, putting the clip start at 00:01. An
