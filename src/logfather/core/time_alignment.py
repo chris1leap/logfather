@@ -86,3 +86,17 @@ class TimeAlignment:
         (inverse of clock_datetime; used to slave a second camera to the
         primary's wall clock)."""
         return (clock_dt - video_start_dt).total_seconds() - self.ocr_correction
+
+
+# The burnt-in camera clock and the filename stamp differ by seconds, not
+# hours; an OCR read that says otherwise misread the clock (2026-09-12: a
+# cached -24,774 s offset put the playhead at 00:01 and off the chart).
+MAX_PLAUSIBLE_OCR_OFFSET_S = 900.0
+
+
+def plausible_ocr_offset(offset_seconds: float, limit_seconds: float = MAX_PLAUSIBLE_OCR_OFFSET_S) -> bool:
+    try:
+        value = float(offset_seconds)
+    except (TypeError, ValueError):
+        return False
+    return value == value and abs(value) <= limit_seconds  # NaN fails

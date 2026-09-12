@@ -24,6 +24,13 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Implausible OCR offsets rejected (Chris, 2026-09-12): the green line
+  and clock were missing for today's clip because an automatic OCR read
+  had stored an offset of -24,774 s, putting the clip start at 00:01. An
+  offset over 15 minutes either way is now dropped (cached ones removed
+  from the store, new ones not saved) and the clip start comes from the
+  filename instead. The picture's View menu shows the OCR offset in use;
+  clicking it opens the sync tools.
 - Green line survives Refresh (Chris, 2026-09-12): loading or refreshing
   a day on PikPak Replay no longer forgets the viewer's time, so the green
   playhead is drawn again as soon as the timeline appears instead of

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import math
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -96,6 +98,8 @@ SHARED_ROW_LABEL = "Start / Op stop / E-stop"
 # shown by default whenever the day has any.
 NORMAL_CONDITION_NAMES = ("eject crate",)
 TRACK_SPACING = 20
+# LOGFATHER_DEBUG_PLAYHEAD=1 traces the green playhead (2026-09-12).
+_DEBUG_PLAYHEAD = bool(os.environ.get("LOGFATHER_DEBUG_PLAYHEAD"))
 
 
 class _EventTickItem(QGraphicsRectItem):
@@ -1548,6 +1552,8 @@ class TimePicker(QWidget):
         return None
 
     def set_playhead_datetime(self, dt: Optional[datetime]):
+        if _DEBUG_PLAYHEAD:
+            print(f"[playhead] set {dt!r} day={self._current_date} day_start={self._day_start}", flush=True)
         self._playhead_time = dt
         if self._playhead_line is None and dt is None:
             return
@@ -1594,10 +1600,14 @@ class TimePicker(QWidget):
                 except RuntimeError:
                     setattr(self, attr, None)
         if not self._day_start or not self._current_date or self._playhead_time is None:
+            if _DEBUG_PLAYHEAD:
+                print(f"[playhead] hidden: day_start={self._day_start} date={self._current_date} time={self._playhead_time!r}", flush=True)
             self._remove_playhead_items()
             return
         play_local = ensure_playhead_local(self._playhead_time)
         if play_local.date() != self._current_date:
+            if _DEBUG_PLAYHEAD:
+                print(f"[playhead] hidden: local date {play_local.date()} != timeline date {self._current_date}", flush=True)
             self._remove_playhead_items()
             return
         play_dt = ensure_utc(play_local)

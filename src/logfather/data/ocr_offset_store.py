@@ -31,6 +31,13 @@ class OcrOffsetStore:
         except Exception:
             pass
 
+    def remove(self, key: str) -> None:
+        data = self._load()
+        offsets = data.get("offsets")
+        if isinstance(offsets, dict) and key in offsets:
+            del offsets[key]
+            self._save(data)
+
     def get(self, key: str) -> dict | None:
         offsets = self._load().get("offsets", {})
         if not isinstance(offsets, dict):

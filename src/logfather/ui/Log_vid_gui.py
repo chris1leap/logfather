@@ -35,7 +35,7 @@ from logfather.ui.annotated_video_widget import AnnotatedVideoWidget
 from logfather.data.clip_cache import ClipCache
 from logfather.data.ocr_offset_store import OcrOffsetStore
 from logfather.data.ui_state_store import load_ui_state, update_ui_state
-from logfather.core.time_alignment import TimeAlignment
+from logfather.core.time_alignment import plausible_ocr_offset, TimeAlignment
 from logfather.ui import theme
 from logfather.core.log_events import (
     LOCAL_TIMEZONE,
@@ -698,10 +698,29 @@ class VideoLogViewer(QWidget):
         menu.addAction(additional)
         self._view_menu_actions["additional"] = additional
         menu.aboutToShow.connect(self._refresh_additional_cctv_action)
+        # The OCR offset in use (Chris, 2026-09-12); clicking opens the
+        # sync tools to change it.
+        menu.addSeparator()
+        ocr = QAction("OCR offset", self)
+        ocr.triggered.connect(lambda: self.sync_tools_btn.setChecked(True))
+        menu.addAction(ocr)
+        self._view_menu_actions["ocr"] = ocr
+        menu.aboutToShow.connect(self._refresh_ocr_offset_action)
         self.view_menu_btn.setMenu(menu)
         self.video_label.installEventFilter(self)
         self._set_clip_counters_visible(counters.isChecked(), remember=False)
         self._place_view_menu()
+
+    def _refresh_ocr_offset_action(self) -> None:
+        action = self._view_menu_actions.get("ocr")
+        if action is None:
+            return
+        if self.cap is None:
+            action.setText("OCR offset: no clip open")
+        elif self.ocr_offset_seconds is None:
+            action.setText("OCR offset: none (clip start taken from the filename)")
+        else:
+            action.setText(f"OCR offset: {self.ocr_offset_seconds:+.1f} s, {int(self.ocr_frame_offset or 0):+d} frames")
 
     def _current_clip_time(self):
         """Wall-clock time of the frame on screen, or None without a clip."""
@@ -2065,6 +2084,11 @@ class VideoLogViewer(QWidget):
                 self.ocr_offset_seconds = float(cached.get("offset_seconds"))
                 self.ocr_frame_offset = int(cached.get("frame_offset", 0))
             except Exception:
+                self.ocr_offset_seconds = None
+                self.ocr_frame_offset = 0
+            if self.ocr_offset_seconds is not None and not plausible_ocr_offset(self.ocr_offset_seconds):
+                print(f"[ocr] cached offset {self.ocr_offset_seconds:.0f}s for {key} is not plausible; dropped, using the filename time", flush=True)
+                self.offset_store.remove(key)
                 self.ocr_offset_seconds = None
                 self.ocr_frame_offset = 0
             if self.ocr_offset_seconds is not None:
@@ -4928,6 +4952,9 @@ class VideoLogViewer(QWidget):
         dlg = None
 
         def _on_offset_approved(video_start_dt, offset_seconds, frame_offset):
+            if not plausible_ocr_offset(offset_seconds):
+                QMessageBox.warning(self, "OCR offset", f"An offset of {float(offset_seconds) / 60:+.0f} minutes is not plausible (the clock and the filename differ by seconds). Not applied.")
+                return
             try:
                 self.ocr_offset_seconds = float(offset_seconds)
                 self.ocr_frame_offset = int(frame_offset)
@@ -5093,6 +5120,14 @@ class VideoLogViewer(QWidget):
             except Exception:
                 self.ocr_offset_seconds = None
                 self.ocr_frame_offset = 0
+            if self.ocr_offset_seconds is not None and not plausible_ocr_offset(self.ocr_offset_seconds):
+                print(f"[ocr] cached offset {self.ocr_offset_seconds:.0f}s is not plausible; dropped", flush=True)
+                try:
+                    self.offset_store.remove(self._offset_cache_key(Path(self.current_video_path)))
+                except Exception:
+                    pass
+                self.ocr_offset_seconds = None
+                self.ocr_frame_offset = 0
             if self.ocr_offset_seconds is not None:
                 filename_dt = parse_filename_datetime(self.current_video_path)
                 if filename_dt:
@@ -5145,6 +5180,9 @@ class VideoLogViewer(QWidget):
                     "OCR sync failed. Please adjust the ROI and try again.",
                 )
                 self.open_ocr_roi_tool(auto_start=False)
+                return
+            if not plausible_ocr_offset(result.offset_seconds):
+                print(f"[ocr] automatic offset {result.offset_seconds:.0f}s is not plausible; ignored, using the filename time", flush=True)
                 return
             self.ocr_offset_seconds = result.offset_seconds
             self.ocr_frame_offset = result.frame_offset
