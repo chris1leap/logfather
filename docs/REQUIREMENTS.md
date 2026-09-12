@@ -24,9 +24,20 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- Camera date sync (Chris, 2026-09-12): when the burnt-in date on the
+  first frame is 01/01/1970 or differs from the filename, the Sync CCTV
+  Time window scans the clip (a date read every second, then frame by
+  frame) for the frame where the date changes. A large box on the right
+  reports the old and new dates, the frame and time of the change and how
+  many frames the camera took to sync, or that it never synced. The clip
+  is then dated by the new date and the clock is read from that frame,
+  both in the window and in the automatic sync (which uses the saved date
+  box).
 - Date and Time previews (Chris, 2026-09-12): the right-hand side of the
   Sync CCTV Time window shows a large view of the purple date box above
-  the green time box, each labelled "Date" and "Time" in its colour.
+  the green time box, labelled "Date (frame 1)" (the first frame's date,
+  refreshed when the date box is dragged) and "Time (frame x)" for the
+  frame on screen, each in its colour.
 - CCTV date box (Chris, 2026-09-12): a second, purple box in the Sync
   CCTV Time window, by default to the left of the green time box and
   dragged the same way, saved per system under date_roi_by_key. The date

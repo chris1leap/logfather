@@ -736,6 +736,10 @@ class OcrVideoPlayer(QWidget):
         self._dragged_date_roi: Roi | None = None
         self._date_checked = False
         self.cctv_date: "date | None" = None
+        # Where the camera's date changed in this clip (Chris, 2026-09-12):
+        # the clock is read from there, on the date it changed to.
+        self.date_sync_frame: int | None = None
+        self.cctv_synced_date = None
 
         self.ocr_label = QLabel("OCR: (not running)")
         self.ocr_label.setAlignment(Qt.AlignCenter)
@@ -753,9 +757,14 @@ class OcrVideoPlayer(QWidget):
         self.date_preview = QLabel("Date preview")
         self.date_preview.setAlignment(Qt.AlignCenter)
         self.date_preview.setMinimumSize(260, 80)
-        self.date_preview_caption = QLabel("Date")
+        self.date_sync_box = QLabel("Camera date sync: not checked yet")
+        self.date_sync_box.setWordWrap(True)
+        self.date_sync_box.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.date_sync_box.setMinimumHeight(84)
+        self.date_sync_box.setStyleSheet("border: 1px solid #c77dff; border-radius: 6px; padding: 6px; font-size: 13px;")
+        self.date_preview_caption = QLabel("Date (frame 1)")
         self.date_preview_caption.setStyleSheet("color: #c77dff; font-weight: bold;")
-        self.time_preview_caption = QLabel("Time")
+        self.time_preview_caption = QLabel("Time (frame 1)")
         self.time_preview_caption.setStyleSheet("color: #00ff5a; font-weight: bold;")
 
         self.time_label = QLabel("Time: 00:00:00.000")
@@ -828,6 +837,7 @@ class OcrVideoPlayer(QWidget):
         root_layout = QHBoxLayout()
         root_layout.addLayout(left_layout, 1)
         right_layout = QVBoxLayout()
+        right_layout.addWidget(self.date_sync_box)
         right_layout.addWidget(self.date_preview_caption)
         right_layout.addWidget(self.date_preview)
         right_layout.addWidget(self.time_preview_caption)
@@ -911,6 +921,9 @@ class OcrVideoPlayer(QWidget):
         self._history_items = {}
         self._date_checked = False
         self.cctv_date = None
+        self.date_sync_frame = None
+        self.cctv_synced_date = None
+        self.date_sync_box.setText("Camera date sync: not checked yet")
         self.cctv_date_label.setText("CCTV date: \u2013")
         self.cctv_date_label.setStyleSheet("")
         if self.cap is not None:
@@ -1054,13 +1067,18 @@ class OcrVideoPlayer(QWidget):
         self.roi_preview.setPixmap(
             roi_pixmap.scaled(self.roi_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         )
-        date_bgr = date_roi.crop(frame_bgr)
-        date_rgb = cv2.cvtColor(date_bgr, cv2.COLOR_BGR2RGB)
-        dh, dw, dch = date_rgb.shape
-        date_qimg = QImage(date_rgb.data, dw, dh, dch * dw, QImage.Format_RGB888).copy()
-        self.date_preview.setPixmap(
-            QPixmap.fromImage(date_qimg).scaled(self.date_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
+        # The date preview is the first frame's, read once; the time preview
+        # follows the frame on screen (Chris, 2026-09-12).
+        self.time_preview_caption.setText(f"Time (frame {self.current_frame + 1})")
+        if not self._date_checked or self.current_frame == 0 or self._dragged_date_roi is not None:
+            date_bgr = date_roi.crop(frame_bgr)
+            date_rgb = cv2.cvtColor(date_bgr, cv2.COLOR_BGR2RGB)
+            dh, dw, dch = date_rgb.shape
+            date_qimg = QImage(date_rgb.data, dw, dh, dch * dw, QImage.Format_RGB888).copy()
+            self.date_preview.setPixmap(
+                QPixmap.fromImage(date_qimg).scaled(self.date_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+            self.date_preview_caption.setText(f"Date (frame {self.current_frame + 1})")
 
     def _update_ocr(self, frame_bgr: np.ndarray):
         if not self.ocr_available or not self.ocr_enabled_checkbox.isChecked():
@@ -1231,8 +1249,9 @@ class OcrVideoPlayer(QWidget):
         if self.cctv_date == _epoch_date():
             # 01/01/1970 is the camera's factory default: the date was never
             # set, though the time of day still runs (Chris, 2026-09-12).
-            self.cctv_date_label.setText("CCTV date: 01/01/1970 - the camera's date was never set; the filename date is used")
+            self.cctv_date_label.setText("CCTV date: 01/01/1970 on the first frame - the camera had not synced yet")
             self.cctv_date_label.setStyleSheet("color: #f0ad4e;")
+            self._scan_for_date_sync()
             return
         if self.filename_dt is None:
             self.cctv_date_label.setText(f"CCTV date: {shown}")
@@ -1240,9 +1259,60 @@ class OcrVideoPlayer(QWidget):
         elif self.cctv_date == self.filename_dt.date():
             self.cctv_date_label.setText(f"CCTV date: {shown} - matches the filename")
             self.cctv_date_label.setStyleSheet("color: #2ecc71;")
+            self.date_sync_frame = 0
+            self.cctv_synced_date = self.cctv_date
+            self.date_sync_box.setText(f"Camera date sync: {self.cctv_date:%d/%m/%Y} from the first frame, matching the filename. The clock is read from the start of the clip.")
         else:
             self.cctv_date_label.setText(f"CCTV date: {shown} - DIFFERS from the filename ({self.filename_dt:%d-%m-%Y})")
             self.cctv_date_label.setStyleSheet("color: #ff7a70; font-weight: bold;")
+            self._scan_for_date_sync()
+
+    def _scan_for_date_sync(self) -> None:
+        """Frame by frame (a coarse read a second, then a bisection), find
+        where the burnt-in date changes; the clock is read from there and
+        the clip is dated by the new date (Chris, 2026-09-12)."""
+        if self.cap is None or self.fps <= 0 or self.frame_count <= 0 or not self.ocr_available:
+            return
+        frame_h, frame_w = self._last_frame.shape[:2] if self._last_frame is not None else (0, 0)
+        if frame_w <= 0:
+            return
+        date_roi = self._current_date_roi(frame_w, frame_h)
+        progress = QProgressDialog("Scanning for the camera's date sync...", None, 0, max(1, self.frame_count), self)
+        progress.setWindowTitle("Camera date")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+
+        def _on_progress(frame_idx: int) -> None:
+            progress.setValue(min(self.frame_count, int(frame_idx)))
+            QApplication.processEvents()
+
+        try:
+            change = find_date_change_frame(self.cap, self.fps, self.frame_count, date_roi, on_progress=_on_progress)
+        finally:
+            progress.close()
+        initial = self.cctv_date.strftime("%d/%m/%Y") if self.cctv_date else "unreadable"
+        if change is None:
+            self.date_sync_frame = None
+            self.cctv_synced_date = None
+            self.date_sync_box.setText(
+                f"Camera date sync: the date stayed {initial} for the whole clip ({self.frame_count} frames scanned). "
+                "The camera clock never synced, so its time cannot be trusted for this clip."
+            )
+            self.date_sync_box.setStyleSheet("border: 1px solid #ff7a70; border-radius: 6px; padding: 6px; font-size: 13px; color: #ff7a70;")
+            return
+        change_frame, _initial_date, new_date = change
+        self.date_sync_frame = int(change_frame)
+        self.cctv_synced_date = new_date
+        seconds = change_frame / self.fps
+        self.date_sync_box.setText(
+            f"Camera date sync: {initial} -> {new_date:%d/%m/%Y} at frame {change_frame + 1} ({seconds:.1f} s into the clip). "
+            f"{change_frame} frames before the camera synced. The clip is dated {new_date:%d/%m/%Y} and the clock is read from that frame."
+        )
+        self.date_sync_box.setStyleSheet("border: 1px solid #2ecc71; border-radius: 6px; padding: 6px; font-size: 13px; color: #2ecc71;")
+        self._add_history_entry(f"{change_frame + 1:>7}  date {initial} -> {new_date:%d/%m/%Y}", "valid")
+        if self.cap is not None:
+            self._read_and_show(self.date_sync_frame)
 
     def _update_roi_label(self):
         r = self._roi_ratios
@@ -1390,8 +1460,13 @@ class OcrVideoPlayer(QWidget):
 
         fast_seconds = OCR_SYNC_FAST_SECONDS
         fallback_seconds = OCR_SYNC_FALLBACK_SECONDS
+        # Read the clock from the frame where the camera's date synced, on
+        # the date it synced to (Chris, 2026-09-12).
+        start_frame = int(self.date_sync_frame or 0)
+        if self.cctv_synced_date is not None:
+            filename_dt = filename_dt.replace(year=self.cctv_synced_date.year, month=self.cctv_synced_date.month, day=self.cctv_synced_date.day)
         roi = None
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         ret, frame = self.cap.read()
         if ret and frame is not None:
             roi = self._current_roi(frame.shape[1], frame.shape[0])
@@ -1407,10 +1482,12 @@ class OcrVideoPlayer(QWidget):
                 roi=roi,
                 parent=self,
                 progress_label=f"Scanning first {fast_seconds}s (coarse)...",
+                start_frame=start_frame,
             )
         best_start = _pick_best_start(samples) if samples else None
         if best_start is None:
             samples = self._collect_ocr_samples(
+                start_frame=start_frame,
                 seconds=fast_seconds,
                 progress_label=f"Analyzing first {fast_seconds}s...",
             )
@@ -1426,10 +1503,12 @@ class OcrVideoPlayer(QWidget):
                     roi=roi,
                     parent=self,
                     progress_label=f"Scanning first {fallback_seconds}s (coarse)...",
+                    start_frame=start_frame,
                 )
                 best_start = _pick_best_start(samples) if samples else None
         if best_start is None and fallback_seconds > fast_seconds:
             samples = self._collect_ocr_samples(
+                start_frame=start_frame,
                 seconds=fallback_seconds,
                 progress_label=f"Analyzing first {fallback_seconds}s...",
             )
@@ -1464,6 +1543,7 @@ class OcrVideoPlayer(QWidget):
         *,
         seconds: int,
         progress_label: str,
+        start_frame: int = 0,
     ) -> list[tuple[int, float, datetime, str]]:
         if self.cap is None or self.fps <= 0 or self.frame_count <= 0:
             return []
@@ -1476,6 +1556,7 @@ class OcrVideoPlayer(QWidget):
         if max_frames <= 0:
             return []
         step = 1
+        start_frame = max(0, int(start_frame))
         filename_dt = self._parse_filename_datetime()
         if filename_dt is None:
             return []
@@ -1485,7 +1566,7 @@ class OcrVideoPlayer(QWidget):
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
-        for frame_idx in range(0, max_frames, step):
+        for frame_idx in range(start_frame, min(self.frame_count, start_frame + max_frames), step):
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
             ret, frame = self.cap.read()
             if not ret or frame is None:
@@ -1750,6 +1831,70 @@ def show_verification_dialog(parent: QWidget, report: list[tuple[str, str]]) -> 
     return dlg.exec() == QDialog.Accepted
 
 
+class _Aborted(Exception):
+    pass
+
+
+def locate_date_change(read_date, frame_count: int, step: int):
+    """Find the first frame whose date differs from frame 0's (Chris,
+    2026-09-12: the camera can take a while to sync its date after the
+    clip starts). `read_date(frame_idx)` returns a date or None. Coarse
+    steps of `step` frames, then a frame-by-frame bisection between the
+    last old reading and the first new one. Returns
+    (change_frame, initial_date, new_date), or None when the date never
+    changes in the clip."""
+    if frame_count <= 0:
+        return None
+    step = max(1, int(step))
+    initial = read_date(0)
+    prev_frame = 0
+    frame = step
+    while frame < frame_count:
+        current = read_date(frame)
+        if current is not None and current != initial:
+            lo, hi = prev_frame, frame
+            new_date = current
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                mid_date = read_date(mid)
+                if mid_date is not None and mid_date != initial:
+                    hi, new_date = mid, mid_date
+                else:
+                    lo = mid
+            return hi, initial, new_date
+        prev_frame = frame
+        frame += step
+    return None
+
+
+def find_date_change_frame(cap, fps: float, frame_count: int, date_roi: Roi, *, should_abort=None, on_progress=None):
+    """locate_date_change over a clip, reading the purple date box with
+    Tesseract; one coarse read a second. None when aborted or unchanged."""
+    step = max(1, int(round(fps * 1.0))) if fps > 0 else 25
+
+    def read_date(frame_idx: int):
+        if should_abort is not None and should_abort():
+            raise _Aborted()
+        if on_progress is not None:
+            try:
+                on_progress(frame_idx)
+            except Exception:
+                pass
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            return None
+        try:
+            return parse_cctv_date(ocr_date_from_frame(frame, roi=date_roi))
+        except Exception:
+            return None
+
+    try:
+        return locate_date_change(read_date, frame_count, step)
+    except _Aborted:
+        return None
+
+
 def analyze_video_offset(
     video_path: str | Path,
     *,
@@ -1758,6 +1903,7 @@ def analyze_video_offset(
     parent: QWidget | None = None,
     should_abort=None,
     on_stage=None,
+    start_frame: int = 0,
 ) -> OcrOffsetResult | None:
     """`should_abort` (callable -> bool) is polled between frames so a
     worker-thread run can be interrupted quickly (e.g. at app shutdown);
@@ -1810,6 +1956,31 @@ def analyze_video_offset(
     def _aborted() -> bool:
         return should_abort is not None and should_abort()
 
+    # The camera may sync its date some way into the clip (Chris,
+    # 2026-09-12); when a date box is saved, find that frame first and
+    # read the clock only from there, on the synced date.
+    date_settings = None
+    if settings_path and settings_key:
+        date_settings = load_roi_settings(settings_path, settings_key, section="date_roi_by_key")
+    if date_settings is not None:
+        t_stage = _stage("checking the camera date")
+        date_roi = Roi.top_center_time(
+            frame.shape[1], frame.shape[0],
+            width_ratio=date_settings.width_ratio, height_ratio=date_settings.height_ratio,
+            y_offset_ratio=date_settings.y_offset_ratio, x_offset_ratio=date_settings.x_offset_ratio,
+        )
+        change = find_date_change_frame(cap, fps, frame_count, date_roi, should_abort=should_abort)
+        if change is not None:
+            change_frame, initial_date, new_date = change
+            start_frame = max(start_frame, change_frame)
+            base_dt = base_dt.replace(year=new_date.year, month=new_date.month, day=new_date.day)
+            print(f"[ocr] camera date {initial_date} -> {new_date} at frame {change_frame} ({change_frame / fps:.1f}s); clock read from there", flush=True)
+        print(f"[ocr] date check: {(perf_counter() - t_stage) * 1000:.0f}ms", flush=True)
+        if _aborted():
+            cap.release()
+            return None
+    start_frame = max(0, min(int(start_frame), max(0, frame_count - 1)))
+
     fast_seconds = OCR_SYNC_FAST_SECONDS
     fallback_seconds = OCR_SYNC_FALLBACK_SECONDS
     t_stage = _stage(f"scanning clock (coarse, first {fast_seconds}s)")
@@ -1823,6 +1994,7 @@ def analyze_video_offset(
         parent=parent,
         progress_label=f"Scanning first {fast_seconds}s (coarse)...",
         should_abort=should_abort,
+        start_frame=start_frame,
     )
     best_start = _estimate_start_from_samples(samples, base_dt)
     print(
@@ -1842,6 +2014,7 @@ def analyze_video_offset(
             parent=parent,
             progress_label=f"Analyzing first {fast_seconds}s...",
             should_abort=should_abort,
+            start_frame=start_frame,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
         print(
@@ -1861,6 +2034,7 @@ def analyze_video_offset(
             parent=parent,
             progress_label=f"Scanning first {fallback_seconds}s (coarse)...",
             should_abort=should_abort,
+            start_frame=start_frame,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
         print(
@@ -1880,6 +2054,7 @@ def analyze_video_offset(
             parent=parent,
             progress_label=f"Analyzing first {fallback_seconds}s...",
             should_abort=should_abort,
+            start_frame=start_frame,
         )
         best_start = _estimate_start_from_samples(samples, base_dt)
         print(
@@ -1902,8 +2077,7 @@ def analyze_video_offset(
         fps,
         frame_count,
         best_start,
-        roi,
-    )
+        roi, start_frame=start_frame)
     print(
         f"[ocr] verify: {(perf_counter() - t_stage) * 1000:.0f}ms",
         flush=True,
@@ -1934,7 +2108,8 @@ def _collect_ocr_samples_for_cap(
     parent: QWidget | None,
     progress_label: str,
     should_abort=None,
-) -> list[tuple[int, float, datetime, str]]:
+
+    start_frame: int = 0,) -> list[tuple[int, float, datetime, str]]:
     if frame_count <= 0 or fps <= 0:
         return []
     max_frame_idx = int(math.ceil(seconds * fps))
@@ -1952,7 +2127,8 @@ def _collect_ocr_samples_for_cap(
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
-    for frame_idx in range(0, max_frames):
+    start_frame = max(0, int(start_frame))
+    for frame_idx in range(start_frame, min(frame_count, start_frame + max_frames)):
         if should_abort is not None and should_abort():
             break
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
@@ -2012,7 +2188,8 @@ def _find_second_boundary_samples_for_cap(
     parent: QWidget | None,
     progress_label: str,
     should_abort=None,
-) -> list[tuple[int, float, datetime, str]]:
+
+    start_frame: int = 0,) -> list[tuple[int, float, datetime, str]]:
     if frame_count <= 0 or fps <= 0:
         return []
     max_frame_idx = int(math.ceil(seconds * fps))
@@ -2023,9 +2200,13 @@ def _find_second_boundary_samples_for_cap(
         return []
 
     step = max(1, int(round(fps * OCR_SYNC_COARSE_STEP_SECONDS)))
-    frame_indices = list(range(0, max_frame_idx + 1, step))
-    if frame_indices[-1] != max_frame_idx:
-        frame_indices.append(max_frame_idx)
+    start_frame = max(0, int(start_frame))
+    last = min(frame_count - 1, start_frame + max_frame_idx)
+    if last <= start_frame:
+        return []
+    frame_indices = list(range(start_frame, last + 1, step))
+    if frame_indices[-1] != last:
+        frame_indices.append(last)
 
     progress = None
     if parent is not None:
@@ -2158,10 +2339,11 @@ def _verify_frame_offset_for_cap(
     frame_count: int,
     estimated_start: datetime,
     roi: Roi,
-) -> tuple[int, list[tuple[str, str]]]:
+
+    start_frame: int = 0,) -> tuple[int, list[tuple[str, str]]]:
     if fps <= 0 or frame_count <= 0:
         return 0, [("Unable to verify frame offset (no video/fps).", "info")]
-    mid_frame = frame_count // 2
+    mid_frame = min(frame_count - 1, max(frame_count // 2, int(start_frame) + int(fps * 2)))
     mid_dt = estimated_start + timedelta(seconds=mid_frame / fps)
     target_second = mid_dt.replace(microsecond=0)
     target_seconds = (target_second - estimated_start).total_seconds()

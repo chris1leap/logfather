@@ -18,6 +18,7 @@ from logfather.ui.time_ocr import (
     _preprocess_for_ocr,
     _time_text_to_seconds,
     load_roi_settings,
+    locate_date_change,
     parse_cctv_date,
     parse_filename_datetime,
     roi_to_ratios,
@@ -215,3 +216,37 @@ def test_roi_settings_sections_are_independent(tmp_path):
     save_roi_settings(path, "PikPak007", RoiSettings(0.2, 0.05, 0.01, -0.3), section="date_roi_by_key")
     assert load_roi_settings(path, "PikPak007").x_offset_ratio == 0.0
     assert load_roi_settings(path, "PikPak007", section="date_roi_by_key").x_offset_ratio == -0.3
+
+
+# ---- the camera date sync search ------------------------------------------------
+
+def test_locate_date_change_finds_the_first_new_frame():
+    from datetime import date
+    old, new = date(1970, 1, 1), date(2026, 9, 12)
+    reads = []
+
+    def read_date(idx):
+        reads.append(idx)
+        return old if idx < 312 else new
+
+    assert locate_date_change(read_date, 15000, 25) == (312, old, new)
+    assert max(reads) < 400 and len(reads) < 40   # coarse steps, then a bisection
+
+
+def test_locate_date_change_when_the_date_never_changes():
+    from datetime import date
+    assert locate_date_change(lambda idx: date(1970, 1, 1), 500, 25) is None
+    assert locate_date_change(lambda idx: None, 500, 25) is None
+
+
+def test_locate_date_change_skips_unreadable_frames():
+    from datetime import date
+    old, new = date(1970, 1, 1), date(2026, 9, 12)
+
+    def read_date(idx):
+        if idx % 7 == 3:
+            return None       # a frame the OCR cannot read
+        return old if idx < 100 else new
+
+    change = locate_date_change(read_date, 1000, 25)
+    assert change is not None and change[2] == new and 100 <= change[0] <= 101

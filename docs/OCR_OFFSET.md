@@ -144,9 +144,14 @@ and a colour-coded history of every reading (green valid, red invalid,
 amber outlier). Every drag saves the ROI at once. A second, purple box
 (`date_roi_by_key`, default just left of the time box) is read once per
 clip with `ocr_date_from_frame` and `parse_cctv_date` (the camera always
-writes `DD/MM/YYYY`, and only that form is accepted); the window shows
-whether the burnt-in date matches the filename date. It is a check only:
-the offset still uses the filename date.
+writes `DD/MM/YYYY`; slashes the OCR reads as 7 are tolerated by reading
+the ten characters by position). When the first frame's date is the
+camera's unset default (01/01/1970) or differs from the filename,
+`find_date_change_frame` / `locate_date_change` scan the clip for the
+frame where the date changes (one read a second, then a bisection). The
+window reports the change and how many frames the camera took to sync,
+and the clock is then read from that frame on the synced date; the
+automatic sync does the same when a date box is saved for the system.
 "Sync Time" in the dialog runs the same four-stage analysis with the
 sliders' ROI and applies the result through `_on_offset_approved`, which
 stores it and re-syncs the logs. The approval dialog that exists in the
