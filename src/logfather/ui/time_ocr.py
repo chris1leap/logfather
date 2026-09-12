@@ -19,7 +19,7 @@ import shutil
 import subprocess
 
 from PySide6.QtCore import Qt, QTimer, QRect, QPoint, Signal
-from PySide6.QtGui import QColor, QImage, QPixmap, QPainter, QPen, QBrush
+from PySide6.QtGui import QColor, QImage, QPixmap, QPainter, QPen, QBrush, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -153,21 +153,30 @@ class RoiEditorLabel(ScrubbableLabel):
     dragged by its edges, corners or middle (Chris, 2026-09-12: sliders
     were far harder). Emits roi_changed with the box in frame pixels."""
 
-    roi_changed = Signal(object)  # Roi, frame pixels
+    roi_changed = Signal(str, object)  # box name ("time" or "date"), Roi in frame pixels
     HANDLE = 8
+    COLOURS = {"time": ("#00ff5a", "#003a14"), "date": ("#c77dff", "#2a0a45")}
 
     def __init__(self, text: str = "", parent=None):
         super().__init__(text, parent)
         self._frame: QPixmap | None = None
         self._view = QRect()
-        self._roi: Roi | None = None
-        self._drag: tuple[str, QPoint, Roi] | None = None
+        self._boxes: dict[str, Roi] = {}
+        self._drag: tuple[str, str, QPoint, Roi] | None = None  # box, handle, press, base
         self.setMouseTracking(True)
 
-    def set_picture(self, frame: QPixmap | None, view: QRect, roi: Roi | None) -> None:
+    @property
+    def _roi(self) -> Roi | None:
+        return self._boxes.get("time")
+
+    def set_picture(self, frame: QPixmap | None, view: QRect, roi: Roi | None, date_roi: Roi | None = None) -> None:
         self._frame = frame
         self._view = QRect(view)
-        self._roi = roi
+        self._boxes = {}
+        if roi is not None:
+            self._boxes["time"] = roi
+        if date_roi is not None:
+            self._boxes["date"] = date_roi
         if frame is None:
             self.setText("Open a video to start")
         else:
@@ -194,15 +203,30 @@ class RoiEditorLabel(ScrubbableLabel):
         scale, x0, y0 = self._placement()
         return self._view.x() + (lx - x0) / scale, self._view.y() + (ly - y0) / scale
 
-    def _roi_label_rect(self):
-        if self._roi is None or self._placement() is None:
+    def _box_rect(self, name: str):
+        roi = self._boxes.get(name)
+        if roi is None or self._placement() is None:
             return None
-        x1, y1 = self._to_label(self._roi.x, self._roi.y)
-        x2, y2 = self._to_label(self._roi.x + self._roi.w, self._roi.y + self._roi.h)
+        x1, y1 = self._to_label(roi.x, roi.y)
+        x2, y2 = self._to_label(roi.x + roi.w, roi.y + roi.h)
         return QRect(int(round(x1)), int(round(y1)), max(1, int(round(x2 - x1))), max(1, int(round(y2 - y1))))
 
+    def _roi_label_rect(self):
+        return self._box_rect("time")
+
     def _hit(self, pos: QPoint) -> str | None:
-        rect = self._roi_label_rect()
+        found = self._hit_box(pos)
+        return found[1] if found else None
+
+    def _hit_box(self, pos: QPoint) -> tuple[str, str] | None:
+        """(box name, handle) under the pointer; the time box wins a tie."""
+        for name in ("time", "date"):
+            handle = self._hit_rect(self._box_rect(name), pos)
+            if handle:
+                return name, handle
+        return None
+
+    def _hit_rect(self, rect, pos: QPoint) -> str | None:
         if rect is None:
             return None
         m = self.HANDLE
@@ -246,27 +270,42 @@ class RoiEditorLabel(ScrubbableLabel):
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         target = QRect(int(round(x0)), int(round(y0)), int(round(self._view.width() * scale)), int(round(self._view.height() * scale)))
         painter.drawPixmap(target, self._frame, self._view)
-        rect = self._roi_label_rect()
-        if rect is not None:
-            pen = QPen(QColor("#00ff5a"))
+        for name in ("date", "time"):
+            rect = self._box_rect(name)
+            if rect is None:
+                continue
+            line, dark = self.COLOURS[name]
+            pen = QPen(QColor(line))
             pen.setWidth(2)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(rect)
-            painter.setBrush(QBrush(QColor("#00ff5a")))
-            painter.setPen(QPen(QColor("#003a14"), 1))
+            painter.setBrush(QBrush(QColor(line)))
+            painter.setPen(QPen(QColor(dark), 1))
             h = self.HANDLE
             for cx, cy in ((rect.left(), rect.top()), (rect.right(), rect.top()), (rect.left(), rect.bottom()), (rect.right(), rect.bottom()),
                            (rect.center().x(), rect.top()), (rect.center().x(), rect.bottom()), (rect.left(), rect.center().y()), (rect.right(), rect.center().y())):
                 painter.drawRect(QRect(int(cx - h / 2), int(cy - h / 2), h, h))
+            # "Date" / "Time" above the box (Chris, 2026-09-12)
+            caption = "Date" if name == "date" else "Time"
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSize(10)
+            painter.setFont(font)
+            painter.setPen(QPen(QColor(dark), 3))
+            painter.drawText(rect.left() + 2, rect.top() - 8, caption)
+            painter.setPen(QPen(QColor(line), 1))
+            painter.drawText(rect.left() + 2, rect.top() - 8, caption)
         painter.end()
 
     # ---- mouse
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self._roi is not None:
-            hit = self._hit(event.position().toPoint())
-            if hit:
-                self._drag = (hit, event.position().toPoint(), Roi(self._roi.x, self._roi.y, self._roi.w, self._roi.h))
+        if event.button() == Qt.LeftButton and self._boxes:
+            found = self._hit_box(event.position().toPoint())
+            if found:
+                name, handle = found
+                base = self._boxes[name]
+                self._drag = (name, handle, event.position().toPoint(), Roi(base.x, base.y, base.w, base.h))
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -274,11 +313,11 @@ class RoiEditorLabel(ScrubbableLabel):
     def mouseMoveEvent(self, event):
         pos = event.position().toPoint()
         if self._drag is None:
-            hit = self._hit(pos) if self._roi is not None else None
+            hit = self._hit(pos) if self._boxes else None
             self.setCursor(self._CURSORS.get(hit, Qt.ArrowCursor))
             super().mouseMoveEvent(event)
             return
-        kind, start, base = self._drag
+        name, kind, start, base = self._drag
         placement = self._placement()
         if placement is None:
             return
@@ -302,16 +341,17 @@ class RoiEditorLabel(ScrubbableLabel):
         h = max(4.0, h)
         x = max(0.0, min(fw - w, x))
         y = max(0.0, min(fh - h, y))
-        self._roi = Roi(int(round(x)), int(round(y)), int(round(w)), int(round(h)))
+        self._boxes[name] = Roi(int(round(x)), int(round(y)), int(round(w)), int(round(h)))
         self.update()
-        self.roi_changed.emit(self._roi)
+        self.roi_changed.emit(name, self._boxes[name])
         event.accept()
 
     def mouseReleaseEvent(self, event):
         if self._drag is not None and event.button() == Qt.LeftButton:
+            name = self._drag[0]
             self._drag = None
-            if self._roi is not None:
-                self.roi_changed.emit(self._roi)
+            if name in self._boxes:
+                self.roi_changed.emit(name, self._boxes[name])
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -337,7 +377,9 @@ class RoiSettings:
     x_offset_ratio: float
 
 
-def load_roi_settings(settings_path: Path, key: str | None) -> RoiSettings | None:
+def load_roi_settings(settings_path: Path, key: str | None, section: str = "roi_by_key") -> RoiSettings | None:
+    """`section` is "roi_by_key" for the time box, "date_roi_by_key" for the
+    date box (Chris, 2026-09-12)."""
     if not key:
         return None
     if not settings_path.exists():
@@ -346,7 +388,7 @@ def load_roi_settings(settings_path: Path, key: str | None) -> RoiSettings | Non
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    entry = data.get("roi_by_key", {}).get(key)
+    entry = data.get(section, {}).get(key)
     if not isinstance(entry, dict):
         return None
     try:
@@ -360,7 +402,7 @@ def load_roi_settings(settings_path: Path, key: str | None) -> RoiSettings | Non
         return None
 
 
-def save_roi_settings(settings_path: Path, key: str | None, settings: RoiSettings) -> None:
+def save_roi_settings(settings_path: Path, key: str | None, settings: RoiSettings, section: str = "roi_by_key") -> None:
     if not key:
         return
     try:
@@ -369,10 +411,10 @@ def save_roi_settings(settings_path: Path, key: str | None, settings: RoiSetting
             data = json.loads(settings_path.read_text(encoding="utf-8"))
     except Exception:
         data = {}
-    roi_by_key = data.get("roi_by_key")
+    roi_by_key = data.get(section)
     if not isinstance(roi_by_key, dict):
         roi_by_key = {}
-        data["roi_by_key"] = roi_by_key
+        data[section] = roi_by_key
     roi_by_key[key] = {
         "width_ratio": settings.width_ratio,
         "height_ratio": settings.height_ratio,
@@ -513,6 +555,39 @@ def ocr_time_from_frame(
     return text.strip()
 
 
+_DATE_DMY_RE = re.compile(r"(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})")
+_DATE_YMD_RE = re.compile(r"(\d{4})[/.\-](\d{1,2})[/.\-](\d{1,2})")
+
+
+def parse_cctv_date(text: str):
+    """The date burnt into the picture, as a date, from an OCR string such
+    as "10/09/2026" or "2026-09-10" (day-month-year is tried first, as the
+    cameras write it). None when nothing plausible is there."""
+    from datetime import date as _date
+
+    cleaned = "".join(str(text or "").split())
+    for regex, order in ((_DATE_DMY_RE, "dmy"), (_DATE_YMD_RE, "ymd")):
+        match = regex.search(cleaned)
+        if not match:
+            continue
+        parts = [int(p) for p in match.groups()]
+        year, month, day = (parts[2], parts[1], parts[0]) if order == "dmy" else (parts[0], parts[1], parts[2])
+        try:
+            return _date(year, month, day)
+        except ValueError:
+            continue
+    return None
+
+
+def ocr_date_from_frame(frame_bgr: np.ndarray, *, roi: Roi) -> str:
+    """One OCR pass over the date box: digits and separators only."""
+    _ensure_tesseract()
+    cfg = OcrConfig(whitelist="0123456789/-.")
+    prepared = _preprocess_for_ocr(roi.crop(frame_bgr), cfg)
+    config = f"--oem 3 --psm {cfg.psm} -c tessedit_char_whitelist={cfg.whitelist}"
+    return pytesseract.image_to_string(prepared, config=config, lang=cfg.lang).strip()
+
+
 def _read_frame(
     video_path: Path | str,
     *,
@@ -630,7 +705,7 @@ class OcrVideoPlayer(QWidget):
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setMinimumSize(640, 360)
         self.video_label.set_scrub_callback(self._scrub_by_frames)
-        self.video_label.roi_changed.connect(self._on_roi_dragged)
+        self.video_label.roi_changed.connect(self._on_box_dragged)
         self._last_frame: np.ndarray | None = None
         # The zoomed view is fixed once chosen so the picture does not
         # shift under the box while it is dragged (Chris, 2026-09-12); it
@@ -640,6 +715,11 @@ class OcrVideoPlayer(QWidget):
         # never shift from ratio rounding (Chris, 2026-09-12).
         self._dragged_roi: Roi | None = None
         self._dragged_frame_size: tuple[int, int] | None = None
+        # The purple date box (Chris, 2026-09-12): read once per clip and
+        # compared with the filename date.
+        self._dragged_date_roi: Roi | None = None
+        self._date_checked = False
+        self.cctv_date: "date | None" = None
 
         self.ocr_label = QLabel("OCR: (not running)")
         self.ocr_label.setAlignment(Qt.AlignCenter)
@@ -677,6 +757,10 @@ class OcrVideoPlayer(QWidget):
         # The box is dragged on the picture (Chris, 2026-09-12); these ratios
         # are the saved form, kept in step with every drag.
         self._roi_ratios = RoiSettings(roi.width_ratio, roi.height_ratio, roi.y_offset_ratio, roi.x_offset_ratio)
+        saved_date_roi = None
+        if self._roi_settings_path and self._roi_settings_key:
+            saved_date_roi = load_roi_settings(self._roi_settings_path, self._roi_settings_key, section="date_roi_by_key")
+        self._date_ratios = saved_date_roi or self._default_date_ratios()
         self.zoom_checkbox = QCheckBox("Zoom to the clock area")
         self.zoom_checkbox.setChecked(True)
         self.zoom_checkbox.setToolTip("Show just the top of the picture around the OCR box; untick to see the whole frame")
@@ -687,11 +771,15 @@ class OcrVideoPlayer(QWidget):
         # (Chris, 2026-09-12).
         self.filename_date_label = QLabel("Filename date: –")
         self.filename_date_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.cctv_date_label = QLabel("CCTV date: \u2013")
+        self.cctv_date_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.cctv_date_label.setToolTip("The date read once from the purple box, compared with the filename date")
         self.filename_time_label = QLabel("Filename time: –")
         self.filename_time_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.filename_date_label)
         left_layout.addWidget(self.filename_time_label)
+        left_layout.addWidget(self.cctv_date_label)
         left_layout.addWidget(self.video_label, 1)
         left_layout.addWidget(self.seek_slider)
         left_layout.addWidget(self.ocr_label)
@@ -700,8 +788,12 @@ class OcrVideoPlayer(QWidget):
         left_layout.addWidget(self.offset_label)
         left_layout.addWidget(self.time_label)
         left_layout.addWidget(self.status_label)
-        hint = QLabel("Drag the green box onto the clock: pull a corner or edge to resize, the middle to move.")
-        hint.setAlignment(Qt.AlignCenter)
+        hint = QLabel(
+            "1. Ensure the Date and Time boxes are in the correct place on the CCTV image "
+            "(drag a corner or edge to resize, the middle to move).\n"
+            "2. Press \"Sync Time\" to find the exact frames when the second changes."
+        )
+        hint.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hint.setWordWrap(True)
         left_layout.addWidget(hint)
         left_layout.addWidget(self.zoom_checkbox)
@@ -712,6 +804,20 @@ class OcrVideoPlayer(QWidget):
         root_layout.addLayout(left_layout, 1)
         right_layout = QVBoxLayout()
         right_layout.addWidget(self.roi_preview)
+        mono = QFont("Consolas")
+        mono.setStyleHint(QFont.Monospace)
+        self.ocr_history.setFont(mono)
+        history_header = QLabel(f"{'Frame':>7}  {'Exact time':<10}  FPS")
+        # Frames per second for a second whose first and last frames are
+        # both known exactly (Chris, 2026-09-12): the rows where the clock
+        # ticks give the boundaries; scroll frame by frame to find them.
+        self._frame_texts: dict[int, str] = {}
+        self._second_start_frame: dict[str, int] = {}
+        self._history_items: dict[int, object] = {}
+        history_header.setFont(mono)
+        history_header.setStyleSheet("font-weight: bold;")
+        history_header.setToolTip("Each frame you scroll to, and the clock read from it")
+        right_layout.addWidget(history_header)
         right_layout.addWidget(self.ocr_history, 1)
         root_layout.addLayout(right_layout)
         self.setLayout(root_layout)
@@ -770,7 +876,15 @@ class OcrVideoPlayer(QWidget):
     def open_video(self, path: str):
         self._zoom_view = None
         self._dragged_roi = None
+        self._dragged_date_roi = None
         self._dragged_frame_size = None
+        self._frame_texts = {}
+        self._second_start_frame = {}
+        self._history_items = {}
+        self._date_checked = False
+        self.cctv_date = None
+        self.cctv_date_label.setText("CCTV date: \u2013")
+        self.cctv_date_label.setStyleSheet("")
         if self.cap is not None:
             self.cap.release()
             self.cap = None
@@ -893,10 +1007,17 @@ class OcrVideoPlayer(QWidget):
         self._last_frame = frame_bgr
         frame_h, frame_w = frame_bgr.shape[:2]
         roi = self._current_roi(frame_w, frame_h)
+        date_roi = self._current_date_roi(frame_w, frame_h)
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         h, w, ch = frame_rgb.shape
         qimg = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
-        self.video_label.set_picture(QPixmap.fromImage(qimg), self._view_rect(frame_w, frame_h, roi), roi)
+        both = Roi(min(roi.x, date_roi.x), min(roi.y, date_roi.y),
+                   max(roi.x + roi.w, date_roi.x + date_roi.w) - min(roi.x, date_roi.x),
+                   max(roi.y + roi.h, date_roi.y + date_roi.h) - min(roi.y, date_roi.y))
+        self.video_label.set_picture(QPixmap.fromImage(qimg), self._view_rect(frame_w, frame_h, both), roi, date_roi)
+        if not self._date_checked:
+            self._date_checked = True
+            self._check_cctv_date(frame_bgr)
         roi_bgr = roi.crop(frame_bgr)
         roi_rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
         rh, rw, rch = roi_rgb.shape
@@ -922,12 +1043,38 @@ class OcrVideoPlayer(QWidget):
         self.ocr_label.setText(f"OCR: {text or '(blank)'}{suffix}")
         if text != self.last_ocr_text:
             self._add_history_entry(
-                f"{self.current_frame + 1}: {text or '(blank)'}",
+                f"{self.current_frame + 1:>7}  {text or '(blank)':<10}",
                 "valid" if valid else None,
             )
+            self._history_items[self.current_frame] = self.ocr_history.item(self.ocr_history.count() - 1)
             self.last_ocr_text = text
             if self.ocr_history.count() > 500:
                 self.ocr_history.takeItem(0)
+        if valid:
+            self._note_second_boundary(self.current_frame, text)
+
+    def _note_second_boundary(self, frame_idx: int, text: str) -> None:
+        """A clock change between two consecutive frames marks the first
+        frame of a second; two consecutive boundaries give the frames in
+        that second, shown as FPS on the row where the second began."""
+        self._frame_texts[frame_idx] = text
+        prev_text = self._frame_texts.get(frame_idx - 1)
+        secs = _time_text_to_seconds(text)
+        if prev_text is None or secs is None:
+            return
+        prev_secs = _time_text_to_seconds(prev_text)
+        if prev_secs is None or secs != (prev_secs + 1) % 86400:
+            return
+        self._second_start_frame[text] = frame_idx
+        start = self._second_start_frame.get(prev_text)
+        if start is None:
+            return
+        fps = frame_idx - start
+        item = self._history_items.get(start)
+        if item is not None:
+            base = item.text()[:19]
+            item.setText(f"{base}  {fps:>3}")
+        self._add_history_entry(f"{'':>7}  {prev_text} lasted {fps} frames", "valid")
 
     def _update_status(self):
         self.status_label.setText(f"Frame: {self.current_frame + 1}/{self.frame_count}")
@@ -996,6 +1143,65 @@ class OcrVideoPlayer(QWidget):
             y_offset_ratio=r.y_offset_ratio,
             x_offset_ratio=r.x_offset_ratio,
         )
+
+    def _default_date_ratios(self) -> RoiSettings:
+        """The date box starts to the left of the time box, the same size."""
+        t = self._roi_ratios
+        return RoiSettings(t.width_ratio, t.height_ratio, t.y_offset_ratio, t.x_offset_ratio - t.width_ratio - 0.01)
+
+    def _current_date_roi(self, frame_w: int, frame_h: int) -> Roi:
+        if self._dragged_date_roi is not None and self._dragged_frame_size == (frame_w, frame_h):
+            return self._dragged_date_roi
+        r = self._date_ratios
+        return Roi.top_center_time(frame_w, frame_h, width_ratio=r.width_ratio, height_ratio=r.height_ratio,
+                                   y_offset_ratio=r.y_offset_ratio, x_offset_ratio=r.x_offset_ratio)
+
+    def _on_box_dragged(self, name: str, roi: Roi) -> None:
+        if name == "date":
+            self._on_date_roi_dragged(roi)
+        else:
+            self._on_roi_dragged(roi)
+
+    def _on_date_roi_dragged(self, roi: Roi) -> None:
+        if self._last_frame is None:
+            return
+        frame_h, frame_w = self._last_frame.shape[:2]
+        self._dragged_date_roi = Roi(roi.x, roi.y, roi.w, roi.h)
+        self._dragged_frame_size = (frame_w, frame_h)
+        self._date_ratios = roi_to_ratios(roi, frame_w, frame_h)
+        if self._roi_settings_path and self._roi_settings_key:
+            save_roi_settings(self._roi_settings_path, self._roi_settings_key, self._date_ratios, section="date_roi_by_key")
+        self._rerender()
+        self._check_cctv_date(self._last_frame)
+
+    def _check_cctv_date(self, frame_bgr: np.ndarray) -> None:
+        """Read the date box once and compare it with the filename date."""
+        if not self.ocr_available:
+            self.cctv_date_label.setText("CCTV date: OCR not available")
+            self.cctv_date_label.setStyleSheet("")
+            return
+        frame_h, frame_w = frame_bgr.shape[:2]
+        try:
+            text = ocr_date_from_frame(frame_bgr, roi=self._current_date_roi(frame_w, frame_h))
+        except Exception as exc:
+            self.cctv_date_label.setText(f"CCTV date: OCR error: {exc}")
+            self.cctv_date_label.setStyleSheet("")
+            return
+        self.cctv_date = parse_cctv_date(text)
+        if self.cctv_date is None:
+            self.cctv_date_label.setText(f"CCTV date: not read ({text.strip() or 'blank'}) - drag the purple box onto the date")
+            self.cctv_date_label.setStyleSheet("color: #9aa0a6;")
+            return
+        shown = self.cctv_date.strftime("%d-%m-%Y")
+        if self.filename_dt is None:
+            self.cctv_date_label.setText(f"CCTV date: {shown}")
+            self.cctv_date_label.setStyleSheet("")
+        elif self.cctv_date == self.filename_dt.date():
+            self.cctv_date_label.setText(f"CCTV date: {shown} - matches the filename")
+            self.cctv_date_label.setStyleSheet("color: #2ecc71;")
+        else:
+            self.cctv_date_label.setText(f"CCTV date: {shown} - DIFFERS from the filename ({self.filename_dt:%d-%m-%Y})")
+            self.cctv_date_label.setStyleSheet("color: #ff7a70; font-weight: bold;")
 
     def _update_roi_label(self):
         r = self._roi_ratios

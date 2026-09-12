@@ -9,6 +9,7 @@ import pytest
 from logfather.ui.time_ocr import (
     OcrConfig,
     Roi,
+    RoiSettings,
     _combine_date_and_time,
     _estimate_start_from_samples,
     _estimate_start_from_transitions,
@@ -16,8 +17,11 @@ from logfather.ui.time_ocr import (
     _normalize_ocr_text,
     _preprocess_for_ocr,
     _time_text_to_seconds,
+    load_roi_settings,
+    parse_cctv_date,
     parse_filename_datetime,
     roi_to_ratios,
+    save_roi_settings,
 )
 
 BASE = datetime(2026, 9, 12, 6, 54, 16)
@@ -178,3 +182,27 @@ def test_roi_to_ratios_round_trips_through_top_center_time():
 def test_roi_to_ratios_clamps_to_the_roi_limits():
     ratios = roi_to_ratios(Roi(x=0, y=1075, w=2, h=1), 1920, 1080)
     assert ratios.width_ratio == 0.01 and ratios.height_ratio == 0.01 and ratios.y_offset_ratio == 0.9
+
+
+# ---- the date box --------------------------------------------------------------
+
+def test_parse_cctv_date_reads_day_month_year_first():
+    from datetime import date
+    assert parse_cctv_date("10/09/2026") == date(2026, 9, 10)
+    assert parse_cctv_date(" 12-09-2026 ") == date(2026, 9, 12)
+    assert parse_cctv_date("2026-09-10") == date(2026, 9, 10)
+    assert parse_cctv_date("10/09/2026 10:31:01") == date(2026, 9, 10)
+
+
+def test_parse_cctv_date_rejects_nonsense():
+    assert parse_cctv_date("") is None
+    assert parse_cctv_date("31/02/2026") is None
+    assert parse_cctv_date("103109") is None
+
+
+def test_roi_settings_sections_are_independent(tmp_path):
+    path = tmp_path / "ocr_settings.json"
+    save_roi_settings(path, "PikPak007", RoiSettings(0.22, 0.06, 0.013, 0.0))
+    save_roi_settings(path, "PikPak007", RoiSettings(0.2, 0.05, 0.01, -0.3), section="date_roi_by_key")
+    assert load_roi_settings(path, "PikPak007").x_offset_ratio == 0.0
+    assert load_roi_settings(path, "PikPak007", section="date_roi_by_key").x_offset_ratio == -0.3

@@ -24,6 +24,20 @@ Living record of agreed functionality: what is open, and what has shipped
 
 ### 2026-09-12
 
+- CCTV date box (Chris, 2026-09-12): a second, purple box in the Sync
+  CCTV Time window, by default to the left of the green time box and
+  dragged the same way, saved per system under date_roi_by_key. The date
+  in it is read once per clip (and again when the box is moved) and shown
+  as "CCTV date: 10-09-2026 - matches the filename" in green, or in red
+  when it differs from the filename date.
+  "Date" and "Time" captions sit above the boxes; numbered instructions
+  under the picture: 1. ensure the Date and Time boxes are in the correct
+  place on the CCTV image; 2. press "Sync Time" to find the exact frames
+  when the second changes. The readings list on the right has a fixed
+  "Frame  Exact time  FPS" header in a monospace font; when the first
+  and last frames of a second are both known exactly (the clock changed
+  between consecutive frames at both ends), the frames in that second are
+  shown as FPS on the row where it began.
 - OCR window title (Chris, 2026-09-12): "Sync CCTV Time" instead of
   "CCTV Time OCR".
 - Filename date and time in the OCR window (Chris, 2026-09-12): top left
