@@ -762,6 +762,15 @@ class OcrVideoPlayer(QWidget):
         self.date_sync_box.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.date_sync_box.setMinimumHeight(84)
         self.date_sync_box.setStyleSheet("border: 1px solid #c77dff; border-radius: 6px; padding: 6px; font-size: 13px;")
+        # The date as it reads once the camera has synced, large, labelled
+        # with the frame it happened on (Chris, 2026-09-12).
+        self.synced_date_caption = QLabel("Synced date")
+        self.synced_date_caption.setStyleSheet("color: #c77dff; font-weight: bold;")
+        self.synced_date_preview = QLabel("(no date change found yet)")
+        self.synced_date_preview.setAlignment(Qt.AlignCenter)
+        self.synced_date_preview.setMinimumSize(260, 80)
+        self.synced_date_caption.hide()
+        self.synced_date_preview.hide()
         self.date_preview_caption = QLabel("Date (frame 1)")
         self.date_preview_caption.setStyleSheet("color: #c77dff; font-weight: bold;")
         self.time_preview_caption = QLabel("Time (frame 1)")
@@ -838,6 +847,8 @@ class OcrVideoPlayer(QWidget):
         root_layout.addLayout(left_layout, 1)
         right_layout = QVBoxLayout()
         right_layout.addWidget(self.date_sync_box)
+        right_layout.addWidget(self.synced_date_caption)
+        right_layout.addWidget(self.synced_date_preview)
         right_layout.addWidget(self.date_preview_caption)
         right_layout.addWidget(self.date_preview)
         right_layout.addWidget(self.time_preview_caption)
@@ -924,6 +935,8 @@ class OcrVideoPlayer(QWidget):
         self.date_sync_frame = None
         self.cctv_synced_date = None
         self.date_sync_box.setText("Camera date sync: not checked yet")
+        self.synced_date_caption.hide()
+        self.synced_date_preview.hide()
         self.cctv_date_label.setText("CCTV date: \u2013")
         self.cctv_date_label.setStyleSheet("")
         if self.cap is not None:
@@ -1311,8 +1324,28 @@ class OcrVideoPlayer(QWidget):
         )
         self.date_sync_box.setStyleSheet("border: 1px solid #2ecc71; border-radius: 6px; padding: 6px; font-size: 13px; color: #2ecc71;")
         self._add_history_entry(f"{change_frame + 1:>7}  date {initial} -> {new_date:%d/%m/%Y}", "valid")
+        self._show_synced_date_preview(change_frame, date_roi)
         if self.cap is not None:
             self._read_and_show(self.date_sync_frame)
+
+    def _show_synced_date_preview(self, change_frame: int, date_roi: Roi) -> None:
+        """The date box cropped from the frame the camera synced on."""
+        if self.cap is None:
+            return
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, int(change_frame))
+        ret, frame = self.cap.read()
+        if not ret or frame is None:
+            return
+        crop = date_roi.crop(frame)
+        rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        qimg = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
+        self.synced_date_preview.setPixmap(
+            QPixmap.fromImage(qimg).scaled(self.synced_date_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+        self.synced_date_caption.setText(f"Frame {change_frame + 1}")
+        self.synced_date_caption.show()
+        self.synced_date_preview.show()
 
     def _update_roi_label(self):
         r = self._roi_ratios
