@@ -30,7 +30,8 @@ Living record of agreed functionality: what is open, and what has shipped
   of the scrub slider, "Frame x" (the clip's last frame) to the right, and
   "Current frame (y)" above the slider, following the handle.
 - The Sync CCTV Time help button is the pixel-art question block used by
-  the other windows (Chris, 2026-09-12).
+  the other windows (Chris, 2026-09-12), at 32 px; the Data Sources
+  window's two question blocks were shrunk from 44 px to match.
 - OCR offset store never loses offsets (Chris, 2026-09-12): writes go to a
   temporary file beside the store and are renamed into place (atomic), and
   a file that fails to parse is moved aside as `<name>.corrupt-<stamp>`

@@ -473,10 +473,10 @@ class DataInventoryDialog(QDialog):
 
     def _make_help_button(self, tip: str, handler) -> QToolButton:
         btn = QToolButton()
-        btn.setIcon(question_block_icon(44))
-        btn.setIconSize(QSize(44, 44))
+        btn.setIcon(question_block_icon(32))  # same size as the Sync CCTV Time window (Chris, 2026-09-12)
+        btn.setIconSize(QSize(32, 32))
         btn.setToolTip(tip)
-        btn.setFixedSize(48, 48)
+        btn.setFixedSize(36, 36)
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(
             "QToolButton { border: none; background: transparent; padding: 0; }"
