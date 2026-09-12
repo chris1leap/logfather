@@ -34,13 +34,16 @@ Living record of agreed functionality: what is open, and what has shipped
   whole frame is capped to about 45% of the screen height (side bars
   rather than a picture that pushes the controls off screen).
 - Sync CCTV Time readings table (Chris, 2026-09-12): the Frame / Exact
-  time / FPS list is built once by the clock checks (step F): every
-  second change in the 10 s after the sync frame (coarse reads every
-  0.2 s, then a bisection to the exact frame, `find_second_boundaries`),
-  with the frames each second lasted. Scrolling never adds rows; the row
-  whose change is the closest at or before the current frame is green and
-  the rest plain. The analysis's disregarded/invalid notes go to the
-  console instead of the list.
+  time / FPS list is built once by the clock checks (step F): one check
+  every 60 s through the clip from the sync frame; each check finds the
+  next two second changes within 2.5 s (coarse reads every 0.2 s, then a
+  bisection to the exact frame, `find_second_boundaries`) and shows the
+  frame the second began on and how many frames it lasted. Checks that
+  read no change are counted on a final line. Scrolling never adds rows;
+  the row whose check is the closest at or before the current frame is
+  green and the rest plain. The analysis's disregarded/invalid notes go
+  to the console instead of the list. (First built as ten consecutive
+  seconds after the sync frame; spread across the clip the same day.)
 - Sync CCTV Time frame-step buttons (Chris, 2026-09-12): -10, -1, +1 and
   +10 under the slider, sized like the conveyor calibration window's.
 - Sync CCTV Time slider labels (Chris, 2026-09-12): "Frame 1" to the left

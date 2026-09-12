@@ -50,9 +50,13 @@ except Exception:  # pragma: no cover - optional dependency
 OCR_SYNC_FAST_SECONDS = 1
 OCR_SYNC_FALLBACK_SECONDS = 3
 OCR_SYNC_COARSE_STEP_SECONDS = 0.2
-# The readings table lists every second change in this many seconds after
-# the sync frame (Chris, 2026-09-12).
-OCR_TABLE_SECONDS = 10
+# The readings table checks the clock once every OCR_TABLE_INTERVAL_SECONDS
+# through the clip, starting at the sync frame: at each checkpoint it finds
+# the next two second changes within OCR_TABLE_WINDOW_SECONDS, giving the
+# frame the second began on and how many frames it lasted (Chris,
+# 2026-09-12: spread across the clip rather than ten consecutive seconds).
+OCR_TABLE_INTERVAL_SECONDS = 60
+OCR_TABLE_WINDOW_SECONDS = 2.5
 
 
 @dataclass(frozen=True)
@@ -978,7 +982,7 @@ class OcrVideoPlayer(QWidget):
         self.ocr_history.setFont(mono)
         history_header = QLabel(f"{'Frame':>7}  {'Exact time':<10}  FPS")
         # The readings table (Chris, 2026-09-12): every second change in
-        # the OCR_TABLE_SECONDS after the sync frame, found once by the
+        # one check every OCR_TABLE_INTERVAL_SECONDS through the clip, found once by the
         # clock checks, with the frames each second lasted. Scrolling only
         # moves the green highlight (the last change at or before the
         # current frame); it never adds rows.
@@ -986,7 +990,7 @@ class OcrVideoPlayer(QWidget):
         self._highlighted_row = -1
         history_header.setFont(mono)
         history_header.setStyleSheet("font-weight: bold;")
-        history_header.setToolTip(f"Every second change in the {OCR_TABLE_SECONDS} s after the sync frame; green = the last change at or before the current frame")
+        history_header.setToolTip(f"One check every {OCR_TABLE_INTERVAL_SECONDS} s through the clip from the sync frame: the frame the next second began on and how many frames it lasted; green = the last check at or before the current frame")
         right_layout.addWidget(history_header)
         right_layout.addWidget(self.ocr_history, 1)
         root_layout.addLayout(right_layout)
@@ -1387,8 +1391,9 @@ class OcrVideoPlayer(QWidget):
             self.tesseract_label.setText("Tesseract: not configured")
 
     def _build_readings_table(self) -> None:
-        """Fill the Frame / Exact time / FPS table: every second change in
-        the OCR_TABLE_SECONDS after the sync frame, read once."""
+        """Fill the Frame / Exact time / FPS table: one check every
+        OCR_TABLE_INTERVAL_SECONDS through the clip from the sync frame,
+        read once."""
         self.ocr_history.clear()
         self._readings = []
         self._highlighted_row = -1
@@ -1399,11 +1404,14 @@ class OcrVideoPlayer(QWidget):
             return
         roi = self._current_roi(first.shape[1], first.shape[0])
         start = int(self.date_sync_frame or 0)
-        end = min(self.frame_count - 1, start + int(math.ceil(OCR_TABLE_SECONDS * self.fps)))
-        if end <= start:
+        interval = max(1, int(round(OCR_TABLE_INTERVAL_SECONDS * self.fps)))
+        window = max(2, int(math.ceil(OCR_TABLE_WINDOW_SECONDS * self.fps)))
+        checkpoints = [f for f in range(start, self.frame_count - 1, interval) if f + window <= self.frame_count - 1]
+        if not checkpoints:
+            self.ocr_history.addItem(QListWidgetItem("(clip too short for a check)"))
             return
         step = max(1, int(round(self.fps * OCR_SYNC_COARSE_STEP_SECONDS)))
-        progress = QProgressDialog("Reading the clock at every second change...", None, 0, end - start, self)
+        progress = QProgressDialog(f"Checking the clock every {OCR_TABLE_INTERVAL_SECONDS} s...", None, 0, len(checkpoints), self)
         progress.setWindowTitle("Readings")
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
@@ -1413,7 +1421,6 @@ class OcrVideoPlayer(QWidget):
         def read_text(frame_idx: int) -> str | None:
             if frame_idx in cache:
                 return cache[frame_idx]
-            progress.setValue(max(progress.value(), min(end - start, frame_idx - start)))
             QApplication.processEvents()
             text = None
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
@@ -1428,16 +1435,23 @@ class OcrVideoPlayer(QWidget):
             cache[frame_idx] = text
             return text
 
+        misses = 0
         try:
-            boundaries = find_second_boundaries(read_text, start, end, step)
+            for i, checkpoint in enumerate(checkpoints):
+                progress.setValue(i)
+                QApplication.processEvents()
+                boundaries = find_second_boundaries(read_text, checkpoint, checkpoint + window, step)
+                if not boundaries:
+                    misses += 1
+                    continue
+                frame_idx, text = boundaries[0]
+                fps = boundaries[1][0] - frame_idx if len(boundaries) > 1 else None
+                self._readings.append((frame_idx, text, fps))
+                self.ocr_history.addItem(QListWidgetItem(f"{frame_idx + 1:>7}  {text:<10}  {fps if fps is not None else '':>3}"))
         finally:
             progress.close()
-        for i, (frame_idx, text) in enumerate(boundaries):
-            fps = boundaries[i + 1][0] - frame_idx if i + 1 < len(boundaries) else None
-            self._readings.append((frame_idx, text, fps))
-            self.ocr_history.addItem(QListWidgetItem(f"{frame_idx + 1:>7}  {text:<10}  {fps if fps is not None else '':>3}"))
-        if not boundaries:
-            self.ocr_history.addItem(QListWidgetItem(f"(no second change read in frames {start + 1}-{end + 1})"))
+        if misses:
+            self.ocr_history.addItem(QListWidgetItem(f"({misses} of {len(checkpoints)} checks could not read a second change)"))
         self._highlight_reading(self.current_frame)
 
     def _highlight_reading(self, frame_index: int) -> None:
