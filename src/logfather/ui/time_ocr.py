@@ -198,7 +198,14 @@ class RoiEditorLabel(ScrubbableLabel):
         if self._frame is None or self._view.width() <= 0 or self._view.height() <= 0:
             return
         wanted = int(round(self.width() * self._view.height() / self._view.width()))
-        wanted = max(1, wanted)
+        cap = 540
+        try:
+            screen = self.screen()
+            if screen is not None:
+                cap = max(240, int(screen.availableGeometry().height() * 0.45))
+        except Exception:
+            pass
+        wanted = max(1, min(wanted, cap))
         if abs(self.height() - wanted) > 1 or self.minimumHeight() != wanted or self.maximumHeight() != wanted:
             self.setFixedHeight(wanted)
 
@@ -900,6 +907,8 @@ class OcrVideoPlayer(QWidget):
         top_row = QHBoxLayout()
         top_row.addWidget(self.filename_date_label)
         top_row.addStretch(1)
+        top_row.addWidget(self.zoom_checkbox)
+        top_row.addSpacing(12)
         top_row.addWidget(self.help_btn)
         left_layout.addLayout(top_row)
         left_layout.addWidget(self.filename_time_label)
@@ -948,10 +957,9 @@ class OcrVideoPlayer(QWidget):
         hint.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hint.setWordWrap(True)
         left_layout.addWidget(hint)
-        left_layout.addStretch(1)
-        left_layout.addWidget(self.zoom_checkbox)
         left_layout.addWidget(self._roi_label)
         left_layout.addWidget(self.sync_btn)
+        left_layout.addStretch(1)
 
         root_layout = QHBoxLayout()
         root_layout.addLayout(left_layout, 1)

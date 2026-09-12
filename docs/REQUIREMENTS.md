@@ -29,6 +29,10 @@ Living record of agreed functionality: what is open, and what has shipped
   exactly as tall as the zoomed band at the window's width, so no black
   band sits between it and the slider (spare height goes to the bottom of
   the column).
+- Zoom tick box always reachable (Chris, 2026-09-12): "Zoom to the clock
+  area" sits in the top row beside the help button, and the un-zoomed
+  whole frame is capped to about 45% of the screen height (side bars
+  rather than a picture that pushes the controls off screen).
 - Sync CCTV Time readings table (Chris, 2026-09-12): the Frame / Exact
   time / FPS list is built once by the clock checks (step F): every
   second change in the 10 s after the sync frame (coarse reads every
