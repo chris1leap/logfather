@@ -34,6 +34,8 @@ Living record of agreed functionality: what is open, and what has shipped
   as "CCTV date: 10-09-2026 - matches the filename" in green, or in red
   when it differs from the filename date. The burnt-in date is always
   DD/MM/YYYY, and only that form is accepted.
+  A burnt-in date of 01/01/1970 is the camera's unset default and is
+  reported as such in amber rather than as a mismatch.
   "Date" and "Time" captions sit above the boxes; numbered instructions
   under the picture: 1. ensure the Date and Time boxes are in the correct
   place on the CCTV image; 2. press "Sync Time" to find the exact frames

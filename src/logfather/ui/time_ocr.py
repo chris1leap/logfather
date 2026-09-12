@@ -576,6 +576,11 @@ def parse_cctv_date(text: str):
         return None
 
 
+def _epoch_date():
+    from datetime import date as _date
+    return _date(1970, 1, 1)
+
+
 def ocr_date_from_frame(frame_bgr: np.ndarray, *, roi: Roi) -> str:
     """One OCR pass over the date box: digits and separators only."""
     _ensure_tesseract()
@@ -1209,6 +1214,12 @@ class OcrVideoPlayer(QWidget):
             self.cctv_date_label.setStyleSheet("color: #9aa0a6;")
             return
         shown = self.cctv_date.strftime("%d-%m-%Y")
+        if self.cctv_date == _epoch_date():
+            # 01/01/1970 is the camera's factory default: the date was never
+            # set, though the time of day still runs (Chris, 2026-09-12).
+            self.cctv_date_label.setText("CCTV date: 01/01/1970 - the camera's date was never set; the filename date is used")
+            self.cctv_date_label.setStyleSheet("color: #f0ad4e;")
+            return
         if self.filename_dt is None:
             self.cctv_date_label.setText(f"CCTV date: {shown}")
             self.cctv_date_label.setStyleSheet("")
